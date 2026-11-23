@@ -2,39 +2,39 @@
   "generations": {
     "gfx10": {
       "total": 1149,
-      "decoded": 99,
+      "decoded": 147,
       "lifted": 42
     },
     "gfx1013": {
       "total": 1153,
-      "decoded": 99,
+      "decoded": 147,
       "lifted": 42
     },
     "gfx1030": {
       "total": 1153,
-      "decoded": 99,
+      "decoded": 147,
       "lifted": 42
     },
     "gfx1100": {
       "total": 1148,
-      "decoded": 97,
+      "decoded": 142,
       "lifted": 42
     },
     "gfx1150": {
       "total": 1208,
-      "decoded": 97,
+      "decoded": 142,
       "lifted": 42
     },
     "gfx1200": {
       "total": 1264,
-      "decoded": 97,
+      "decoded": 142,
       "lifted": 44
     }
   },
   "gfx1200_families": {
     "VOP3": {
       "total": 363,
-      "decoded": 23,
+      "decoded": 36,
       "lifted": 8
     },
     "DS": {
@@ -44,7 +44,7 @@
     },
     "VOP1": {
       "total": 90,
-      "decoded": 8,
+      "decoded": 13,
       "lifted": 1
     },
     "BUFFER": {
@@ -59,7 +59,7 @@
     },
     "SOP2": {
       "total": 72,
-      "decoded": 21,
+      "decoded": 23,
       "lifted": 10
     },
     "GLOBAL": {
@@ -84,7 +84,7 @@
     },
     "VOP2": {
       "total": 45,
-      "decoded": 12,
+      "decoded": 19,
       "lifted": 6
     },
     "SOPP": {
