@@ -222,6 +222,66 @@ private:
         return m_builder.Load(m_module.types.U32(), Slot(m_sgprSlots, index, IL::RegisterClass::Sgpr), pc, true);
     }
 
+    [[nodiscard]] Result<IL::ValueId> ReadSgpr64(std::uint32_t index, std::uint32_t pc)
+    {
+        if (index + 1 > kLastSgpr)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-040", "64-bit scalar operand is out of range", pc));
+        }
+
+        const auto low = ReadSgpr(index, pc);
+        if (!low)
+            return std::unexpected(low.error());
+        const auto high = ReadSgpr(index + 1, pc);
+        if (!high)
+            return std::unexpected(high.error());
+
+        const IL::ValueId low64 = m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *low, true);
+        const IL::ValueId high64 = m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *high, true);
+        const IL::ValueId shifted = m_builder.Emit(m_module.types.U64(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                                   {high64, m_builder.ConstantU64(32)},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   pc,
+                                                   0,
+                                                   true);
+        return m_builder.Emit(m_module.types.U64(),
+                              IL::Op::Binary,
+                              static_cast<std::uint16_t>(IL::BinaryOp::Or),
+                              {low64, shifted},
+                              {},
+                              IL::NoPayload,
+                              pc,
+                              0,
+                              true);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadPairSource(const Operand& operand, std::uint32_t pc)
+    {
+        switch (operand.kind)
+        {
+        case OperandKind::Sgpr:
+            return ReadSgpr64(operand.value, pc);
+        case OperandKind::Ssrc:
+        case OperandKind::Src:
+            if (operand.isInline)
+            {
+                const std::uint32_t bits = InlineInteger(operand.value);
+                const std::int64_t extended = static_cast<std::int32_t>(bits);
+                return m_builder.ConstantU64(static_cast<std::uint64_t>(extended));
+            }
+            if (operand.value < 128)
+                return ReadSgpr64(operand.value, pc);
+            return std::unexpected(LiftError("SR-GFX-LIFT-041", "unsupported 64-bit source", pc));
+        case OperandKind::Literal:
+            return m_builder.ConstantU64(operand.value);
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-042", "unsupported 64-bit operand kind", pc));
+        }
+    }
+
     [[nodiscard]] Result<IL::ValueId> ReadVgpr(std::uint32_t index, std::uint32_t pc)
     {
         return m_builder.Load(m_module.types.U32(), Slot(m_vgprSlots, index, IL::RegisterClass::Vgpr), pc, false);
@@ -437,6 +497,113 @@ private:
         default:
             return std::unexpected(LiftError("SR-GFX-LIFT-013", "instruction has no writable destination", pc));
         }
+    }
+
+    [[nodiscard]] Result<void> WriteSgpr64(const Operand& destination, IL::ValueId value, std::uint32_t pc)
+    {
+        if (destination.kind != OperandKind::Sdst)
+            return std::unexpected(LiftError("SR-GFX-LIFT-043", "64-bit destination is not a scalar register", pc));
+        const std::uint32_t index = destination.value;
+        if (index + 1 > kLastSgpr)
+            return std::unexpected(LiftError("SR-GFX-LIFT-044", "64-bit scalar destination is out of range", pc));
+
+        const IL::ValueId low = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, value, true);
+        const IL::ValueId high64 = m_builder.Emit(m_module.types.U64(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(IL::BinaryOp::LShr),
+                                                  {value, m_builder.ConstantU64(32)},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  pc,
+                                                  0,
+                                                  true);
+        const IL::ValueId high = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, high64, true);
+
+        m_builder.Store(Slot(m_sgprSlots, index, IL::RegisterClass::Sgpr), low, pc);
+        m_builder.Store(Slot(m_sgprSlots, index + 1, IL::RegisterClass::Sgpr), high, pc);
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftSccFrom64(IL::ValueId value, std::uint32_t pc)
+    {
+        const IL::ValueId nonzero = m_builder.CompareValue(IL::CompareOp::UNe,
+                                                           value,
+                                                           m_builder.ConstantU64(0),
+                                                           true);
+        return WriteScc(nonzero, pc);
+    }
+
+    // S_MOV_B64 / S_NOT_B64 / S_AND_B64 / S_OR_B64 / S_XOR_B64 / S_CSELECT_B64.
+    [[nodiscard]] Result<void> LiftScalar64(const DecodedInstruction& instruction)
+    {
+        IL::ValueId value = IL::InvalidValue;
+        switch (instruction.op)
+        {
+        case Op::S_MovB64:
+        {
+            const auto source = ReadPairSource(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            value = *source;
+            break;
+        }
+        case Op::S_NotB64:
+        {
+            const auto source = ReadPairSource(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            value = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.U64(), *source, true);
+            break;
+        }
+        case Op::S_AndB64:
+        case Op::S_OrB64:
+        case Op::S_XorB64:
+        {
+            const auto left = ReadPairSource(instruction.operands[1], instruction.pc);
+            if (!left)
+                return std::unexpected(left.error());
+            const auto right = ReadPairSource(instruction.operands[2], instruction.pc);
+            if (!right)
+                return std::unexpected(right.error());
+            const IL::BinaryOp subop = instruction.op == Op::S_AndB64 ? IL::BinaryOp::And
+                                       : instruction.op == Op::S_OrB64 ? IL::BinaryOp::Or
+                                                                       : IL::BinaryOp::Xor;
+            value = m_builder.Emit(m_module.types.U64(),
+                                   IL::Op::Binary,
+                                   static_cast<std::uint16_t>(subop),
+                                   {*left, *right},
+                                   {},
+                                   IL::NoPayload,
+                                   instruction.pc,
+                                   static_cast<std::uint16_t>(instruction.op),
+                                   true);
+            break;
+        }
+        case Op::S_CselectB64:
+        {
+            const auto condition = ReadScc(instruction.pc);
+            if (!condition)
+                return std::unexpected(condition.error());
+            const auto left = ReadPairSource(instruction.operands[1], instruction.pc);
+            if (!left)
+                return std::unexpected(left.error());
+            const auto right = ReadPairSource(instruction.operands[2], instruction.pc);
+            if (!right)
+                return std::unexpected(right.error());
+            value = m_builder.SelectValue(m_module.types.U64(), *condition, *left, *right, true);
+            break;
+        }
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-045", "not a 64-bit scalar operation", instruction.pc));
+        }
+
+        if (instruction.op != Op::S_MovB64 && instruction.op != Op::S_CselectB64)
+        {
+            const auto scc = LiftSccFrom64(value, instruction.pc);
+            if (!scc)
+                return scc;
+        }
+        return WriteSgpr64(instruction.operands[0], value, instruction.pc);
     }
 
     [[nodiscard]] Result<void> LiftBinary(const DecodedInstruction& instruction,
@@ -1543,6 +1710,13 @@ private:
 
         switch (instruction.op)
         {
+        case Op::S_MovB64:
+        case Op::S_NotB64:
+        case Op::S_AndB64:
+        case Op::S_OrB64:
+        case Op::S_XorB64:
+        case Op::S_CselectB64:
+            return LiftScalar64(instruction);
         case Op::S_MovB32:
         case Op::V_MovB32:
         {
@@ -1553,8 +1727,7 @@ private:
         }
         case Op::S_AddU32:
         case Op::S_AddI32:
-            return LiftCarry(instruction, false);
-        case Op::S_SubU32:
+            return LiftCarry(instruction, false);        case Op::S_SubU32:
         case Op::S_SubI32:
             return LiftCarry(instruction, true);
         case Op::S_AddcU32:

@@ -129,6 +129,36 @@ bool WriteOperand(IsaState& state, const Operand& operand, std::uint32_t value)
     }
 }
 
+std::optional<std::uint64_t> ReadPair(const IsaState& state, const Operand& operand)
+{
+    if (operand.kind == OperandKind::Sgpr || (operand.kind == OperandKind::Ssrc && !operand.isInline) ||
+        (operand.kind == OperandKind::Src && !operand.isInline))
+    {
+        const std::uint32_t index = operand.value;
+        if (index + 1 >= 256)
+            return std::nullopt;
+        return static_cast<std::uint64_t>(state.sgpr[index]) |
+               (static_cast<std::uint64_t>(state.sgpr[index + 1]) << 32);
+    }
+    if ((operand.kind == OperandKind::Ssrc || operand.kind == OperandKind::Src) && operand.isInline)
+    {
+        const std::int64_t extended = static_cast<std::int32_t>(InlineInteger(operand.value));
+        return static_cast<std::uint64_t>(extended);
+    }
+    if (operand.kind == OperandKind::Literal)
+        return static_cast<std::uint64_t>(operand.value);
+    return std::nullopt;
+}
+
+bool WritePair(IsaState& state, const Operand& operand, std::uint64_t value)
+{
+    if (operand.kind != OperandKind::Sdst || operand.value + 1 >= 256)
+        return false;
+    state.sgpr[operand.value] = static_cast<std::uint32_t>(value);
+    state.sgpr[operand.value + 1] = static_cast<std::uint32_t>(value >> 32);
+    return true;
+}
+
 std::optional<std::uint32_t> BufferIndex(const IsaState& state,
                                          const DecodedInstruction& instruction,
                                          std::uint8_t addressIndex)
@@ -181,6 +211,54 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const auto value = source(1);
             if (!value || !write(*value))
                 return std::unexpected(Error("SR-GFX-ISA-003", "invalid move operands", pc));
+            break;
+        }
+        case Op::S_MovB64:
+        case Op::S_NotB64:
+        case Op::S_AndB64:
+        case Op::S_OrB64:
+        case Op::S_XorB64:
+        case Op::S_CselectB64:
+        {
+            std::uint64_t value = 0;
+            if (instruction.op == Op::S_CselectB64)
+            {
+                const auto left = ReadPair(result.state, instruction.operands[1]);
+                const auto right = ReadPair(result.state, instruction.operands[2]);
+                if (!left || !right)
+                    return std::unexpected(Error("SR-GFX-ISA-090", "invalid cselect_b64 operands", pc));
+                value = result.state.scc ? *left : *right;
+            }
+            else
+            {
+                const auto first = ReadPair(result.state, instruction.operands[1]);
+                if (!first)
+                    return std::unexpected(Error("SR-GFX-ISA-091", "invalid 64-bit scalar operand", pc));
+                if (instruction.op == Op::S_MovB64)
+                {
+                    value = *first;
+                }
+                else if (instruction.op == Op::S_NotB64)
+                {
+                    value = ~*first;
+                }
+                else
+                {
+                    const auto second = ReadPair(result.state, instruction.operands[2]);
+                    if (!second)
+                        return std::unexpected(Error("SR-GFX-ISA-092", "invalid 64-bit scalar operand", pc));
+                    if (instruction.op == Op::S_AndB64)
+                        value = *first & *second;
+                    else if (instruction.op == Op::S_OrB64)
+                        value = *first | *second;
+                    else
+                        value = *first ^ *second;
+                }
+            }
+            if (instruction.op != Op::S_MovB64 && instruction.op != Op::S_CselectB64)
+                result.state.scc = value != 0;
+            if (!WritePair(result.state, instruction.operands[0], value))
+                return std::unexpected(Error("SR-GFX-ISA-093", "invalid 64-bit scalar destination", pc));
             break;
         }
         case Op::S_AddU32:

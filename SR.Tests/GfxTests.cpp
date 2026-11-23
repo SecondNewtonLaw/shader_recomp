@@ -899,7 +899,7 @@ TEST_CASE("gfx ISA interpreter matches the IL interpreter", "[gfx][isa][divergen
     for (const Case& testCase : cases)
     {
         for (const char* fixture : {"basic", "loop", "alu", "valu", "scc", "bitops", "vbits", "fpalu",
-                                    "loadstore", "branch", "store", "modifiers", "bitfield"})
+                                    "loadstore", "branch", "store", "modifiers", "bitfield", "b64"})
         {
             INFO(testCase.directory << "/" << fixture);
             const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory /
@@ -1075,6 +1075,65 @@ TEST_CASE("gfx bitfield operations interpret across generations", "[gfx][bitfiel
         REQUIRE(execution->buffer.at(2) == 0x5600u);
         REQUIRE(execution->buffer.at(3) == 0x81234567u);
         REQUIRE(execution->buffer.at(4) == 0x78123456u);
+
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+        REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
+TEST_CASE("gfx 64-bit scalar operations interpret across generations", "[gfx][b64][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "b64.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader,
+                                             testCase.arch,
+                                             "main",
+                                             SR::Frontend::Gfx::LiftOptions{true});
+        const std::string moduleError = module.has_value() ? std::string() : SR::ToString(module.error());
+        INFO(moduleError);
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto execution = SR::IL::Interpret(*module);
+        const std::string executionError =
+            execution.has_value() ? std::string() : SR::ToString(execution.error());
+        INFO(executionError);
+        REQUIRE(execution.has_value());
+        REQUIRE(execution->buffer.at(0) == 0x89ABCDEFu);
+        REQUIRE(execution->buffer.at(1) == 0x01234567u);
+        REQUIRE(execution->buffer.at(2) == 0x76543210u);
+        REQUIRE(execution->buffer.at(3) == 0xFEDCBA98u);
+        REQUIRE(execution->buffer.at(4) == 0u);
+        REQUIRE(execution->buffer.at(5) == 0u);
+        REQUIRE(execution->buffer.at(6) == 0xFFFFFFFFu);
+        REQUIRE(execution->buffer.at(7) == 0x89ABCDEFu);
 
         REQUIRE(SR::IL::RunPipeline(*module).has_value());
         REQUIRE(SR::IL::VerifyModule(*module).has_value());

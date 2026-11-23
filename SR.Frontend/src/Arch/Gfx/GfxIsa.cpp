@@ -53,6 +53,8 @@ constexpr Entry Remove(Encoding encoding, std::uint16_t opcode)
 // RDNA1 is the root of the lineage.
 constexpr std::array kGfx10 = {
     Make(Encoding::Sop1, 3, Op::S_MovB32, "s_mov_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 4, Op::S_MovB64, "s_mov_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 8, Op::S_NotB64, "s_not_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 0, Op::S_AddU32, "s_add_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 1, Op::S_SubU32, "s_sub_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 14, Op::S_AndB32, "s_and_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
@@ -61,6 +63,10 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Sop2, 30, Op::S_LshlB32, "s_lshl_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 32, Op::S_LshrB32, "s_lshr_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 10, Op::S_CselectB32, "s_cselect_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 11, Op::S_CselectB64, "s_cselect_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 15, Op::S_AndB64, "s_and_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 17, Op::S_OrB64, "s_or_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 19, Op::S_XorB64, "s_xor_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 6, Op::S_MinI32, "s_min_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 7, Op::S_MinU32, "s_min_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 8, Op::S_MaxI32, "s_max_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
@@ -238,7 +244,9 @@ constexpr std::array kGfx10 = {
 // unrelated instructions as the old mnemonic.
 constexpr std::array kGfx11 = {
     Remove(Encoding::Sop1, 3),
+    Remove(Encoding::Sop1, 4),
     Remove(Encoding::Sop1, 7),
+    Remove(Encoding::Sop1, 8),
     Remove(Encoding::Sop1, 11),
     Remove(Encoding::Sop1, 15),
     Remove(Encoding::Sop1, 19),
@@ -261,6 +269,9 @@ constexpr std::array kGfx11 = {
     Remove(Encoding::Sop2, 34),
     Remove(Encoding::Sop2, 20),
     Remove(Encoding::Sop2, 22),
+    Remove(Encoding::Sop2, 11),
+    Remove(Encoding::Sop2, 15),
+    Remove(Encoding::Sop2, 17),
 
     Remove(Encoding::SopP, 1),
     Remove(Encoding::SopP, 2),
@@ -317,6 +328,8 @@ constexpr std::array kGfx11 = {
     Remove(Encoding::VopC, 198),
 
     Make(Encoding::Sop1, 0, Op::S_MovB32, "s_mov_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 1, Op::S_MovB64, "s_mov_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 31, Op::S_NotB64, "s_not_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
 
     Make(Encoding::Sop2, 22, Op::S_AndB32, "s_and_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 24, Op::S_OrB32, "s_or_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
@@ -324,6 +337,10 @@ constexpr std::array kGfx11 = {
     Make(Encoding::Sop2, 8, Op::S_LshlB32, "s_lshl_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 10, Op::S_LshrB32, "s_lshr_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 48, Op::S_CselectB32, "s_cselect_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 49, Op::S_CselectB64, "s_cselect_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 23, Op::S_AndB64, "s_and_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 25, Op::S_OrB64, "s_or_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 27, Op::S_XorB64, "s_xor_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 18, Op::S_MinI32, "s_min_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 19, Op::S_MinU32, "s_min_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 20, Op::S_MaxI32, "s_max_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
@@ -721,6 +738,18 @@ std::string_view ToString(Op op) noexcept
         return "s_bfe_i32";
     case Op::S_BfeU32:
         return "s_bfe_u32";
+    case Op::S_MovB64:
+        return "s_mov_b64";
+    case Op::S_NotB64:
+        return "s_not_b64";
+    case Op::S_AndB64:
+        return "s_and_b64";
+    case Op::S_OrB64:
+        return "s_or_b64";
+    case Op::S_XorB64:
+        return "s_xor_b64";
+    case Op::S_CselectB64:
+        return "s_cselect_b64";
     case Op::S_CmpEqI32:
         return "s_cmp_eq_i32";
     case Op::S_CmpLgI32:
