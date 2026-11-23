@@ -120,10 +120,13 @@ enum SpvOp : std::uint16_t
 enum GlslStd450 : std::uint32_t
 {
     GlslFAbs = 4,
-    GlslSqrt = 31,
-    GlslFma = 50,
     GlslFMin = 37,
     GlslFMax = 40,
+    GlslFma = 50,
+    GlslExp2 = 29,
+    GlslLog2 = 30,
+    GlslSqrt = 31,
+    GlslInverseSqrt = 32,
     GlslFindUMsb = 73,
     GlslFindILsb = 74,
 };
@@ -281,6 +284,18 @@ public:
                 return std::unexpected(zero.error());
         }
 
+        if (UsesFloatReciprocal(m_module))
+        {
+            const IL::TypeId f32Type = m_module.types.FindFloat(IL::FloatFormat::F32);
+            if (f32Type == IL::InvalidType)
+                return std::unexpected(EmitError("SR-SPV-046", "reciprocal requires an f32 type"));
+            const auto type = EmitType(f32Type);
+            if (!type)
+                return std::unexpected(type.error());
+            m_f32One = NewId();
+            Op(OpConstant, {*type, m_f32One, 0x3F800000u});
+        }
+
         const auto status = EmitFunction();
         if (!status)
             return std::unexpected(status.error());
@@ -321,19 +336,26 @@ private:
             {
                 for (const IL::Instruction& instruction : block.body)
                 {
-                    if (instruction.op == IL::Op::Ternary && instruction.subop == static_cast<std::uint16_t>(IL::TernaryOp::Fma))
-                        return true;
-                    if (instruction.op == IL::Op::Binary &&
-                        instruction.subop == static_cast<std::uint16_t>(IL::BinaryOp::FMin))
-                        return true;
-                    if (instruction.op == IL::Op::Binary &&
-                        instruction.subop == static_cast<std::uint16_t>(IL::BinaryOp::FMax))
-                        return true;
+                    if (instruction.op == IL::Op::Binary)
+                    {
+                        const auto subop = static_cast<IL::BinaryOp>(instruction.subop);
+                        if (subop == IL::BinaryOp::FMin || subop == IL::BinaryOp::FMax)
+                            return true;
+                    }
+                    if (instruction.op == IL::Op::Ternary)
+                    {
+                        const auto subop = static_cast<IL::TernaryOp>(instruction.subop);
+                        if (subop == IL::TernaryOp::Fma || subop == IL::TernaryOp::FMin3 ||
+                            subop == IL::TernaryOp::FMax3)
+                            return true;
+                    }
                     if (instruction.op == IL::Op::Unary)
                     {
                         const auto subop = static_cast<IL::UnaryOp>(instruction.subop);
                         if (subop == IL::UnaryOp::FAbs || subop == IL::UnaryOp::Sqrt ||
-                            subop == IL::UnaryOp::Clz || subop == IL::UnaryOp::Ctz)
+                            subop == IL::UnaryOp::Clz || subop == IL::UnaryOp::Ctz ||
+                            subop == IL::UnaryOp::Rsq || subop == IL::UnaryOp::Exp2 ||
+                            subop == IL::UnaryOp::Log2 || subop == IL::UnaryOp::Rcp)
                             return true;
                     }
                 }
@@ -352,6 +374,25 @@ private:
                 {
                     if (instruction.op == IL::Op::Unary &&
                         static_cast<IL::UnaryOp>(instruction.subop) == IL::UnaryOp::Clz)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] static bool UsesFloatReciprocal(const IL::Module& module)
+    {
+        for (const IL::Function& function : module.functions)
+        {
+            for (const IL::Block& block : function.blocks)
+            {
+                for (const IL::Instruction& instruction : block.body)
+                {
+                    if (instruction.op == IL::Op::Unary &&
+                        static_cast<IL::UnaryOp>(instruction.subop) == IL::UnaryOp::Rcp)
                     {
                         return true;
                     }
@@ -1616,6 +1657,14 @@ private:
             case IL::BinaryOp::FRem:
                 opcode = OpFRem;
                 break;
+            case IL::BinaryOp::FMin:
+                Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFMin, *left, *right});
+                m_valueIds[resultValue] = resultId;
+                return {};
+            case IL::BinaryOp::FMax:
+                Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFMax, *left, *right});
+                m_valueIds[resultValue] = resultId;
+                return {};
             default:
                 return std::unexpected(EmitError("SR-SPV-051", "unsupported float binary op", instruction.sourcePc));
             }
@@ -1864,6 +1913,24 @@ private:
             Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFindILsb, *operand});
             m_valueIds[resultValue] = resultId;
             return {};
+        case IL::UnaryOp::Rcp:
+            if (m_f32One == 0)
+                return std::unexpected(EmitError("SR-SPV-083", "reciprocal constant was not pre-emitted", instruction.sourcePc));
+            Op(OpFDiv, {typeId, resultId, m_f32One, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Rsq:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslInverseSqrt, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Exp2:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslExp2, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Log2:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslLog2, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
         default:
             return std::unexpected(EmitError("SR-SPV-081", "unsupported unary op", instruction.sourcePc));
         }
@@ -1879,16 +1946,43 @@ private:
                                            std::uint32_t resultId,
                                            IL::ValueId resultValue)
     {
-        if (static_cast<IL::TernaryOp>(instruction.subop) != IL::TernaryOp::Fma)
-            return std::unexpected(EmitError("SR-SPV-090", "unsupported ternary op", instruction.sourcePc));
-
         const auto a = ValueId(function, instruction.operands[0]);
         const auto b = ValueId(function, instruction.operands[1]);
         const auto c = ValueId(function, instruction.operands[2]);
         if (!a || !b || !c)
             return std::unexpected(EmitError("SR-SPV-091", "invalid ternary operands", instruction.sourcePc));
 
-        Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFma, *a, *b, *c});
+        const auto subop = static_cast<IL::TernaryOp>(instruction.subop);
+        switch (subop)
+        {
+        case IL::TernaryOp::Fma:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFma, *a, *b, *c});
+            break;
+        case IL::TernaryOp::MulAdd:
+        {
+            const std::uint32_t product = NewId();
+            Op(OpFMul, {typeId, product, *a, *b});
+            Op(OpFAdd, {typeId, resultId, product, *c});
+            break;
+        }
+        case IL::TernaryOp::FMin3:
+        {
+            const std::uint32_t first = NewId();
+            Op(OpExtInst, {typeId, first, m_glslSet, GlslFMin, *a, *b});
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFMin, first, *c});
+            break;
+        }
+        case IL::TernaryOp::FMax3:
+        {
+            const std::uint32_t first = NewId();
+            Op(OpExtInst, {typeId, first, m_glslSet, GlslFMax, *a, *b});
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFMax, first, *c});
+            break;
+        }
+        default:
+            return std::unexpected(EmitError("SR-SPV-090", "unsupported ternary op", instruction.sourcePc));
+        }
+
         m_valueIds[resultValue] = resultId;
         return {};
     }
@@ -1944,6 +2038,7 @@ private:
     std::uint32_t m_bufferPtrU32 = 0;
     std::uint32_t m_bufferZero = 0;
     std::uint32_t m_mainId = 0;
+    std::uint32_t m_f32One = 0;
 
     bool m_structured = false;
     IL::FunctionAnalysis m_analysis;

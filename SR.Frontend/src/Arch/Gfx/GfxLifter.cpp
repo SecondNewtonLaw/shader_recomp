@@ -199,6 +199,17 @@ private:
         return m_sccSlot;
     }
 
+    [[nodiscard]] IL::ValueId VccSlot()
+    {
+        if (m_vccSlot == IL::InvalidValue)
+        {
+            const IL::TypeId pointer = m_module.types.Pointer(IL::Space::Private, m_module.types.Bool());
+            m_vccSlot = m_builder.Alloca(pointer, m_entry);
+            m_module.registerSlots.push_back({IL::RegisterClass::Vcc, 0, m_vccSlot});
+        }
+        return m_vccSlot;
+    }
+
     [[nodiscard]] Result<IL::ValueId> ReadSgpr(std::uint32_t index, std::uint32_t pc)
     {
         if (index > kLastSgpr)
@@ -291,9 +302,20 @@ private:
         return m_builder.Load(m_module.types.Bool(), SccSlot(), pc, true);
     }
 
+    [[nodiscard]] Result<IL::ValueId> ReadVcc(std::uint32_t pc)
+    {
+        return m_builder.Load(m_module.types.Bool(), VccSlot(), pc, false);
+    }
+
     [[nodiscard]] Result<void> WriteScc(IL::ValueId value, std::uint32_t pc)
     {
         m_builder.Store(SccSlot(), value, pc);
+        return {};
+    }
+
+    [[nodiscard]] Result<void> WriteVcc(IL::ValueId value, std::uint32_t pc)
+    {
+        m_builder.Store(VccSlot(), value, pc);
         return {};
     }
 
@@ -391,6 +413,161 @@ private:
         if (!scc)
             return scc;
 
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    // S_ADDC_U32 / S_SUBB_U32: carry/borrow in from SCC plus carry/borrow out.
+    [[nodiscard]] Result<void> LiftCarryIn(const DecodedInstruction& instruction, bool subtract)
+    {
+        const auto left = ReadBits(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadBits(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+        const auto carryIn = ReadScc(instruction.pc);
+        if (!carryIn)
+            return std::unexpected(carryIn.error());
+
+        const IL::ValueId one = m_builder.ConstantU32(1);
+        const IL::ValueId zero = m_builder.ConstantU32(0);
+        const IL::ValueId carryValue = m_builder.SelectValue(m_module.types.U32(), *carryIn, one, zero, true);
+
+        const IL::ValueId partial = m_builder.Emit(m_module.types.U32(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(subtract ? IL::BinaryOp::ISub
+                                                                                       : IL::BinaryOp::IAdd),
+                                                   {*left, *right},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   true);
+        const IL::ValueId firstFlag = subtract ? m_builder.CompareValue(IL::CompareOp::ULt, *left, *right, true)
+                                               : m_builder.CompareValue(IL::CompareOp::ULt, partial, *left, true);
+        const IL::ValueId result = m_builder.Emit(m_module.types.U32(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(subtract ? IL::BinaryOp::ISub
+                                                                                      : IL::BinaryOp::IAdd),
+                                                  {partial, carryValue},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  true);
+        const IL::ValueId secondFlag = subtract ? m_builder.CompareValue(IL::CompareOp::ULt, partial, carryValue, true)
+                                                : m_builder.CompareValue(IL::CompareOp::ULt, result, partial, true);
+        const IL::ValueId carry = m_builder.Emit(m_module.types.Bool(),
+                                                 IL::Op::Binary,
+                                                 static_cast<std::uint16_t>(IL::BinaryOp::Or),
+                                                 {firstFlag, secondFlag},
+                                                 {},
+                                                 IL::NoPayload,
+                                                 instruction.pc,
+                                                 static_cast<std::uint16_t>(instruction.op),
+                                                 true);
+        const auto scc = WriteScc(carry, instruction.pc);
+        if (!scc)
+            return scc;
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftVectorCompare(const DecodedInstruction& instruction,
+                                                 IL::CompareOp compare,
+                                                 bool isFloat,
+                                                 bool isSigned)
+    {
+        const auto left = isFloat ? ReadFloat(instruction.operands[1], instruction.pc)
+                                  : isSigned ? ReadSigned(instruction.operands[1], instruction.pc)
+                                             : ReadBits(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = isFloat ? ReadFloat(instruction.operands[2], instruction.pc)
+                                   : isSigned ? ReadSigned(instruction.operands[2], instruction.pc)
+                                              : ReadBits(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        const IL::ValueId condition = m_builder.CompareValue(compare, *left, *right, false);
+        return WriteVcc(condition, instruction.pc);
+    }
+
+    // V_CNDMASK_B32: select src0 when VCC is set, otherwise src1.
+    [[nodiscard]] Result<void> LiftCndmask(const DecodedInstruction& instruction)
+    {
+        const auto condition = ReadVcc(instruction.pc);
+        if (!condition)
+            return std::unexpected(condition.error());
+        const auto ifTrue = ReadBits(instruction.operands[1], instruction.pc);
+        if (!ifTrue)
+            return std::unexpected(ifTrue.error());
+        const auto ifFalse = ReadBits(instruction.operands[2], instruction.pc);
+        if (!ifFalse)
+            return std::unexpected(ifFalse.error());
+
+        const IL::ValueId selected =
+            m_builder.SelectValue(m_module.types.U32(), *condition, *ifTrue, *ifFalse, false);
+        return WriteDest(instruction.operands[0], selected, instruction.pc);
+    }
+
+    // V_MAC_F32 / V_FMAC_F32: destination = src0 * src1 + destination.
+    [[nodiscard]] Result<void> LiftMac(const DecodedInstruction& instruction)
+    {
+        const auto a = ReadFloat(instruction.operands[1], instruction.pc);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadFloat(instruction.operands[2], instruction.pc);
+        if (!b)
+            return std::unexpected(b.error());
+        const auto accumulator = ReadFloat(instruction.operands[0], instruction.pc);
+        if (!accumulator)
+            return std::unexpected(accumulator.error());
+
+        IL::ValueId result = m_builder.Emit(m_module.types.F32(),
+                                            IL::Op::Ternary,
+                                            static_cast<std::uint16_t>(IL::TernaryOp::Fma),
+                                            {*a, *b, *accumulator},
+                                            {},
+                                            IL::NoPayload,
+                                            instruction.pc,
+                                            static_cast<std::uint16_t>(instruction.op),
+                                            false);
+        result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftTernaryFloat(const DecodedInstruction& instruction, IL::TernaryOp subop)
+    {
+        const auto a = ReadFloat(instruction.operands[1], instruction.pc);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadFloat(instruction.operands[2], instruction.pc);
+        if (!b)
+            return std::unexpected(b.error());
+        const auto c = ReadFloat(instruction.operands[3], instruction.pc);
+        if (!c)
+            return std::unexpected(c.error());
+
+        IL::ValueId result = m_builder.Emit(m_module.types.F32(),
+                                            IL::Op::Ternary,
+                                            static_cast<std::uint16_t>(subop),
+                                            {*a, *b, *c},
+                                            {},
+                                            IL::NoPayload,
+                                            instruction.pc,
+                                            static_cast<std::uint16_t>(instruction.op),
+                                            false);
+        result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftUnaryFloat(const DecodedInstruction& instruction, IL::UnaryOp subop)
+    {
+        const auto source = ReadFloat(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+        IL::ValueId result = m_builder.UnaryValue(subop, m_module.types.F32(), *source, false);
+        result = Bitcast(m_module.types.U32(), result);
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
@@ -745,7 +922,15 @@ private:
             return SetBranch(block, *target, instruction.pc);
         case Op::S_CbranchVccz:
         case Op::S_CbranchVccnz:
-            return std::unexpected(LiftError("SR-GFX-LIFT-017", "VCC branches need mask tracking", instruction.pc));
+        {
+            const auto vcc = ReadVcc(instruction.pc);
+            if (!vcc)
+                return std::unexpected(vcc.error());
+            IL::ValueId condition = *vcc;
+            if (instruction.op == Op::S_CbranchVccz)
+                condition = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), condition, false);
+            return SetCondBranch(block, condition, *target, instruction.pc + 4, instruction.pc, false);
+        }
         default:
             return std::unexpected(LiftError("SR-GFX-LIFT-018", "not a branch", instruction.pc));
         }
@@ -804,26 +989,28 @@ private:
         return WriteDest(instruction.operands[0], selected, instruction.pc);
     }
 
-    [[nodiscard]] Result<void> LiftReverseShift(const DecodedInstruction& instruction, bool arithmetic)
+    [[nodiscard]] Result<void> LiftReverseShift(const DecodedInstruction& instruction,
+                                                IL::BinaryOp subop,
+                                                bool signedInput)
     {
         const auto count = ReadBits(instruction.operands[1], instruction.pc);
         if (!count)
             return std::unexpected(count.error());
-        const auto value = arithmetic ? ReadSigned(instruction.operands[2], instruction.pc)
-                                      : ReadBits(instruction.operands[2], instruction.pc);
+        const auto value = signedInput ? ReadSigned(instruction.operands[2], instruction.pc)
+                                       : ReadBits(instruction.operands[2], instruction.pc);
         if (!value)
             return std::unexpected(value.error());
 
-        IL::ValueId result = m_builder.Emit(arithmetic ? m_module.types.I32() : m_module.types.U32(),
+        IL::ValueId result = m_builder.Emit(signedInput ? m_module.types.I32() : m_module.types.U32(),
                                             IL::Op::Binary,
-                                            static_cast<std::uint16_t>(arithmetic ? IL::BinaryOp::AShr : IL::BinaryOp::Shl),
+                                            static_cast<std::uint16_t>(subop),
                                             {*value, *count},
                                             {},
                                             IL::NoPayload,
                                             instruction.pc,
                                             static_cast<std::uint16_t>(instruction.op),
                                             false);
-        if (arithmetic)
+        if (signedInput)
             result = Bitcast(m_module.types.U32(), result);
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
@@ -944,6 +1131,10 @@ private:
         case Op::S_SubU32:
         case Op::S_SubI32:
             return LiftCarry(instruction, true);
+        case Op::S_AddcU32:
+            return LiftCarryIn(instruction, false);
+        case Op::S_SubbU32:
+            return LiftCarryIn(instruction, true);
         case Op::S_AddCoU32:
             return LiftCarry(instruction, false);
         case Op::S_SubCoU32:
@@ -1021,11 +1212,77 @@ private:
         case Op::V_MaxU32:
             return LiftMinMax(instruction, IL::CompareOp::UGt, true, false, false);
         case Op::V_LshlrevB32:
-            return LiftReverseShift(instruction, false);
+            return LiftReverseShift(instruction, IL::BinaryOp::Shl, false);
         case Op::V_AshrrevI32:
-            return LiftReverseShift(instruction, true);
+            return LiftReverseShift(instruction, IL::BinaryOp::AShr, true);
+        case Op::V_LshrrevB32:
+            return LiftReverseShift(instruction, IL::BinaryOp::LShr, false);
         case Op::V_MulLoU32:
             return LiftBinary(instruction, IL::BinaryOp::IMul, false, false);
+        case Op::V_AddNcU32:
+            return LiftBinary(instruction, IL::BinaryOp::IAdd, false, false);
+        case Op::V_SubNcU32:
+            return LiftBinary(instruction, IL::BinaryOp::ISub, false, false);
+        case Op::V_MinF32:
+            return LiftBinary(instruction, IL::BinaryOp::FMin, true, false);
+        case Op::V_MaxF32:
+            return LiftBinary(instruction, IL::BinaryOp::FMax, true, false);
+        case Op::V_Min3F32:
+            return LiftTernaryFloat(instruction, IL::TernaryOp::FMin3);
+        case Op::V_Max3F32:
+            return LiftTernaryFloat(instruction, IL::TernaryOp::FMax3);
+        case Op::V_MacF32:
+            return LiftMac(instruction);
+        case Op::V_MadF32:
+            return LiftTernaryFloat(instruction, IL::TernaryOp::MulAdd);
+        case Op::V_RcpF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Rcp);
+        case Op::V_RsqF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Rsq);
+        case Op::V_SqrtF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Sqrt);
+        case Op::V_ExpF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Exp2);
+        case Op::V_LogF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Log2);
+        case Op::V_CmpLtI32:
+            return LiftVectorCompare(instruction, IL::CompareOp::ILt, false, true);
+        case Op::V_CmpEqI32:
+            return LiftVectorCompare(instruction, IL::CompareOp::IEq, false, true);
+        case Op::V_CmpLeI32:
+            return LiftVectorCompare(instruction, IL::CompareOp::ILe, false, true);
+        case Op::V_CmpGtI32:
+            return LiftVectorCompare(instruction, IL::CompareOp::IGt, false, true);
+        case Op::V_CmpNeI32:
+            return LiftVectorCompare(instruction, IL::CompareOp::INe, false, true);
+        case Op::V_CmpGeI32:
+            return LiftVectorCompare(instruction, IL::CompareOp::IGe, false, true);
+        case Op::V_CmpLtU32:
+            return LiftVectorCompare(instruction, IL::CompareOp::ULt, false, false);
+        case Op::V_CmpEqU32:
+            return LiftVectorCompare(instruction, IL::CompareOp::UEq, false, false);
+        case Op::V_CmpLeU32:
+            return LiftVectorCompare(instruction, IL::CompareOp::ULe, false, false);
+        case Op::V_CmpGtU32:
+            return LiftVectorCompare(instruction, IL::CompareOp::UGt, false, false);
+        case Op::V_CmpNeU32:
+            return LiftVectorCompare(instruction, IL::CompareOp::UNe, false, false);
+        case Op::V_CmpGeU32:
+            return LiftVectorCompare(instruction, IL::CompareOp::UGe, false, false);
+        case Op::V_CmpLtF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdLt, true, false);
+        case Op::V_CmpEqF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdEq, true, false);
+        case Op::V_CmpLeF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdLe, true, false);
+        case Op::V_CmpGtF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdGt, true, false);
+        case Op::V_CmpLgF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdNe, true, false);
+        case Op::V_CmpGeF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdGe, true, false);
+        case Op::V_CndmaskB32:
+            return LiftCndmask(instruction);
         case Op::V_FfbhU32:
         case Op::V_ClzI32U32:
             return LiftBitScan(instruction, true, false);
@@ -1103,8 +1360,6 @@ private:
         }
         case Op::S_Barrier:
             return std::unexpected(LiftError("SR-GFX-LIFT-020", "s_barrier is not implemented yet", instruction.pc));
-        case Op::V_CndmaskB32:
-            return std::unexpected(LiftError("SR-GFX-LIFT-021", "v_cndmask_b32 needs VCC tracking", instruction.pc));
         case Op::Invalid:
             break;
         }
@@ -1165,6 +1420,7 @@ private:
     std::array<IL::ValueId, 256> m_sgprSlots;
     std::array<IL::ValueId, 256> m_vgprSlots;
     IL::ValueId m_sccSlot = IL::InvalidValue;
+    IL::ValueId m_vccSlot = IL::InvalidValue;
 };
 
 } // namespace

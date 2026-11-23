@@ -405,6 +405,18 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                 case UnaryOp::Sqrt:
                     values[id] = FloatBits(std::sqrt(AsFloat(operand, type)), type);
                     break;
+                case UnaryOp::Rcp:
+                    values[id] = FloatBits(1.0 / AsFloat(operand, type), type);
+                    break;
+                case UnaryOp::Rsq:
+                    values[id] = FloatBits(1.0 / std::sqrt(AsFloat(operand, type)), type);
+                    break;
+                case UnaryOp::Exp2:
+                    values[id] = FloatBits(std::exp2(AsFloat(operand, type)), type);
+                    break;
+                case UnaryOp::Log2:
+                    values[id] = FloatBits(std::log2(AsFloat(operand, type)), type);
+                    break;
                 case UnaryOp::BitReverse:
                 {
                     const std::uint32_t width = type.width;
@@ -470,6 +482,17 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                 case TernaryOp::Lerp:
                     values[id] = FloatBits(a + (b - a) * c, type);
                     break;
+                case TernaryOp::MulAdd:
+                {
+                    double value = a * b + c;
+                    if (type.floatFormat == FloatFormat::F32)
+                    {
+                        const float product = static_cast<float>(a) * static_cast<float>(b);
+                        value = static_cast<double>(static_cast<float>(product + static_cast<float>(c)));
+                    }
+                    values[id] = FloatBits(value, type);
+                    break;
+                }
                 default:
                     return std::unexpected(ExecutionError("SR-IL-INT-009", "unsupported ternary op", instruction.sourcePc));
                 }

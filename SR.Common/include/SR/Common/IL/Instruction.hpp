@@ -55,6 +55,10 @@ enum class UnaryOp : std::uint16_t
     FindFirstSet,
     Sqrt,
     Fract,
+    Rcp,
+    Rsq,
+    Exp2,
+    Log2,
 };
 
 enum class BinaryOp : std::uint16_t
@@ -97,6 +101,7 @@ enum class TernaryOp : std::uint16_t
     Lerp,
     FShl,
     FShr,
+    MulAdd,
 };
 
 enum class CompareOp : std::uint16_t

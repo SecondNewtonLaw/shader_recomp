@@ -75,6 +75,14 @@ std::string_view ToString(UnaryOp op) noexcept
         return "sqrt";
     case UnaryOp::Fract:
         return "fract";
+    case UnaryOp::Rcp:
+        return "rcp";
+    case UnaryOp::Rsq:
+        return "rsq";
+    case UnaryOp::Exp2:
+        return "exp2";
+    case UnaryOp::Log2:
+        return "log2";
     }
 
     return "unknown";
@@ -161,6 +169,8 @@ std::string_view ToString(TernaryOp op) noexcept
         return "fshl";
     case TernaryOp::FShr:
         return "fshr";
+    case TernaryOp::MulAdd:
+        return "muladd";
     }
 
     return "unknown";
