@@ -220,6 +220,7 @@ endif ()
 
 sr_add_library(SR.Frontend
         SR.Frontend/src/Arch/Gfx/GfxIsa.cpp
+        SR.Frontend/src/Arch/Gfx/GfxInterpreter.cpp
         SR.Frontend/src/Arch/Gfx/GfxLifter.cpp
         SR.Frontend/src/Container/DxbcContainer.cpp
         SR.Frontend/src/Container/ElfContainer.cpp

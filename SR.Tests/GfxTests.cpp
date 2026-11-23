@@ -1,8 +1,10 @@
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <unordered_map>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -13,6 +15,7 @@
 #include "SR/Common/IL/Passes.hpp"
 #include "SR/Common/IL/Verifier.hpp"
 #include "SR/Frontend/Arch/Gfx/GfxIsa.hpp"
+#include "SR/Frontend/Arch/Gfx/GfxInterpreter.hpp"
 #include "SR/Frontend/Arch/Gfx/GfxLifter.hpp"
 #include "SR/Frontend/MasterReader.hpp"
 
@@ -870,6 +873,99 @@ TEST_CASE("gfx floating point and carry VALU interprets across generations", "[g
         REQUIRE(SR::IL::RunPipeline(*module).has_value());
         REQUIRE(SR::IL::VerifyModule(*module).has_value());
         REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
+TEST_CASE("gfx ISA interpreter matches the IL interpreter", "[gfx][isa][divergence]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1013", SR::Frontend::Gfx::Arch::Gfx1013},
+        {"gfx1030", SR::Frontend::Gfx::Arch::Gfx103},
+        {"gfx1100", SR::Frontend::Gfx::Arch::Gfx11},
+        {"gfx1150", SR::Frontend::Gfx::Arch::Gfx115},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        for (const char* fixture : {"basic", "loop", "alu", "valu", "scc", "bitops", "vbits", "fpalu",
+                                    "loadstore", "branch", "store"})
+        {
+            INFO(testCase.directory << "/" << fixture);
+            const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory /
+                                               (std::string(fixture) + ".hsaco");
+            if (!std::filesystem::exists(path))
+                continue;
+
+            const auto bytes = ReadFile(path);
+            REQUIRE_FALSE(bytes.empty());
+
+            SR::Frontend::MasterReader reader;
+            const auto shader = reader.Read(bytes);
+            REQUIRE(shader.has_value());
+
+            auto module = SR::Frontend::Gfx::Lift(*shader,
+                                                 testCase.arch,
+                                                 "main",
+                                                 SR::Frontend::Gfx::LiftOptions{true});
+            const std::string moduleError = module.has_value() ? std::string() : SR::ToString(module.error());
+            INFO(moduleError);
+            REQUIRE(module.has_value());
+
+            const std::unordered_map<std::uint32_t, std::uint32_t> initialBuffer = {{0, 6}, {1, 7}};
+            SR::IL::ExecutionOptions options;
+            options.testBuffer = initialBuffer;
+            const auto execution = SR::IL::Interpret(*module, options);
+            const std::string executionError =
+                execution.has_value() ? std::string() : SR::ToString(execution.error());
+            INFO(executionError);
+            REQUIRE(execution.has_value());
+
+            std::vector<std::uint32_t> words(shader->rawBytecode.size() / 4);
+            std::memcpy(words.data(), shader->rawBytecode.data(), words.size() * sizeof(std::uint32_t));
+
+            SR::Frontend::Gfx::IsaState state;
+            state.buffer = initialBuffer;
+            const auto isa = SR::Frontend::Gfx::RunIsa(words, testCase.arch, state);
+            const std::string isaError = isa.has_value() ? std::string() : SR::ToString(isa.error());
+            INFO(isaError);
+            REQUIRE(isa.has_value());
+
+            for (const auto& slot : module->registerSlots)
+            {
+                const std::uint64_t ilValue = execution->memory.at(slot.alloca);
+                std::uint64_t isaValue = 0;
+                switch (slot.kind)
+                {
+                case SR::IL::RegisterClass::Sgpr:
+                    isaValue = isa->state.sgpr.at(slot.index);
+                    break;
+                case SR::IL::RegisterClass::Vgpr:
+                    isaValue = isa->state.vgpr.at(slot.index);
+                    break;
+                case SR::IL::RegisterClass::Scc:
+                    isaValue = isa->state.scc ? 1u : 0u;
+                    break;
+                case SR::IL::RegisterClass::Vcc:
+                    isaValue = isa->state.vcc ? 1u : 0u;
+                    break;
+                }
+                INFO("register class " << static_cast<int>(slot.kind) << " index " << slot.index);
+                REQUIRE(ilValue == isaValue);
+            }
+
+            REQUIRE(execution->buffer == isa->state.buffer);
+        }
     }
 #endif
 }
