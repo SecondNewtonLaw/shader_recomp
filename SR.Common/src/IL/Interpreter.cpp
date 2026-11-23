@@ -107,8 +107,9 @@ bool FloatCompare(CompareOp op, double left, double right)
 
 } // namespace
 
-Result<ExecutionResult> Interpret(const Module& module, std::uint64_t maxSteps)
+Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& options)
 {
+    const std::uint64_t maxSteps = options.maxSteps;
     if (module.entryFunction == InvalidFunctionId || module.entryFunction >= module.functions.size())
         return std::unexpected(ExecutionError("SR-IL-INT-001", "module has no entry function"));
 
@@ -118,6 +119,7 @@ Result<ExecutionResult> Interpret(const Module& module, std::uint64_t maxSteps)
 
     ExecutionResult result;
     result.values.assign(function.values.size(), 0);
+    result.buffer = options.testBuffer;
 
     for (std::size_t i = 0; i < function.values.size(); ++i)
     {
@@ -511,10 +513,31 @@ Result<ExecutionResult> Interpret(const Module& module, std::uint64_t maxSteps)
                 }
                 break;
             }
+            case Op::Intrinsic:
+            {
+                const auto id = static_cast<IntrinsicId>(instruction.subop);
+                if (id == IntrinsicId::TestBufferStore)
+                {
+                    const auto offset = static_cast<std::uint32_t>(read(instruction.operands[0]));
+                    const auto value = static_cast<std::uint32_t>(read(instruction.operands[1]));
+                    result.buffer[offset] = value;
+                    break;
+                }
+                if (id == IntrinsicId::TestBufferLoad)
+                {
+                    const ValueId id = resultId();
+                    const auto offset = static_cast<std::uint32_t>(read(instruction.operands[0]));
+                    const auto it = result.buffer.find(offset);
+                    values[id] = it == result.buffer.end() ? 0 : it->second;
+                    break;
+                }
+                return std::unexpected(ExecutionError("SR-IL-INT-014",
+                                                      std::string("unsupported intrinsic: ") + std::string(ToString(id)),
+                                                      instruction.sourcePc));
+            }
             case Op::Atomic:
             case Op::Call:
             case Op::Kill:
-            case Op::Intrinsic:
             case Op::Extract:
             case Op::Insert:
             case Op::Construct:
@@ -559,6 +582,13 @@ Result<ExecutionResult> Interpret(const Module& module, std::uint64_t maxSteps)
     }
 
     return std::unexpected(ExecutionError("SR-IL-INT-012", "step limit exceeded"));
+}
+
+Result<ExecutionResult> Interpret(const Module& module, std::uint64_t maxSteps)
+{
+    ExecutionOptions options;
+    options.maxSteps = maxSteps;
+    return Interpret(module, options);
 }
 
 } // namespace SR::IL

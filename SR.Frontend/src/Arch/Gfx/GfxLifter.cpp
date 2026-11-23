@@ -514,6 +514,70 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    // Test ABI addressing: the shader supplies a byte address, which maps to a
+    // dword index in the single storage buffer at set 0, binding 0. The SMEM
+    // base pair and the GLOBAL SADDR are descriptor references that are not
+    // decoded yet; their low word is added so a caller can relocate the base.
+    [[nodiscard]] Result<IL::ValueId> TestBufferIndex(const DecodedInstruction& instruction,
+                                                      std::uint8_t addressIndex,
+                                                      bool uniform)
+    {
+        const auto base = ReadBits(instruction.operands[addressIndex], instruction.pc);
+        if (!base)
+            return std::unexpected(base.error());
+
+        IL::ValueId address = *base;
+        const std::uint32_t immediate = instruction.operands[2].value;
+        if (immediate != 0)
+        {
+            const IL::ValueId offset = m_builder.ConstantU32(immediate);
+            address = m_builder.Emit(m_module.types.U32(),
+                                     IL::Op::Binary,
+                                     static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                     {address, offset},
+                                     {},
+                                     IL::NoPayload,
+                                     instruction.pc,
+                                     static_cast<std::uint16_t>(instruction.op),
+                                     uniform);
+        }
+
+        const IL::ValueId two = m_builder.ConstantU32(2);
+        return m_builder.Emit(m_module.types.U32(),
+                              IL::Op::Binary,
+                              static_cast<std::uint16_t>(IL::BinaryOp::LShr),
+                              {address, two},
+                              {},
+                              IL::NoPayload,
+                              instruction.pc,
+                              static_cast<std::uint16_t>(instruction.op),
+                              uniform);
+    }
+
+    [[nodiscard]] Result<void> LiftBufferLoad(const DecodedInstruction& instruction)
+    {
+        if (!m_module.testAbi)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-025",
+                                             "scalar and global loads require --test-abi (no descriptor model yet)",
+                                             instruction.pc));
+        }
+
+        const bool scalar = instruction.encoding == Encoding::Smem;
+        const auto index = TestBufferIndex(instruction, 1, scalar);
+        if (!index)
+            return std::unexpected(index.error());
+
+        const IL::PayloadId payload = m_module.payloads.Add(IL::TestBufferDesc{0, 0});
+        const IL::ValueId result = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                            IL::IntrinsicId::TestBufferLoad,
+                                                            {*index},
+                                                            payload,
+                                                            instruction.pc,
+                                                            scalar);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCompare(const DecodedInstruction& instruction)
     {
         const bool isSigned = instruction.op == Op::S_CmpEqI32 || instruction.op == Op::S_CmpLgI32 ||
@@ -1006,32 +1070,21 @@ private:
                                                  instruction.pc));
             }
 
-            const auto address = ReadBits(instruction.operands[0], instruction.pc);
-            if (!address)
-                return std::unexpected(address.error());
+            const auto index = TestBufferIndex(instruction, 0, false);
+            if (!index)
+                return std::unexpected(index.error());
             const auto value = ReadBits(instruction.operands[1], instruction.pc);
             if (!value)
                 return std::unexpected(value.error());
 
-            IL::ValueId offset = *address;
-            if (instruction.operands[2].value != 0)
-            {
-                const IL::ValueId immediate = m_builder.ConstantU32(instruction.operands[2].value);
-                offset = m_builder.Emit(m_module.types.U32(),
-                                        IL::Op::Binary,
-                                        static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
-                                        {offset, immediate},
-                                        {},
-                                        IL::NoPayload,
-                                        instruction.pc,
-                                        static_cast<std::uint16_t>(instruction.op),
-                                        false);
-            }
-
             const IL::PayloadId payload = m_module.payloads.Add(IL::TestBufferDesc{0, 0});
-            m_builder.IntrinsicVoid(IL::IntrinsicId::TestBufferStore, {offset, *value}, payload, instruction.pc);
+            m_builder.IntrinsicVoid(IL::IntrinsicId::TestBufferStore, {*index, *value}, payload, instruction.pc);
             return {};
         }
+        case Op::S_LoadB32:
+        case Op::S_BufferLoadB32:
+        case Op::GlobalLoadB32:
+            return LiftBufferLoad(instruction);
         case Op::S_Branch:
         case Op::S_CbranchScc0:
         case Op::S_CbranchScc1:

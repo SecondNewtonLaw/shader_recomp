@@ -157,6 +157,15 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Vop3, 442, Op::V_FfblB32, "v_ffbl_b32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop3, 868, Op::V_BcntU32B32, "v_bcnt_u32_b32",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+
+    Make(Encoding::Smem, 0, Op::S_LoadB32, "s_load_dword",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 8, Op::S_BufferLoadB32, "s_buffer_load_dword",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Flat, 12, Op::GlobalLoadB32, "global_load_dword",
+         {OperandKind::FlatVdst, OperandKind::FlatVaddr, OperandKind::FlatOffset12}),
+    Make(Encoding::Flat, 28, Op::GlobalStoreB32, "global_store_dword",
+         {OperandKind::FlatVaddr, OperandKind::FlatData, OperandKind::FlatOffset12}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -209,6 +218,7 @@ constexpr std::array kGfx11 = {
     Remove(Encoding::Vop2, 26),
     Remove(Encoding::Vop1, 57),
     Remove(Encoding::Vop1, 58),
+    Remove(Encoding::Flat, 12),
 
     Make(Encoding::Sop1, 0, Op::S_MovB32, "s_mov_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
 
@@ -258,6 +268,10 @@ constexpr std::array kGfx11 = {
     Make(Encoding::Vop3, 442, Op::V_CtzI32B32, "v_ctz_i32_b32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop3, 798, Op::V_BcntU32B32, "v_bcnt_u32_b32",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Flat, 20, Op::GlobalLoadB32, "global_load_b32",
+         {OperandKind::FlatVdst, OperandKind::FlatVaddr, OperandKind::FlatOffset13}),
+    Make(Encoding::Flat, 28, Op::GlobalStoreB32, "global_store_b32",
+         {OperandKind::FlatVaddr, OperandKind::FlatData, OperandKind::FlatOffset13}),
     Make(Encoding::Vop2, 24, Op::V_LshlrevB32, "v_lshlrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop2, 26, Op::V_AshrrevI32, "v_ashrrev_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
 };
@@ -269,8 +283,18 @@ constexpr std::array kGfx12 = {
     Make(Encoding::Sop2, 1, Op::S_SubCoU32, "s_sub_co_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 2, Op::S_AddCoU32, "s_add_co_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 3, Op::S_SubCoU32, "s_sub_co_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+
+    Remove(Encoding::Smem, 8),
+    Remove(Encoding::Flat, 20),
+    Remove(Encoding::Flat, 28),
+    Make(Encoding::Smem, 0, Op::S_LoadB32, "s_load_b32",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 16, Op::S_BufferLoadB32, "s_buffer_load_b32",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Global, 20, Op::GlobalLoadB32, "global_load_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
     Make(Encoding::Global, 26, Op::GlobalStoreB32, "global_store_b32",
-         {OperandKind::Vgpr, OperandKind::Vgpr, OperandKind::Imm32}),
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -376,7 +400,7 @@ const ArchInfo& GetArchInfo(Arch arch) noexcept
         ArchInfo{Arch::Gfx103, Arch::Gfx10, "gfx1030", "rdna2"},
         ArchInfo{Arch::Gfx11, Arch::Gfx103, "gfx1100", "rdna3"},
         ArchInfo{Arch::Gfx115, Arch::Gfx11, "gfx1150", "rdna3.5"},
-        ArchInfo{Arch::Gfx12, Arch::Gfx11, "gfx1200", "rdna4"},
+        ArchInfo{Arch::Gfx12, Arch::Gfx11, "gfx1200", "rdna4", 13, 6},
     };
 
     for (const ArchInfo& info : kArchInfos)
@@ -631,6 +655,12 @@ std::string_view ToString(Op op) noexcept
         return "v_ctz_i32_b32";
     case Op::V_BcntU32B32:
         return "v_bcnt_u32_b32";
+    case Op::S_LoadB32:
+        return "s_load_b32";
+    case Op::S_BufferLoadB32:
+        return "s_buffer_load_b32";
+    case Op::GlobalLoadB32:
+        return "global_load_b32";
     case Op::GlobalStoreB32:
         return "global_store_b32";
     }
@@ -684,8 +714,7 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
     std::uint32_t baseWords = 1;
     std::uint64_t wide = word0;
 
-    // VGLOBAL (RDNA4): 96-bit encoding, three words. GLOBAL_STORE_B32 is the
-    // first member of this family used by the test ABI.
+    // VGLOBAL (RDNA4): 96-bit encoding, three words.
     if ((word0 >> 24) == 0xEEu)
     {
         if (words.size() < 3)
@@ -713,15 +742,34 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         global.word1 = word1;
         global.wordCount = 3;
 
-        const auto pushGlobal = [&global](Operand operand) {
+        for (std::uint8_t i = 0; i < globalEntry->operandCount; ++i)
+        {
+            Operand operand;
+            switch (globalEntry->operands[i])
+            {
+            case OperandKind::GlobalVdst:
+                operand.kind = OperandKind::Vgpr;
+                operand.value = word1 & 0xFF; // bits 32..39
+                break;
+            case OperandKind::GlobalVaddr:
+                operand.kind = OperandKind::Vgpr;
+                operand.value = word2 & 0xFF; // bits 64..71
+                break;
+            case OperandKind::GlobalVsrc:
+                operand.kind = OperandKind::Vgpr;
+                operand.value = (word1 >> 23) & 0xFF; // bits 55..62
+                break;
+            case OperandKind::GlobalIoffset:
+                operand.kind = OperandKind::Imm32;
+                operand.value = static_cast<std::uint32_t>(
+                    static_cast<std::int32_t>(((word2 >> 8) & 0xFFFFFFu) << 8) >> 8); // bits 72..95
+                break;
+            default:
+                return std::unexpected(Error("SR-GFX-008", "unsupported VGLOBAL operand layout", bytePc));
+            }
             if (global.operandCount < global.operands.size())
                 global.operands[global.operandCount++] = operand;
-        };
-
-        // VADDR, VSRC, IOFFSET (24-bit byte offset).
-        pushGlobal(Operand{OperandKind::Vgpr, word2 & 0xFF, false});
-        pushGlobal(Operand{OperandKind::Vgpr, (word1 >> 23) & 0xFF, false});
-        pushGlobal(Operand{OperandKind::Imm32, (word2 >> 8) & 0xFFFFFF, false});
+        }
         return global;
     }
 
@@ -749,6 +797,26 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
     {
         encoding = Encoding::Sop2;
         opcode = static_cast<std::uint16_t>((word0 >> 23) & 0x7F);
+    }
+    else if (((word0 >> 26) & 0x3F) == 0x3D)
+    {
+        encoding = Encoding::Smem;
+        const ArchInfo& info = GetArchInfo(arch);
+        opcode = static_cast<std::uint16_t>((word0 >> info.smemOpcodeOffset) &
+                                            ((1u << info.smemOpcodeWidth) - 1u));
+        if (words.size() < 2)
+            return std::unexpected(Error("SR-GFX-009", "truncated SMEM instruction", bytePc));
+        baseWords = 2;
+        wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
+    }
+    else if (((word0 >> 26) & 0x3F) == 0x37)
+    {
+        encoding = Encoding::Flat;
+        opcode = static_cast<std::uint16_t>((word0 >> 18) & 0x7F);
+        if (words.size() < 2)
+            return std::unexpected(Error("SR-GFX-010", "truncated GLOBAL instruction", bytePc));
+        baseWords = 2;
+        wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
     }
     else if (((word0 >> 26) & 0x3F) == 0x35)
     {
@@ -846,6 +914,69 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             break;
         case OperandKind::Exec:
             operand.kind = OperandKind::Exec;
+            break;
+        case OperandKind::SmemSdst:
+            operand.kind = OperandKind::Sdst;
+            operand.value = Extract(wide, 6, 7);
+            break;
+        case OperandKind::SmemSbase:
+            // The field names an SGPR pair; scale it to the first SGPR index.
+            operand.kind = OperandKind::Sgpr;
+            operand.value = Extract(wide, 0, 6) * 2;
+            break;
+        case OperandKind::SmemOffset:
+            operand.kind = OperandKind::Imm32;
+            operand.value = Extract(wide, 32, 21);
+            break;
+        case OperandKind::SmemOffset24:
+            operand.kind = OperandKind::Imm32;
+            operand.value = static_cast<std::uint32_t>(
+                static_cast<std::int32_t>(Extract(wide, 32, 24) << 8) >> 8);
+            break;
+        case OperandKind::SmemSoffset:
+            operand.kind = OperandKind::Imm32;
+            operand.value = Extract(wide, 57, 7);
+            break;
+        case OperandKind::FlatVdst:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 56, 8);
+            break;
+        case OperandKind::FlatVaddr:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 32, 8);
+            break;
+        case OperandKind::FlatData:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 40, 8);
+            break;
+        case OperandKind::FlatSaddr:
+            operand.kind = OperandKind::Imm32;
+            operand.value = Extract(wide, 48, 7);
+            break;
+        case OperandKind::FlatOffset12:
+            operand.kind = OperandKind::Imm32;
+            operand.value = Extract(wide, 0, 12);
+            break;
+        case OperandKind::FlatOffset13:
+            operand.kind = OperandKind::Imm32;
+            operand.value = Extract(wide, 0, 13);
+            break;
+        case OperandKind::GlobalVdst:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 32, 8);
+            break;
+        case OperandKind::GlobalVaddr:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 64, 8);
+            break;
+        case OperandKind::GlobalVsrc:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 55, 8);
+            break;
+        case OperandKind::GlobalIoffset:
+            operand.kind = OperandKind::Imm32;
+            operand.value = static_cast<std::uint32_t>(
+                static_cast<std::int32_t>(Extract(wide, 72, 24) << 8) >> 8);
             break;
         case OperandKind::Literal:
         case OperandKind::None:

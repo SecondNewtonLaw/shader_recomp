@@ -632,6 +632,63 @@ TEST_CASE("gfx vector bit operations interpret across generations", "[gfx][vbits
 #endif
 }
 
+TEST_CASE("gfx scalar and global loads feed a store", "[gfx][load][test-abi]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "loadstore.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader,
+                                             testCase.arch,
+                                             "main",
+                                             SR::Frontend::Gfx::LiftOptions{true});
+        if (!module.has_value())
+            INFO(SR::ToString(module.error()));
+        REQUIRE(module.has_value());
+        REQUIRE(module->testAbi);
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        SR::IL::ExecutionOptions options;
+        options.testBuffer = {{0, 6}, {1, 7}};
+        const auto execution = SR::IL::Interpret(*module, options);
+        if (!execution.has_value())
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+        REQUIRE(execution->buffer.at(0) == 6u);
+        REQUIRE(execution->buffer.at(1) == 7u);
+        REQUIRE(execution->buffer.at(2) == 42u);
+
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+        REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
 TEST_CASE("gfx1200 inline constants decode", "[gfx][decode]")
 {
     using namespace SR::Frontend::Gfx;

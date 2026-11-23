@@ -28,6 +28,9 @@ struct ArchInfo
     Arch parent = Arch::Gfx10;
     std::string_view name;        // "gfx1200"
     std::string_view family;      // "rdna4"
+    // SMEM encodes the opcode in different bit positions across the lineage.
+    std::uint8_t smemOpcodeOffset = 18;
+    std::uint8_t smemOpcodeWidth = 8;
 };
 
 [[nodiscard]] const ArchInfo* FindArch(std::string_view name) noexcept;
@@ -141,6 +144,9 @@ enum class Op : std::uint16_t
     V_ClzI32U32,
     V_CtzI32B32,
     V_BcntU32B32,
+    S_LoadB32,
+    S_BufferLoadB32,
+    GlobalLoadB32,
     GlobalStoreB32,
 };
 
@@ -162,6 +168,23 @@ enum class OperandKind : std::uint8_t
     Label,
     Vcc,
     Exec,
+    // Memory operand layouts. The decoder normalises these to Sdst/Sgpr/Vgpr/
+    // Imm32 so the lifter sees one consistent operand order.
+    SmemSdst,
+    SmemSbase,
+    SmemOffset,
+    SmemOffset24,
+    SmemSoffset,
+    FlatVdst,
+    FlatVaddr,
+    FlatSaddr,
+    FlatData,
+    FlatOffset12,
+    FlatOffset13,
+    GlobalVdst,
+    GlobalVaddr,
+    GlobalVsrc,
+    GlobalIoffset,
 };
 
 struct Operand

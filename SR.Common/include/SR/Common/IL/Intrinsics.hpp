@@ -54,6 +54,7 @@ enum class IntrinsicId : std::uint16_t
     DebugBreak,
     Trap,
     TestBufferStore,
+    TestBufferLoad,
 };
 
 enum class SpecialRegId : std::uint16_t

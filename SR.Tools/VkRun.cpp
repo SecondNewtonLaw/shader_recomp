@@ -83,7 +83,7 @@ int main(int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::cerr << "usage: SR.VkRun <module.spv> [words]\n";
+        std::cerr << "usage: SR.VkRun <module.spv> [words] [init...]\n";
         return 2;
     }
 
@@ -159,6 +159,16 @@ int main(int argc, char** argv)
     void* mapped = nullptr;
     vkMapMemory(device.logical, memory, 0, bufferSize, 0, &mapped);
     std::memset(mapped, 0, bufferSize);
+    {
+        auto* initial = static_cast<std::uint32_t*>(mapped);
+        for (int i = 3; i < argc; ++i)
+        {
+            const std::uint32_t index = static_cast<std::uint32_t>(i - 3);
+            if (index * sizeof(std::uint32_t) >= bufferSize)
+                break;
+            initial[index] = static_cast<std::uint32_t>(std::stoul(argv[i]));
+        }
+    }
 
     VkDescriptorSetLayoutBinding binding{};
     binding.binding = 0;

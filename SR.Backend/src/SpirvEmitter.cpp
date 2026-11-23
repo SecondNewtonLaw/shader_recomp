@@ -142,6 +142,16 @@ public:
         m_typeIds.assign(m_module.types.size(), 0);
         m_useGlsl = UsesGlsl(m_module);
         m_useTestBuffer = UsesTestBuffer(m_module);
+
+        // Validate the entry point before pre-emitting helper constants, so an
+        // empty module reports its missing entry point rather than a missing
+        // integer type.
+        if (m_module.entryFunction == IL::InvalidFunctionId ||
+            m_module.entryFunction >= m_module.functions.size())
+        {
+            return std::unexpected(EmitError("SR-SPV-020", "module has no valid entry function"));
+        }
+
         if (m_useTestBuffer)
             m_bufferVar = NewId();
         EmitHeader();
@@ -167,6 +177,12 @@ public:
                 return std::unexpected(thirtyOne.error());
         }
 
+        {
+            const auto zero = U32Constant(0);
+            if (!zero)
+                return std::unexpected(zero.error());
+        }
+
         const auto status = EmitFunction();
         if (!status)
             return std::unexpected(status.error());
@@ -188,7 +204,8 @@ private:
                 for (const IL::Instruction& instruction : block.body)
                 {
                     if (instruction.op == IL::Op::Intrinsic &&
-                        instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::TestBufferStore))
+                        (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::TestBufferStore) ||
+                         instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::TestBufferLoad)))
                     {
                         return true;
                     }
@@ -775,6 +792,22 @@ private:
             const std::uint32_t id = NewId();
             Op(OpVariable, {*type, id, 7 /* Function */});
             m_valueIds[result] = id;
+
+            // Zero-initialise 32-bit register slots. The hardware starts with
+            // undefined registers; the test ABI needs a deterministic value so
+            // a shader that reads a slot before writing it behaves the same on
+            // the interpreter and the device.
+            const IL::Type& pointerType = m_module.types.Get(function.values[result].type);
+            if (pointerType.kind == IL::TypeKind::Pointer && pointerType.element != IL::InvalidType)
+            {
+                const IL::Type& pointee = m_module.types.Get(pointerType.element);
+                if (pointee.kind == IL::TypeKind::Int && pointee.width == 32)
+                {
+                    const auto zero = m_u32Constants.find(0);
+                    if (zero != m_u32Constants.end())
+                        Op(OpStore, {id, zero->second});
+                }
+            }
         }
 
         return {};
@@ -1014,6 +1047,30 @@ private:
             const std::uint32_t pointer = NewId();
             Op(OpAccessChain, {m_bufferPtrU32, pointer, m_bufferVar, m_bufferZero, *offset});
             Op(OpStore, {pointer, *value});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
+            instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::TestBufferLoad))
+        {
+            if (instruction.results.size() != 1)
+                return std::unexpected(EmitError("SR-SPV-044", "test buffer load must have one result", instruction.sourcePc));
+            const auto offset = ValueId(function, instruction.operands[0]);
+            if (!offset)
+                return std::unexpected(EmitError("SR-SPV-045", "invalid test buffer load offset", instruction.sourcePc));
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+
+            const std::uint32_t pointer = NewId();
+            Op(OpAccessChain, {m_bufferPtrU32, pointer, m_bufferVar, m_bufferZero, *offset});
+            const std::uint32_t resultId = NewId();
+            Op(OpLoad, {*resultType, resultId, pointer});
+            m_valueIds[resultValue] = resultId;
+            if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                Op(OpStore, {m_spillVars[resultValue], resultId});
             return {};
         }
 
