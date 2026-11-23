@@ -1,0 +1,138 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "_clang-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "vendor": {
+        "jetbrains.com/clion": {
+          "toolchain": "Visual Studio (GNU Clang)"
+        }
+      },
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++.exe",
+        "CMAKE_POLICY_VERSION_MINIMUM": "3.5",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "Debug",
+      "displayName": "Debug",
+      "description": "Dev / Debug build",
+      "inherits": "_clang-base",
+      "binaryDir": "${sourceDir}/cmake-build-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/bin/debug",
+        "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/bin/debug",
+        "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/bin/debug"
+      }
+    },
+    {
+      "name": "RelWithDebInfo",
+      "displayName": "RelWithDebInfo",
+      "description": "Optimized build that stays debuggable",
+      "inherits": "_clang-base",
+      "binaryDir": "${sourceDir}/cmake-build-relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/bin/relwithdebinfo",
+        "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/bin/relwithdebinfo",
+        "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/bin/relwithdebinfo"
+      }
+    },
+    {
+      "name": "Release",
+      "displayName": "Release",
+      "description": "Release build",
+      "inherits": "_clang-base",
+      "binaryDir": "${sourceDir}/cmake-build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/bin/release",
+        "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/bin/release",
+        "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/bin/release",
+        "USE_LTO": "ON"
+      }
+    },
+    {
+      "name": "Debug-ASan",
+      "displayName": "Debug (ASan)",
+      "description": "Debug build with AddressSanitizer",
+      "inherits": "_clang-base",
+      "binaryDir": "${sourceDir}/cmake-build-asan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/bin/asan",
+        "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/bin/asan",
+        "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/bin/asan",
+        "ENABLE_ASAN": "ON"
+      }
+    },
+    {
+      "name": "Debug-UBSan",
+      "displayName": "Debug (UBSan)",
+      "description": "Debug build with UndefinedBehaviorSanitizer",
+      "inherits": "_clang-base",
+      "binaryDir": "${sourceDir}/cmake-build-ubsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/bin/ubsan",
+        "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/bin/ubsan",
+        "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/bin/ubsan",
+        "ENABLE_UBSAN": "ON"
+      }
+    },
+    {
+      "name": "Fuzzing",
+      "displayName": "Fuzzing",
+      "description": "Reader/parser fuzzing with libFuzzer",
+      "inherits": "_clang-base",
+      "binaryDir": "${sourceDir}/cmake-build-fuzzing",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_RUNTIME_OUTPUT_DIRECTORY": "${sourceDir}/bin/fuzzing",
+        "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "${sourceDir}/bin/fuzzing",
+        "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "${sourceDir}/bin/fuzzing",
+        "BUILD_FUZZING": "ON",
+        "SR_USE_LIBFUZZER": "ON",
+        "ENABLE_ASAN": "OFF",
+        "ENABLE_UBSAN": "OFF",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "Debug",
+      "configurePreset": "Debug",
+      "jobs": 12
+    },
+    {
+      "name": "RelWithDebInfo",
+      "configurePreset": "RelWithDebInfo",
+      "jobs": 12
+    },
+    {
+      "name": "Release",
+      "configurePreset": "Release",
+      "jobs": 12
+    },
+    {
+      "name": "Debug-ASan",
+      "configurePreset": "Debug-ASan",
+      "jobs": 12
+    },
+    {
+      "name": "Debug-UBSan",
+      "configurePreset": "Debug-UBSan",
+      "jobs": 12
+    },
+    {
+      "name": "Fuzzing",
+      "configurePreset": "Fuzzing",
+      "jobs": 12
+    }
+  ]
+}
