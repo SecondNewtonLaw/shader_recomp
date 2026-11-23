@@ -59,6 +59,12 @@ enum class UnaryOp : std::uint16_t
     Rsq,
     Exp2,
     Log2,
+    Trunc,
+    Ceil,
+    RoundEven,
+    Floor,
+    Sin,
+    Cos,
 };
 
 enum class BinaryOp : std::uint16_t

@@ -66,6 +66,12 @@ LIFTED = {
     "V_RcpF32", "V_RsqF32", "V_SqrtF32", "V_ExpF32", "V_LogF32",
     "V_FfbhU32", "V_FfblB32", "V_ClzI32U32", "V_CtzI32B32",
     "V_BcntU32B32", "V_CndmaskB32",
+    # VOP1 32-bit conversions and math.
+    "V_Nop", "V_ReadfirstlaneB32", "V_CvtNearestI32F32", "V_CvtFloorI32F32",
+    "V_CvtF32Ubyte0", "V_CvtF32Ubyte1", "V_CvtF32Ubyte2", "V_CvtF32Ubyte3",
+    "V_FractF32", "V_TruncF32", "V_CeilF32", "V_RndneF32", "V_FloorF32",
+    "V_SinF32", "V_CosF32", "V_BfrevB32", "V_ClsI32", "V_CvtI32I16",
+    "V_CvtU32U16",
     # Vector compares.
     "V_CmpLtI32", "V_CmpEqI32", "V_CmpLeI32", "V_CmpGtI32",
     "V_CmpNeI32", "V_CmpGeI32", "V_CmpLtU32", "V_CmpEqU32",

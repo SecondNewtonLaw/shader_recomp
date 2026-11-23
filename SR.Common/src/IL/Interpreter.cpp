@@ -417,6 +417,30 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                 case UnaryOp::Log2:
                     values[id] = FloatBits(std::log2(AsFloat(operand, type)), type);
                     break;
+                case UnaryOp::Trunc:
+                    values[id] = FloatBits(std::trunc(AsFloat(operand, type)), type);
+                    break;
+                case UnaryOp::Ceil:
+                    values[id] = FloatBits(std::ceil(AsFloat(operand, type)), type);
+                    break;
+                case UnaryOp::RoundEven:
+                    values[id] = FloatBits(std::nearbyint(AsFloat(operand, type)), type);
+                    break;
+                case UnaryOp::Floor:
+                    values[id] = FloatBits(std::floor(AsFloat(operand, type)), type);
+                    break;
+                case UnaryOp::Sin:
+                    values[id] = FloatBits(std::sin(AsFloat(operand, type)), type);
+                    break;
+                case UnaryOp::Cos:
+                    values[id] = FloatBits(std::cos(AsFloat(operand, type)), type);
+                    break;
+                case UnaryOp::Fract:
+                {
+                    const double value = AsFloat(operand, type);
+                    values[id] = FloatBits(value - std::floor(value), type);
+                    break;
+                }
                 case UnaryOp::BitReverse:
                 {
                     const std::uint32_t width = type.width;

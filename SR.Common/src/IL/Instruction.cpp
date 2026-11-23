@@ -83,6 +83,18 @@ std::string_view ToString(UnaryOp op) noexcept
         return "exp2";
     case UnaryOp::Log2:
         return "log2";
+    case UnaryOp::Trunc:
+        return "trunc";
+    case UnaryOp::Ceil:
+        return "ceil";
+    case UnaryOp::RoundEven:
+        return "round-even";
+    case UnaryOp::Floor:
+        return "floor";
+    case UnaryOp::Sin:
+        return "sin";
+    case UnaryOp::Cos:
+        return "cos";
     }
 
     return "unknown";

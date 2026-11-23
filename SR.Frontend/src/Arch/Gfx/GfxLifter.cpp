@@ -912,6 +912,130 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    [[nodiscard]] Result<void> LiftConvertRound(const DecodedInstruction& instruction, IL::UnaryOp round)
+    {
+        const auto source = ReadFloatSource(instruction, 1);
+        if (!source)
+            return std::unexpected(source.error());
+        IL::ValueId rounded = m_builder.UnaryValue(round, m_module.types.F32(), *source, false);
+        IL::ValueId result = m_builder.ConvertValue(m_module.types.I32(), IL::ConvertOp::FPToSI, rounded, false);
+        result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftByteToFloat(const DecodedInstruction& instruction, std::uint8_t byteIndex)
+    {
+        auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        IL::ValueId value = *source;
+        if (byteIndex != 0)
+        {
+            value = m_builder.Emit(m_module.types.U32(),
+                                   IL::Op::Binary,
+                                   static_cast<std::uint16_t>(IL::BinaryOp::LShr),
+                                   {value, m_builder.ConstantU32(8u * byteIndex)},
+                                   {},
+                                   IL::NoPayload,
+                                   instruction.pc,
+                                   static_cast<std::uint16_t>(instruction.op),
+                                   false);
+        }
+        value = m_builder.Emit(m_module.types.U32(),
+                               IL::Op::Binary,
+                               static_cast<std::uint16_t>(IL::BinaryOp::And),
+                               {value, m_builder.ConstantU32(0xFF)},
+                               {},
+                               IL::NoPayload,
+                               instruction.pc,
+                               static_cast<std::uint16_t>(instruction.op),
+                               false);
+        IL::ValueId result = m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::UIToFP, value, false);
+        result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftConvert16(const DecodedInstruction& instruction, bool isSigned)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        IL::ValueId result = *source;
+        if (isSigned)
+        {
+            IL::ValueId shifted = m_builder.Emit(m_module.types.U32(),
+                                                 IL::Op::Binary,
+                                                 static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                                 {result, m_builder.ConstantU32(16)},
+                                                 {},
+                                                 IL::NoPayload,
+                                                 instruction.pc,
+                                                 static_cast<std::uint16_t>(instruction.op),
+                                                 false);
+            shifted = m_builder.Emit(m_module.types.I32(),
+                                     IL::Op::Binary,
+                                     static_cast<std::uint16_t>(IL::BinaryOp::AShr),
+                                     {Bitcast(m_module.types.I32(), shifted), m_builder.ConstantU32(16)},
+                                     {},
+                                     IL::NoPayload,
+                                     instruction.pc,
+                                     static_cast<std::uint16_t>(instruction.op),
+                                     false);
+            result = Bitcast(m_module.types.U32(), shifted);
+        }
+        else
+        {
+            result = m_builder.Emit(m_module.types.U32(),
+                                    IL::Op::Binary,
+                                    static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                    {result, m_builder.ConstantU32(0xFFFF)},
+                                    {},
+                                    IL::NoPayload,
+                                    instruction.pc,
+                                    static_cast<std::uint16_t>(instruction.op),
+                                    false);
+        }
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftCls(const DecodedInstruction& instruction)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        const IL::ValueId sign = m_builder.Emit(m_module.types.U32(),
+                                                IL::Op::Binary,
+                                                static_cast<std::uint16_t>(IL::BinaryOp::AShr),
+                                                {Bitcast(m_module.types.I32(), *source),
+                                                 m_builder.ConstantU32(31)},
+                                                {},
+                                                IL::NoPayload,
+                                                instruction.pc,
+                                                static_cast<std::uint16_t>(instruction.op),
+                                                false);
+        const IL::ValueId different = m_builder.Emit(m_module.types.U32(),
+                                                     IL::Op::Binary,
+                                                     static_cast<std::uint16_t>(IL::BinaryOp::Xor),
+                                                     {*source, Bitcast(m_module.types.U32(), sign)},
+                                                     {},
+                                                     IL::NoPayload,
+                                                     instruction.pc,
+                                                     static_cast<std::uint16_t>(instruction.op),
+                                                     false);
+        const IL::ValueId allSame = m_builder.CompareValue(IL::CompareOp::UEq,
+                                                           different,
+                                                           m_builder.ConstantU32(0),
+                                                           false);
+        const IL::ValueId count = m_builder.UnaryValue(IL::UnaryOp::Clz, m_module.types.U32(), different, false);
+        const IL::ValueId minusOne = m_builder.ConstantU32(0xFFFFFFFFu);
+        const IL::ValueId result =
+            m_builder.SelectValue(m_module.types.U32(), allSame, minusOne, count, false);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftUnaryFloat(const DecodedInstruction& instruction, IL::UnaryOp subop)
     {
         const auto source = ReadFloatSource(instruction, 1);
@@ -2009,9 +2133,51 @@ private:
             return LiftVectorCompare(instruction, IL::CompareOp::FUnordGe, VectorPredicate::Compare, true, false);
         case Op::V_CndmaskB32:
             return LiftCndmask(instruction);
+        case Op::V_Nop:
+            return {};
+        case Op::V_ReadfirstlaneB32:
+        {
+            const auto value = ReadBits(instruction.operands[1], instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+            return WriteDest(instruction.operands[0], *value, instruction.pc);
+        }
+        case Op::V_CvtNearestI32F32:
+            return LiftConvertRound(instruction, IL::UnaryOp::RoundEven);
+        case Op::V_CvtFloorI32F32:
+            return LiftConvertRound(instruction, IL::UnaryOp::Floor);
+        case Op::V_CvtF32Ubyte0:
+            return LiftByteToFloat(instruction, 0);
+        case Op::V_CvtF32Ubyte1:
+            return LiftByteToFloat(instruction, 1);
+        case Op::V_CvtF32Ubyte2:
+            return LiftByteToFloat(instruction, 2);
+        case Op::V_CvtF32Ubyte3:
+            return LiftByteToFloat(instruction, 3);
+        case Op::V_FractF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Fract);
+        case Op::V_TruncF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Trunc);
+        case Op::V_CeilF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Ceil);
+        case Op::V_RndneF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::RoundEven);
+        case Op::V_FloorF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Floor);
+        case Op::V_SinF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Sin);
+        case Op::V_CosF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Cos);
+        case Op::V_BfrevB32:
+            return LiftUnaryBits(instruction, IL::UnaryOp::BitReverse, false);
+        case Op::V_ClsI32:
+            return LiftCls(instruction);
+        case Op::V_CvtI32I16:
+            return LiftConvert16(instruction, true);
+        case Op::V_CvtU32U16:
+            return LiftConvert16(instruction, false);
         case Op::V_BfeU32:
-            return LiftBitFieldExtract(instruction, false, false);
-        case Op::V_BfeI32:
+            return LiftBitFieldExtract(instruction, false, false);        case Op::V_BfeI32:
             return LiftBitFieldExtract(instruction, true, false);
         case Op::V_BfiB32:
             return LiftBitFieldInsert(instruction);

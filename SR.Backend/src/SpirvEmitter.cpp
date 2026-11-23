@@ -124,6 +124,13 @@ enum SpvOp : std::uint16_t
 enum GlslStd450 : std::uint32_t
 {
     GlslFAbs = 4,
+    GlslRoundEven = 2,
+    GlslTrunc = 3,
+    GlslFloor = 8,
+    GlslCeil = 9,
+    GlslFract = 10,
+    GlslSin = 13,
+    GlslCos = 14,
     GlslFMin = 37,
     GlslFMax = 40,
     GlslFClamp = 43,
@@ -132,8 +139,9 @@ enum GlslStd450 : std::uint32_t
     GlslLog2 = 30,
     GlslSqrt = 31,
     GlslInverseSqrt = 32,
-    GlslFindUMsb = 73,
-    GlslFindILsb = 74,
+    GlslFindILsb = 73,
+    GlslFindSMsb = 74,
+    GlslFindUMsb = 75,
 };
 
 Diagnostic EmitError(std::string code, std::string message, std::uint32_t pc = 0)
@@ -360,7 +368,11 @@ private:
                         if (subop == IL::UnaryOp::FAbs || subop == IL::UnaryOp::Sqrt ||
                             subop == IL::UnaryOp::Clz || subop == IL::UnaryOp::Ctz ||
                             subop == IL::UnaryOp::Rsq || subop == IL::UnaryOp::Exp2 ||
-                            subop == IL::UnaryOp::Log2 || subop == IL::UnaryOp::Rcp)
+                            subop == IL::UnaryOp::Log2 || subop == IL::UnaryOp::Rcp ||
+                            subop == IL::UnaryOp::Trunc || subop == IL::UnaryOp::Ceil ||
+                            subop == IL::UnaryOp::RoundEven || subop == IL::UnaryOp::Floor ||
+                            subop == IL::UnaryOp::Sin || subop == IL::UnaryOp::Cos ||
+                            subop == IL::UnaryOp::Fract)
                             return true;
                     }
                 }
@@ -1964,6 +1976,34 @@ private:
             return {};
         case IL::UnaryOp::Log2:
             Op(OpExtInst, {typeId, resultId, m_glslSet, GlslLog2, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Trunc:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslTrunc, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Ceil:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslCeil, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::RoundEven:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslRoundEven, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Floor:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFloor, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Sin:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslSin, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Cos:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslCos, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Fract:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFract, *operand});
             m_valueIds[resultValue] = resultId;
             return {};
         default:

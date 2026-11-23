@@ -914,13 +914,133 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 return std::unexpected(Error("SR-GFX-ISA-066", "invalid bcnt destination", pc));
             break;
         }
+        case Op::V_Nop:
+            break;
+        case Op::V_ReadfirstlaneB32:
+        {
+            const auto value = source(1);
+            if (!value || !write(*value))
+                return std::unexpected(Error("SR-GFX-ISA-094", "invalid readfirstlane operands", pc));
+            break;
+        }
+        case Op::V_CvtNearestI32F32:
+        case Op::V_CvtFloorI32F32:
+        {
+            const auto value = source(1);
+            if (!value)
+                return std::unexpected(Error("SR-GFX-ISA-095", "invalid rounded convert operand", pc));
+            const float input = AsFloat(*value);
+            const float rounded = instruction.op == Op::V_CvtNearestI32F32 ? std::nearbyint(input)
+                                                                           : std::floor(input);
+            if (!write(static_cast<std::uint32_t>(static_cast<std::int32_t>(rounded))))
+                return std::unexpected(Error("SR-GFX-ISA-096", "invalid rounded convert destination", pc));
+            break;
+        }
+        case Op::V_CvtF32Ubyte0:
+        case Op::V_CvtF32Ubyte1:
+        case Op::V_CvtF32Ubyte2:
+        case Op::V_CvtF32Ubyte3:
+        {
+            const auto value = source(1);
+            if (!value)
+                return std::unexpected(Error("SR-GFX-ISA-097", "invalid byte convert operand", pc));
+            std::uint32_t byteIndex = 0;
+            if (instruction.op == Op::V_CvtF32Ubyte1)
+                byteIndex = 1;
+            else if (instruction.op == Op::V_CvtF32Ubyte2)
+                byteIndex = 2;
+            else if (instruction.op == Op::V_CvtF32Ubyte3)
+                byteIndex = 3;
+            const std::uint32_t byte = (*value >> (8u * byteIndex)) & 0xFFu;
+            if (!write(AsBits(static_cast<float>(byte))))
+                return std::unexpected(Error("SR-GFX-ISA-098", "invalid byte convert destination", pc));
+            break;
+        }
+        case Op::V_FractF32:
+        case Op::V_TruncF32:
+        case Op::V_CeilF32:
+        case Op::V_RndneF32:
+        case Op::V_FloorF32:
+        case Op::V_SinF32:
+        case Op::V_CosF32:
+        {
+            const auto value = source(1);
+            if (!value)
+                return std::unexpected(Error("SR-GFX-ISA-099", "invalid unary math operand", pc));
+            const float input = FloatSource(instruction, 1, *value);
+            float converted = 0.0f;
+            switch (instruction.op)
+            {
+            case Op::V_FractF32:
+                converted = input - std::floor(input);
+                break;
+            case Op::V_TruncF32:
+                converted = std::trunc(input);
+                break;
+            case Op::V_CeilF32:
+                converted = std::ceil(input);
+                break;
+            case Op::V_RndneF32:
+                converted = std::nearbyint(input);
+                break;
+            case Op::V_FloorF32:
+                converted = std::floor(input);
+                break;
+            case Op::V_SinF32:
+                converted = std::sin(input);
+                break;
+            case Op::V_CosF32:
+                converted = std::cos(input);
+                break;
+            default:
+                break;
+            }
+            if (!write(FloatResult(instruction, converted)))
+                return std::unexpected(Error("SR-GFX-ISA-100", "invalid unary math destination", pc));
+            break;
+        }
+        case Op::V_BfrevB32:
+        {
+            const auto value = source(1);
+            if (!value || !write(BitReverse(*value)))
+                return std::unexpected(Error("SR-GFX-ISA-101", "invalid bfrev operands", pc));
+            break;
+        }
+        case Op::V_ClsI32:
+        {
+            const auto value = source(1);
+            if (!value)
+                return std::unexpected(Error("SR-GFX-ISA-102", "invalid cls operand", pc));
+            const std::uint32_t sign = static_cast<std::uint32_t>(AsSigned(*value) >> 31);
+            const std::uint32_t different = *value ^ sign;
+            const std::uint32_t result = different == 0
+                                             ? 0xFFFFFFFFu
+                                             : static_cast<std::uint32_t>(std::countl_zero(different));
+            if (!write(result))
+                return std::unexpected(Error("SR-GFX-ISA-103", "invalid cls destination", pc));
+            break;
+        }
+        case Op::V_CvtI32I16:
+            {
+                const auto value = source(1);
+                if (!value || !write(static_cast<std::uint32_t>(static_cast<std::int32_t>(
+                                 static_cast<std::int16_t>(*value & 0xFFFFu)))))
+                    return std::unexpected(Error("SR-GFX-ISA-104", "invalid cvt_i32_i16 operands", pc));
+                break;
+            }
+        case Op::V_CvtU32U16:
+            {
+                const auto value = source(1);
+                if (!value || !write(*value & 0xFFFFu))
+                    return std::unexpected(Error("SR-GFX-ISA-105", "invalid cvt_u32_u16 operands", pc));
+                break;
+            }
         case Op::V_RcpF32:
         case Op::V_RsqF32:
         case Op::V_SqrtF32:
         case Op::V_ExpF32:
         case Op::V_LogF32:
-        {
-            const auto value = source(1);
+        {            const auto value = source(1);
             if (!value)
                 return std::unexpected(Error("SR-GFX-ISA-067", "invalid math operand", pc));
             const float input = FloatSource(instruction, 1, *value);

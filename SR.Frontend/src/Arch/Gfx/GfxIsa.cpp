@@ -130,10 +130,24 @@ constexpr std::array kGfx10 = {
     Make(Encoding::SopP, 10, Op::S_Barrier, "s_barrier", {}),
 
     Make(Encoding::Vop1, 1, Op::V_MovB32, "v_mov_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 0, Op::V_Nop, "v_nop", {}),
+    Make(Encoding::Vop1, 2, Op::V_ReadfirstlaneB32, "v_readfirstlane_b32",
+         {OperandKind::Vop1Sdst, OperandKind::Src}),
+    Make(Encoding::Vop1, 17, Op::V_CvtF32Ubyte0, "v_cvt_f32_ubyte0", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 18, Op::V_CvtF32Ubyte1, "v_cvt_f32_ubyte1", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 19, Op::V_CvtF32Ubyte2, "v_cvt_f32_ubyte2", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 20, Op::V_CvtF32Ubyte3, "v_cvt_f32_ubyte3", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 32, Op::V_FractF32, "v_fract_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 33, Op::V_TruncF32, "v_trunc_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 34, Op::V_CeilF32, "v_ceil_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 35, Op::V_RndneF32, "v_rndne_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 36, Op::V_FloorF32, "v_floor_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 53, Op::V_SinF32, "v_sin_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 54, Op::V_CosF32, "v_cos_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 56, Op::V_BfrevB32, "v_bfrev_b32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop1, 57, Op::V_FfbhU32, "v_ffbh_u32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop1, 58, Op::V_FfblB32, "v_ffbl_b32", {OperandKind::Vgpr, OperandKind::Src}),
-    Make(Encoding::Vop1, 42, Op::V_RcpF32, "v_rcp_f32", {OperandKind::Vgpr, OperandKind::Src}),
-    Make(Encoding::Vop1, 46, Op::V_RsqF32, "v_rsq_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 42, Op::V_RcpF32, "v_rcp_f32", {OperandKind::Vgpr, OperandKind::Src}),    Make(Encoding::Vop1, 46, Op::V_RsqF32, "v_rsq_f32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop1, 51, Op::V_SqrtF32, "v_sqrt_f32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop1, 37, Op::V_ExpF32, "v_exp_f32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop1, 39, Op::V_LogF32, "v_log_f32", {OperandKind::Vgpr, OperandKind::Src}),
@@ -172,6 +186,21 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Vop3, 284, Op::V_OrB32, "v_or_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 285, Op::V_XorB32, "v_xor_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 385, Op::V_MovB32, "v_mov_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 384, Op::V_Nop, "v_nop", {}),
+    Make(Encoding::Vop3, 386, Op::V_ReadfirstlaneB32, "v_readfirstlane_b32",
+         {OperandKind::Vop3Sdst, OperandKind::Src}),
+    Make(Encoding::Vop3, 401, Op::V_CvtF32Ubyte0, "v_cvt_f32_ubyte0", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 402, Op::V_CvtF32Ubyte1, "v_cvt_f32_ubyte1", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 403, Op::V_CvtF32Ubyte2, "v_cvt_f32_ubyte2", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 404, Op::V_CvtF32Ubyte3, "v_cvt_f32_ubyte3", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 416, Op::V_FractF32, "v_fract_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 417, Op::V_TruncF32, "v_trunc_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 418, Op::V_CeilF32, "v_ceil_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 419, Op::V_RndneF32, "v_rndne_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 420, Op::V_FloorF32, "v_floor_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 437, Op::V_SinF32, "v_sin_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 438, Op::V_CosF32, "v_cos_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 440, Op::V_BfrevB32, "v_bfrev_b32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop3, 439, Op::V_NotB32, "v_not_b32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop3, 389, Op::V_CvtF32I32, "v_cvt_f32_i32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop3, 390, Op::V_CvtF32U32, "v_cvt_f32_u32", {OperandKind::Vgpr, OperandKind::Src}),
@@ -387,8 +416,18 @@ constexpr std::array kGfx11 = {
     Make(Encoding::Vop3, 282, Op::V_AshrrevI32, "v_ashrrev_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop1, 57, Op::V_ClzI32U32, "v_clz_i32_u32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop1, 58, Op::V_CtzI32B32, "v_ctz_i32_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 12, Op::V_CvtNearestI32F32, "v_cvt_nearest_i32_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 13, Op::V_CvtFloorI32F32, "v_cvt_floor_i32_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 59, Op::V_ClsI32, "v_cls_i32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 106, Op::V_CvtI32I16, "v_cvt_i32_i16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 107, Op::V_CvtU32U16, "v_cvt_u32_u16", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop3, 441, Op::V_ClzI32U32, "v_clz_i32_u32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop3, 442, Op::V_CtzI32B32, "v_ctz_i32_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 396, Op::V_CvtNearestI32F32, "v_cvt_nearest_i32_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 397, Op::V_CvtFloorI32F32, "v_cvt_floor_i32_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 443, Op::V_ClsI32, "v_cls_i32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 490, Op::V_CvtI32I16, "v_cvt_i32_i16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 491, Op::V_CvtU32U16, "v_cvt_u32_u16", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop3, 798, Op::V_BcntU32B32, "v_bcnt_u32_b32",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 537, Op::V_Min3F32, "v_min3_f32",
@@ -861,6 +900,44 @@ std::string_view ToString(Op op) noexcept
         return "v_ctz_i32_b32";
     case Op::V_BcntU32B32:
         return "v_bcnt_u32_b32";
+    case Op::V_Nop:
+        return "v_nop";
+    case Op::V_ReadfirstlaneB32:
+        return "v_readfirstlane_b32";
+    case Op::V_CvtNearestI32F32:
+        return "v_cvt_nearest_i32_f32";
+    case Op::V_CvtFloorI32F32:
+        return "v_cvt_floor_i32_f32";
+    case Op::V_CvtF32Ubyte0:
+        return "v_cvt_f32_ubyte0";
+    case Op::V_CvtF32Ubyte1:
+        return "v_cvt_f32_ubyte1";
+    case Op::V_CvtF32Ubyte2:
+        return "v_cvt_f32_ubyte2";
+    case Op::V_CvtF32Ubyte3:
+        return "v_cvt_f32_ubyte3";
+    case Op::V_FractF32:
+        return "v_fract_f32";
+    case Op::V_TruncF32:
+        return "v_trunc_f32";
+    case Op::V_CeilF32:
+        return "v_ceil_f32";
+    case Op::V_RndneF32:
+        return "v_rndne_f32";
+    case Op::V_FloorF32:
+        return "v_floor_f32";
+    case Op::V_SinF32:
+        return "v_sin_f32";
+    case Op::V_CosF32:
+        return "v_cos_f32";
+    case Op::V_BfrevB32:
+        return "v_bfrev_b32";
+    case Op::V_ClsI32:
+        return "v_cls_i32";
+    case Op::V_CvtI32I16:
+        return "v_cvt_i32_i16";
+    case Op::V_CvtU32U16:
+        return "v_cvt_u32_u16";
     case Op::V_AddNcU32:
         return "v_add_nc_u32";
     case Op::V_SubNcU32:
@@ -1293,6 +1370,14 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             operand.kind = OperandKind::Imm32;
             operand.value = static_cast<std::uint32_t>(
                 static_cast<std::int32_t>(Extract(wide, 72, 24) << 8) >> 8);
+            break;
+        case OperandKind::Vop1Sdst:
+            operand.kind = OperandKind::Sdst;
+            operand.value = Extract(wide, 17, 7);
+            break;
+        case OperandKind::Vop3Sdst:
+            operand.kind = OperandKind::Sdst;
+            operand.value = Extract(wide, 0, 7);
             break;
         case OperandKind::Literal:
         case OperandKind::None:
