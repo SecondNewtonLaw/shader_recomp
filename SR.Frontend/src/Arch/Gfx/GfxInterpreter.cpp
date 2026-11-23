@@ -159,6 +159,23 @@ bool WritePair(IsaState& state, const Operand& operand, std::uint64_t value)
     return true;
 }
 
+std::optional<std::uint64_t> ReadVgprPair(const IsaState& state, const Operand& operand)
+{
+    if ((operand.kind != OperandKind::Vgpr && operand.kind != OperandKind::Vsrc) || operand.value + 1 >= 256)
+        return std::nullopt;
+    return static_cast<std::uint64_t>(state.vgpr[operand.value]) |
+           (static_cast<std::uint64_t>(state.vgpr[operand.value + 1]) << 32);
+}
+
+bool WriteVgprPair(IsaState& state, const Operand& operand, std::uint64_t value)
+{
+    if (operand.kind != OperandKind::Vgpr || operand.value + 1 >= 256)
+        return false;
+    state.vgpr[operand.value] = static_cast<std::uint32_t>(value);
+    state.vgpr[operand.value + 1] = static_cast<std::uint32_t>(value >> 32);
+    return true;
+}
+
 std::optional<std::uint32_t> BufferIndex(const IsaState& state,
                                          const DecodedInstruction& instruction,
                                          std::uint8_t addressIndex)
@@ -834,6 +851,116 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 value = *left * *right;
             if (!write(value))
                 return std::unexpected(Error("SR-GFX-ISA-055", "invalid integer VALU destination", pc));
+            break;
+        }
+        case Op::V_SubrevNcU32:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right || !write(*right - *left))
+                return std::unexpected(Error("SR-GFX-ISA-106", "invalid subrev_nc operands", pc));
+            break;
+        }
+        case Op::V_SubrevF32:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-107", "invalid subrev_f32 operands", pc));
+            const float value = FloatSource(instruction, 2, *right) - FloatSource(instruction, 1, *left);
+            if (!write(FloatResult(instruction, value)))
+                return std::unexpected(Error("SR-GFX-ISA-108", "invalid subrev_f32 destination", pc));
+            break;
+        }
+        case Op::V_MulDx9ZeroF32:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-109", "invalid dx9 multiply operands", pc));
+            const float a = FloatSource(instruction, 1, *left);
+            const float b = FloatSource(instruction, 2, *right);
+            const float value = (a == 0.0f || b == 0.0f) ? 0.0f : a * b;
+            if (!write(FloatResult(instruction, value)))
+                return std::unexpected(Error("SR-GFX-ISA-110", "invalid dx9 multiply destination", pc));
+            break;
+        }
+        case Op::V_MulI32I24:
+        case Op::V_MulHiI32I24:
+        case Op::V_MulU32U24:
+        case Op::V_MulHiU32U24:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-111", "invalid 24-bit multiply operands", pc));
+            const bool isSigned = instruction.op == Op::V_MulI32I24 || instruction.op == Op::V_MulHiI32I24;
+            const bool high = instruction.op == Op::V_MulHiI32I24 || instruction.op == Op::V_MulHiU32U24;
+            std::uint32_t a = *left & 0xFFFFFFu;
+            std::uint32_t b = *right & 0xFFFFFFu;
+            if (isSigned)
+            {
+                a = static_cast<std::uint32_t>(static_cast<std::int32_t>(a << 8) >> 8);
+                b = static_cast<std::uint32_t>(static_cast<std::int32_t>(b << 8) >> 8);
+            }
+            std::uint32_t value = 0;
+            if (high)
+            {
+                const std::uint64_t product = isSigned
+                                                  ? static_cast<std::uint64_t>(
+                                                        static_cast<std::int64_t>(AsSigned(a)) *
+                                                        static_cast<std::int64_t>(AsSigned(b)))
+                                                  : static_cast<std::uint64_t>(a) * static_cast<std::uint64_t>(b);
+                value = static_cast<std::uint32_t>(product >> 32);
+            }
+            else
+            {
+                value = a * b;
+            }
+            if (!write(value))
+                return std::unexpected(Error("SR-GFX-ISA-112", "invalid 24-bit multiply destination", pc));
+            break;
+        }
+        case Op::V_XnorB32:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right || !write(~(*left ^ *right)))
+                return std::unexpected(Error("SR-GFX-ISA-113", "invalid xnor operands", pc));
+            break;
+        }
+        case Op::V_AddCoCiU32:
+        case Op::V_SubCoCiU32:
+        case Op::V_SubrevCoCiU32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            if (!first || !second)
+                return std::unexpected(Error("SR-GFX-ISA-114", "invalid carry VALU operands", pc));
+            const bool subtract = instruction.op != Op::V_AddCoCiU32;
+            const bool reverse = instruction.op == Op::V_SubrevCoCiU32;
+            const std::uint32_t left = reverse ? *second : *first;
+            const std::uint32_t right = reverse ? *first : *second;
+            const std::uint32_t carryIn = result.state.vcc ? 1u : 0u;
+            const std::uint32_t partial = subtract ? left - right : left + right;
+            const bool firstFlag = subtract ? left < right : partial < left;
+            const std::uint32_t value = subtract ? partial - carryIn : partial + carryIn;
+            const bool secondFlag = subtract ? partial < carryIn : value < partial;
+            result.state.vcc = firstFlag || secondFlag;
+            if (!write(value))
+                return std::unexpected(Error("SR-GFX-ISA-115", "invalid carry VALU destination", pc));
+            break;
+        }
+        case Op::V_LshlrevB64:
+        {
+            const auto count = source(1);
+            if (!count)
+                return std::unexpected(Error("SR-GFX-ISA-116", "invalid 64-bit shift count", pc));
+            const auto value = ReadVgprPair(result.state, instruction.operands[2]);
+            if (!value)
+                return std::unexpected(Error("SR-GFX-ISA-117", "invalid 64-bit shift source", pc));
+            if (!WriteVgprPair(result.state, instruction.operands[0], *value << (*count & 63u)))
+                return std::unexpected(Error("SR-GFX-ISA-118", "invalid 64-bit shift destination", pc));
             break;
         }
         case Op::V_LshlrevB32:

@@ -900,7 +900,7 @@ TEST_CASE("gfx ISA interpreter matches the IL interpreter", "[gfx][isa][divergen
     {
         for (const char* fixture : {"basic", "loop", "alu", "valu", "scc", "bitops", "vbits", "fpalu",
                                     "loadstore", "branch", "store", "modifiers", "bitfield", "b64",
-                                    "compares", "vop1"})
+                                    "compares", "vop1", "vop2"})
         {
             INFO(testCase.directory << "/" << fixture);
             const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory /
@@ -1254,6 +1254,58 @@ TEST_CASE("gfx VOP1 conversions and unary math interpret", "[gfx][vop1][pipeline
     REQUIRE(execution->buffer.at(11) == 0xFFFFFFFFu);
     REQUIRE(execution->buffer.at(12) == 0x80000000u);
     REQUIRE(execution->buffer.at(13) == 0x40300000u);
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::Backend::Reemit(*module).has_value());
+#endif
+}
+
+TEST_CASE("gfx VOP2 multiply and carry family interprets", "[gfx][vop2][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / "gfx1200" / "vop2.hsaco";
+    if (!std::filesystem::exists(path))
+    {
+        SUCCEED("vop2 fixture is not present");
+        return;
+    }
+
+    const auto bytes = ReadFile(path);
+    REQUIRE_FALSE(bytes.empty());
+
+    SR::Frontend::MasterReader reader;
+    const auto shader = reader.Read(bytes);
+    REQUIRE(shader.has_value());
+
+    auto module = SR::Frontend::Gfx::Lift(*shader,
+                                         SR::Frontend::Gfx::Arch::Gfx12,
+                                         "main",
+                                         SR::Frontend::Gfx::LiftOptions{true});
+    const std::string moduleError = module.has_value() ? std::string() : SR::ToString(module.error());
+    INFO(moduleError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    const std::string executionError =
+        execution.has_value() ? std::string() : SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+    REQUIRE(execution->buffer.at(0) == 0xFFFFFEu);
+    REQUIRE(execution->buffer.at(1) == 0xFFFFFEu);
+    REQUIRE(execution->buffer.at(2) == 0u);
+    REQUIRE(execution->buffer.at(3) == 0x3FFFu);
+    REQUIRE(execution->buffer.at(4) == 0xFFFFFFFDu);
+    REQUIRE(execution->buffer.at(5) == 0u);
+    REQUIRE(execution->buffer.at(6) == 0xF00FF00Fu);
+    REQUIRE(execution->buffer.at(7) == 0x20u);
+    REQUIRE(execution->buffer.at(8) == 0x10u);
+    REQUIRE(execution->buffer.at(9) == 9u);
+    REQUIRE(execution->buffer.at(10) == 2u);
+    REQUIRE(execution->buffer.at(11) == 0xFFFFFFFEu);
 
     REQUIRE(SR::IL::RunPipeline(*module).has_value());
     REQUIRE(SR::IL::VerifyModule(*module).has_value());

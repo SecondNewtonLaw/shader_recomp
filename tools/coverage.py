@@ -72,6 +72,10 @@ LIFTED = {
     "V_FractF32", "V_TruncF32", "V_CeilF32", "V_RndneF32", "V_FloorF32",
     "V_SinF32", "V_CosF32", "V_BfrevB32", "V_ClsI32", "V_CvtI32I16",
     "V_CvtU32U16",
+    # VOP2 32-bit multiply, reverse and carry family.
+    "V_SubrevF32", "V_MulDx9ZeroF32", "V_MulI32I24", "V_MulHiI32I24",
+    "V_MulU32U24", "V_MulHiU32U24", "V_XnorB32", "V_LshlrevB64",
+    "V_AddCoCiU32", "V_SubCoCiU32", "V_SubrevCoCiU32", "V_SubrevNcU32",
     # Vector compares.
     "V_CmpLtI32", "V_CmpEqI32", "V_CmpLeI32", "V_CmpGtI32",
     "V_CmpNeI32", "V_CmpGeI32", "V_CmpLtU32", "V_CmpEqU32",
