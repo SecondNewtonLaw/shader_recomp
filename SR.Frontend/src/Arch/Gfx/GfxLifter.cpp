@@ -564,8 +564,10 @@ private:
     [[nodiscard]] Result<void> LiftMinMax(const DecodedInstruction& instruction,
                                           IL::CompareOp compare,
                                           bool maximum,
-                                          bool isSigned)
+                                          bool isSigned,
+                                          bool uniform = true)
     {
+        (void)maximum;
         const IL::TypeId type = isSigned ? m_module.types.I32() : m_module.types.U32();
         const auto left = isSigned ? ReadSigned(instruction.operands[1], instruction.pc)
                                    : ReadBits(instruction.operands[1], instruction.pc);
@@ -576,15 +578,39 @@ private:
         if (!right)
             return std::unexpected(right.error());
 
-        const IL::ValueId condition = m_builder.CompareValue(compare, *left, *right, true);
+        const IL::ValueId condition = m_builder.CompareValue(compare, *left, *right, uniform);
         IL::ValueId selected = m_builder.SelectValue(type,
                                                      condition,
                                                      *left,
                                                      *right,
-                                                     true);
+                                                     uniform);
         if (isSigned)
             selected = Bitcast(m_module.types.U32(), selected);
         return WriteDest(instruction.operands[0], selected, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftReverseShift(const DecodedInstruction& instruction, bool arithmetic)
+    {
+        const auto count = ReadBits(instruction.operands[1], instruction.pc);
+        if (!count)
+            return std::unexpected(count.error());
+        const auto value = arithmetic ? ReadSigned(instruction.operands[2], instruction.pc)
+                                      : ReadBits(instruction.operands[2], instruction.pc);
+        if (!value)
+            return std::unexpected(value.error());
+
+        IL::ValueId result = m_builder.Emit(arithmetic ? m_module.types.I32() : m_module.types.U32(),
+                                            IL::Op::Binary,
+                                            static_cast<std::uint16_t>(arithmetic ? IL::BinaryOp::AShr : IL::BinaryOp::Shl),
+                                            {*value, *count},
+                                            {},
+                                            IL::NoPayload,
+                                            instruction.pc,
+                                            static_cast<std::uint16_t>(instruction.op),
+                                            false);
+        if (arithmetic)
+            result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
     [[nodiscard]] Result<void> LiftInvertedBinary(const DecodedInstruction& instruction, IL::BinaryOp subop)
@@ -747,6 +773,20 @@ private:
             return LiftVectorConvert(instruction, IL::ConvertOp::FPToSI, m_module.types.I32(), true);
         case Op::V_CvtU32F32:
             return LiftVectorConvert(instruction, IL::ConvertOp::FPToUI, m_module.types.U32(), true);
+        case Op::V_MinI32:
+            return LiftMinMax(instruction, IL::CompareOp::ILt, false, true, false);
+        case Op::V_MaxI32:
+            return LiftMinMax(instruction, IL::CompareOp::IGt, true, true, false);
+        case Op::V_MinU32:
+            return LiftMinMax(instruction, IL::CompareOp::ULt, false, false, false);
+        case Op::V_MaxU32:
+            return LiftMinMax(instruction, IL::CompareOp::UGt, true, false, false);
+        case Op::V_LshlrevB32:
+            return LiftReverseShift(instruction, false);
+        case Op::V_AshrrevI32:
+            return LiftReverseShift(instruction, true);
+        case Op::V_MulLoU32:
+            return LiftBinary(instruction, IL::BinaryOp::IMul, false, false);
         case Op::S_CmpEqI32:
         case Op::S_CmpLgI32:
         case Op::S_CmpLtI32:

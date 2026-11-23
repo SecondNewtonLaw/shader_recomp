@@ -113,6 +113,12 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Vop2, 27, Op::V_AndB32, "v_and_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop2, 28, Op::V_OrB32, "v_or_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop2, 29, Op::V_XorB32, "v_xor_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 17, Op::V_MinI32, "v_min_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 18, Op::V_MaxI32, "v_max_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 19, Op::V_MinU32, "v_min_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 20, Op::V_MaxU32, "v_max_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 26, Op::V_LshlrevB32, "v_lshlrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 24, Op::V_AshrrevI32, "v_ashrrev_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
 
     Make(Encoding::Vop3, 259, Op::V_AddF32, "v_add_f32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 260, Op::V_SubF32, "v_sub_f32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
@@ -123,6 +129,18 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Vop3, 284, Op::V_OrB32, "v_or_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 285, Op::V_XorB32, "v_xor_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 385, Op::V_MovB32, "v_mov_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 439, Op::V_NotB32, "v_not_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 389, Op::V_CvtF32I32, "v_cvt_f32_i32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 390, Op::V_CvtF32U32, "v_cvt_f32_u32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 392, Op::V_CvtI32F32, "v_cvt_i32_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 391, Op::V_CvtU32F32, "v_cvt_u32_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 273, Op::V_MinI32, "v_min_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 274, Op::V_MaxI32, "v_max_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 275, Op::V_MinU32, "v_min_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 276, Op::V_MaxU32, "v_max_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 282, Op::V_LshlrevB32, "v_lshlrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 280, Op::V_AshrrevI32, "v_ashrrev_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 361, Op::V_MulLoU32, "v_mul_lo_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -162,6 +180,11 @@ constexpr std::array kGfx11 = {
     Remove(Encoding::SopP, 10),
 
     Remove(Encoding::Vop3, 331),
+    Remove(Encoding::Vop3, 361),
+    Remove(Encoding::Vop3, 280),
+    Remove(Encoding::Vop3, 282),
+    Remove(Encoding::Vop2, 24),
+    Remove(Encoding::Vop2, 26),
 
     Make(Encoding::Sop1, 0, Op::S_MovB32, "s_mov_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
 
@@ -198,6 +221,11 @@ constexpr std::array kGfx11 = {
 
     Make(Encoding::Vop3, 531, Op::V_FmaF32, "v_fma_f32",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 812, Op::V_MulLoU32, "v_mul_lo_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 280, Op::V_LshlrevB32, "v_lshlrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 282, Op::V_AshrrevI32, "v_ashrrev_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop2, 24, Op::V_LshlrevB32, "v_lshlrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 26, Op::V_AshrrevI32, "v_ashrrev_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
 };
 
 // RDNA4 keeps RDNA3's numbering for this subset and replaces plain S_ADD/S_SUB
@@ -523,6 +551,20 @@ std::string_view ToString(Op op) noexcept
         return "v_cvt_i32_f32";
     case Op::V_CvtU32F32:
         return "v_cvt_u32_f32";
+    case Op::V_MinI32:
+        return "v_min_i32";
+    case Op::V_MaxI32:
+        return "v_max_i32";
+    case Op::V_MinU32:
+        return "v_min_u32";
+    case Op::V_MaxU32:
+        return "v_max_u32";
+    case Op::V_LshlrevB32:
+        return "v_lshlrev_b32";
+    case Op::V_AshrrevI32:
+        return "v_ashrrev_i32";
+    case Op::V_MulLoU32:
+        return "v_mul_lo_u32";
     case Op::GlobalStoreB32:
         return "global_store_b32";
     }

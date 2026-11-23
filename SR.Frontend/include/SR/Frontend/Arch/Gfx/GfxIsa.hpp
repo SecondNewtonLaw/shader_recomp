@@ -119,6 +119,13 @@ enum class Op : std::uint16_t
     V_CvtF32U32,
     V_CvtI32F32,
     V_CvtU32F32,
+    V_MinI32,
+    V_MaxI32,
+    V_MinU32,
+    V_MaxU32,
+    V_LshlrevB32,
+    V_AshrrevI32,
+    V_MulLoU32,
     GlobalStoreB32,
 };
 

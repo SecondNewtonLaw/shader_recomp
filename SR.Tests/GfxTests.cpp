@@ -357,6 +357,72 @@ TEST_CASE("gfx base ALU batch interprets across generations", "[gfx][alu][pipeli
 #endif
 }
 
+TEST_CASE("gfx vector integer batch interprets across generations", "[gfx][valu][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "valu.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader, testCase.arch);
+        if (!module.has_value())
+            INFO(SR::ToString(module.error()));
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto execution = SR::IL::Interpret(*module);
+        if (!execution.has_value())
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+
+        const auto vector = [&](std::uint32_t index) -> std::uint64_t {
+            for (const auto& entry : module->registerSlots)
+            {
+                if (entry.kind == SR::IL::RegisterClass::Vgpr && entry.index == index)
+                    return execution->memory.at(entry.alloca);
+            }
+            return SR::IL::InvalidValue;
+        };
+
+        REQUIRE(vector(2) == 5u);
+        REQUIRE(vector(3) == 20u);
+        REQUIRE(vector(4) == 640u);
+        REQUIRE(vector(7) == 0xFFFFFFFCu);
+        REQUIRE(vector(8) == 100u);
+        REQUIRE(vector(9) == 0xFFFFFFFAu);
+        REQUIRE(vector(10) == 5u);
+        REQUIRE(vector(11) == 640u);
+
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+        REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
 TEST_CASE("gfx1200 inline constants decode", "[gfx][decode]")
 {
     using namespace SR::Frontend::Gfx;
