@@ -1,0 +1,10 @@
+/.idea
+/.vs
+/bin
+/out
+/artifacts
+/cmake-build-*
+/CMakeUserPresets.json
+*.user
+/.cache
+/tests/artifacts
