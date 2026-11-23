@@ -2,32 +2,32 @@
   "generations": {
     "gfx10": {
       "total": 1149,
-      "decoded": 157,
+      "decoded": 163,
       "lifted": 42
     },
     "gfx1013": {
       "total": 1153,
-      "decoded": 157,
+      "decoded": 163,
       "lifted": 42
     },
     "gfx1030": {
       "total": 1153,
-      "decoded": 157,
+      "decoded": 163,
       "lifted": 42
     },
     "gfx1100": {
       "total": 1148,
-      "decoded": 153,
+      "decoded": 159,
       "lifted": 42
     },
     "gfx1150": {
       "total": 1208,
-      "decoded": 153,
+      "decoded": 159,
       "lifted": 42
     },
     "gfx1200": {
       "total": 1264,
-      "decoded": 153,
+      "decoded": 159,
       "lifted": 44
     }
   },
@@ -54,12 +54,12 @@
     },
     "SOP1": {
       "total": 84,
-      "decoded": 5,
+      "decoded": 7,
       "lifted": 1
     },
     "SOP2": {
       "total": 72,
-      "decoded": 28,
+      "decoded": 32,
       "lifted": 10
     },
     "GLOBAL": {
