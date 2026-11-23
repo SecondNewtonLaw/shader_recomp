@@ -19,6 +19,7 @@ struct IsaState
     std::array<std::uint32_t, 256> vgpr{};
     bool scc = false;
     bool vcc = false;
+    bool exec = true;
     // Test ABI storage buffer: dword index -> value.
     std::unordered_map<std::uint32_t, std::uint32_t> buffer;
 };

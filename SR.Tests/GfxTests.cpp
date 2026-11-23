@@ -899,7 +899,8 @@ TEST_CASE("gfx ISA interpreter matches the IL interpreter", "[gfx][isa][divergen
     for (const Case& testCase : cases)
     {
         for (const char* fixture : {"basic", "loop", "alu", "valu", "scc", "bitops", "vbits", "fpalu",
-                                    "loadstore", "branch", "store", "modifiers", "bitfield", "b64"})
+                                    "loadstore", "branch", "store", "modifiers", "bitfield", "b64",
+                                    "compares"})
         {
             INFO(testCase.directory << "/" << fixture);
             const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory /
@@ -958,6 +959,9 @@ TEST_CASE("gfx ISA interpreter matches the IL interpreter", "[gfx][isa][divergen
                     break;
                 case SR::IL::RegisterClass::Vcc:
                     isaValue = isa->state.vcc ? 1u : 0u;
+                    break;
+                case SR::IL::RegisterClass::Exec:
+                    isaValue = isa->state.exec ? 1u : 0u;
                     break;
                 }
                 INFO("register class " << static_cast<int>(slot.kind) << " index " << slot.index);
@@ -1134,6 +1138,66 @@ TEST_CASE("gfx 64-bit scalar operations interpret across generations", "[gfx][b6
         REQUIRE(execution->buffer.at(5) == 0u);
         REQUIRE(execution->buffer.at(6) == 0xFFFFFFFFu);
         REQUIRE(execution->buffer.at(7) == 0x89ABCDEFu);
+
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+        REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
+TEST_CASE("gfx compare predicates and CMPX EXEC masking interpret", "[gfx][compare][exec]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "compares.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader,
+                                             testCase.arch,
+                                             "main",
+                                             SR::Frontend::Gfx::LiftOptions{true});
+        const std::string moduleError = module.has_value() ? std::string() : SR::ToString(module.error());
+        INFO(moduleError);
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto execution = SR::IL::Interpret(*module);
+        const std::string executionError =
+            execution.has_value() ? std::string() : SR::ToString(execution.error());
+        INFO(executionError);
+        REQUIRE(execution.has_value());
+        REQUIRE(execution->buffer.at(0) == 1u);
+        REQUIRE(execution->buffer.at(1) == 0u);
+        REQUIRE(execution->buffer.at(2) == 1u);
+        REQUIRE(execution->buffer.at(3) == 1u);
+        REQUIRE(execution->buffer.at(4) == 1u);
+        REQUIRE(execution->buffer.at(5) == 0u);
+        REQUIRE(execution->buffer.at(6) == 9u);
+        REQUIRE(execution->buffer.at(7) == 8u);
 
         REQUIRE(SR::IL::RunPipeline(*module).has_value());
         REQUIRE(SR::IL::VerifyModule(*module).has_value());

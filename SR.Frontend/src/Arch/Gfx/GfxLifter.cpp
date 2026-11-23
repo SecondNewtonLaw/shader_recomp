@@ -65,6 +65,10 @@ public:
         m_entry = m_blockByPc.at(m_leaders.front());
         m_builder.SetEntry(m_entry);
 
+        // A single-invocation EXEC starts fully active.
+        m_builder.SetCurrentBlock(m_entry);
+        m_builder.Store(ExecSlot(), m_builder.ConstantBool(true), 0);
+
         for (std::size_t blockIndex = 0; blockIndex < m_leaders.size(); ++blockIndex)
         {
             const auto status = LiftBlock(blockIndex);
@@ -208,6 +212,17 @@ private:
             m_module.registerSlots.push_back({IL::RegisterClass::Vcc, 0, m_vccSlot});
         }
         return m_vccSlot;
+    }
+
+    [[nodiscard]] IL::ValueId ExecSlot()
+    {
+        if (m_execSlot == IL::InvalidValue)
+        {
+            const IL::TypeId pointer = m_module.types.Pointer(IL::Space::Private, m_module.types.Bool());
+            m_execSlot = m_builder.Alloca(pointer, m_entry);
+            m_module.registerSlots.push_back({IL::RegisterClass::Exec, 0, m_execSlot});
+        }
+        return m_execSlot;
     }
 
     [[nodiscard]] Result<IL::ValueId> ReadSgpr(std::uint32_t index, std::uint32_t pc)
@@ -459,6 +474,11 @@ private:
         return m_builder.Load(m_module.types.Bool(), VccSlot(), pc, false);
     }
 
+    [[nodiscard]] Result<IL::ValueId> ReadExec(std::uint32_t pc)
+    {
+        return m_builder.Load(m_module.types.Bool(), ExecSlot(), pc, true);
+    }
+
     [[nodiscard]] Result<void> WriteScc(IL::ValueId value, std::uint32_t pc)
     {
         m_builder.Store(SccSlot(), value, pc);
@@ -468,6 +488,12 @@ private:
     [[nodiscard]] Result<void> WriteVcc(IL::ValueId value, std::uint32_t pc)
     {
         m_builder.Store(VccSlot(), value, pc);
+        return {};
+    }
+
+    [[nodiscard]] Result<void> WriteExec(IL::ValueId value, std::uint32_t pc)
+    {
+        m_builder.Store(ExecSlot(), value, pc);
         return {};
     }
 
@@ -734,24 +760,85 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    enum class VectorPredicate
+    {
+        Compare,
+        False,
+        True,
+        Ordered,
+        Unordered,
+    };
+
     [[nodiscard]] Result<void> LiftVectorCompare(const DecodedInstruction& instruction,
                                                  IL::CompareOp compare,
+                                                 VectorPredicate predicate,
                                                  bool isFloat,
                                                  bool isSigned)
     {
-        const auto left = isFloat ? ReadFloatSource(instruction, 1)
-                                  : isSigned ? ReadSigned(instruction.operands[1], instruction.pc)
-                                             : ReadBits(instruction.operands[1], instruction.pc);
-        if (!left)
-            return std::unexpected(left.error());
-        const auto right = isFloat ? ReadFloatSource(instruction, 2)
-                                   : isSigned ? ReadSigned(instruction.operands[2], instruction.pc)
-                                              : ReadBits(instruction.operands[2], instruction.pc);
-        if (!right)
-            return std::unexpected(right.error());
+        IL::ValueId condition = IL::InvalidValue;
+        if (predicate == VectorPredicate::False || predicate == VectorPredicate::True)
+        {
+            condition = m_builder.ConstantBool(predicate == VectorPredicate::True);
+        }
+        else if (predicate == VectorPredicate::Ordered || predicate == VectorPredicate::Unordered)
+        {
+            const auto left = ReadFloatSource(instruction, 1);
+            if (!left)
+                return std::unexpected(left.error());
+            const auto right = ReadFloatSource(instruction, 2);
+            if (!right)
+                return std::unexpected(right.error());
 
-        const IL::ValueId condition = m_builder.CompareValue(compare, *left, *right, false);
-        return WriteVcc(condition, instruction.pc);
+            const IL::ValueId leftOrdered = m_builder.CompareValue(IL::CompareOp::FOrdEq, *left, *left, false);
+            const IL::ValueId rightOrdered = m_builder.CompareValue(IL::CompareOp::FOrdEq, *right, *right, false);
+            condition = m_builder.Emit(m_module.types.Bool(),
+                                       IL::Op::Binary,
+                                       static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                       {leftOrdered, rightOrdered},
+                                       {},
+                                       IL::NoPayload,
+                                       instruction.pc,
+                                       static_cast<std::uint16_t>(instruction.op),
+                                       false);
+            if (predicate == VectorPredicate::Unordered)
+                condition = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), condition, false);
+        }
+        else
+        {
+            const auto left = isFloat ? ReadFloatSource(instruction, 1)
+                                      : isSigned ? ReadSigned(instruction.operands[1], instruction.pc)
+                                                 : ReadBits(instruction.operands[1], instruction.pc);
+            if (!left)
+                return std::unexpected(left.error());
+            const auto right = isFloat ? ReadFloatSource(instruction, 2)
+                                       : isSigned ? ReadSigned(instruction.operands[2], instruction.pc)
+                                                  : ReadBits(instruction.operands[2], instruction.pc);
+            if (!right)
+                return std::unexpected(right.error());
+            condition = m_builder.CompareValue(compare, *left, *right, false);
+        }
+
+        const auto vcc = WriteVcc(condition, instruction.pc);
+        if (!vcc)
+            return vcc;
+
+        if (instruction.execMask)
+        {
+            const auto exec = ReadExec(instruction.pc);
+            if (!exec)
+                return std::unexpected(exec.error());
+            const IL::ValueId updated = m_builder.Emit(m_module.types.Bool(),
+                                                       IL::Op::Binary,
+                                                       static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                       {*exec, condition},
+                                                       {},
+                                                       IL::NoPayload,
+                                                       instruction.pc,
+                                                       static_cast<std::uint16_t>(instruction.op),
+                                                       false);
+            return WriteExec(updated, instruction.pc);
+        }
+        return {};
     }
 
     // V_CNDMASK_B32: select src0 when VCC is set, otherwise src1.
@@ -1507,11 +1594,15 @@ private:
         }
         case Op::S_CbranchExecz:
         case Op::S_CbranchExecnz:
-            // No instruction in the lifted subset writes EXEC, so the wave mask
-            // is all-active: EXECZ never branches and EXECNZ always does.
+        {
+            const auto exec = ReadExec(instruction.pc);
+            if (!exec)
+                return std::unexpected(exec.error());
+            IL::ValueId condition = *exec;
             if (instruction.op == Op::S_CbranchExecz)
-                return SetBranch(block, instruction.pc + 4, instruction.pc);
-            return SetBranch(block, *target, instruction.pc);
+                condition = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), condition, true);
+            return SetCondBranch(block, condition, *target, instruction.pc + 4, instruction.pc, true);
+        }
         case Op::S_CbranchVccz:
         case Op::S_CbranchVccnz:
         {
@@ -1853,41 +1944,69 @@ private:
         case Op::V_LogF32:
             return LiftUnaryFloat(instruction, IL::UnaryOp::Log2);
         case Op::V_CmpLtI32:
-            return LiftVectorCompare(instruction, IL::CompareOp::ILt, false, true);
+            return LiftVectorCompare(instruction, IL::CompareOp::ILt, VectorPredicate::Compare, false, true);
         case Op::V_CmpEqI32:
-            return LiftVectorCompare(instruction, IL::CompareOp::IEq, false, true);
+            return LiftVectorCompare(instruction, IL::CompareOp::IEq, VectorPredicate::Compare, false, true);
         case Op::V_CmpLeI32:
-            return LiftVectorCompare(instruction, IL::CompareOp::ILe, false, true);
+            return LiftVectorCompare(instruction, IL::CompareOp::ILe, VectorPredicate::Compare, false, true);
         case Op::V_CmpGtI32:
-            return LiftVectorCompare(instruction, IL::CompareOp::IGt, false, true);
+            return LiftVectorCompare(instruction, IL::CompareOp::IGt, VectorPredicate::Compare, false, true);
         case Op::V_CmpNeI32:
-            return LiftVectorCompare(instruction, IL::CompareOp::INe, false, true);
+            return LiftVectorCompare(instruction, IL::CompareOp::INe, VectorPredicate::Compare, false, true);
         case Op::V_CmpGeI32:
-            return LiftVectorCompare(instruction, IL::CompareOp::IGe, false, true);
+            return LiftVectorCompare(instruction, IL::CompareOp::IGe, VectorPredicate::Compare, false, true);
+        case Op::V_CmpFalseI32:
+            return LiftVectorCompare(instruction, IL::CompareOp::IEq, VectorPredicate::False, false, true);
+        case Op::V_CmpTrueI32:
+            return LiftVectorCompare(instruction, IL::CompareOp::IEq, VectorPredicate::True, false, true);
         case Op::V_CmpLtU32:
-            return LiftVectorCompare(instruction, IL::CompareOp::ULt, false, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::ULt, VectorPredicate::Compare, false, false);
         case Op::V_CmpEqU32:
-            return LiftVectorCompare(instruction, IL::CompareOp::UEq, false, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::UEq, VectorPredicate::Compare, false, false);
         case Op::V_CmpLeU32:
-            return LiftVectorCompare(instruction, IL::CompareOp::ULe, false, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::ULe, VectorPredicate::Compare, false, false);
         case Op::V_CmpGtU32:
-            return LiftVectorCompare(instruction, IL::CompareOp::UGt, false, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::UGt, VectorPredicate::Compare, false, false);
         case Op::V_CmpNeU32:
-            return LiftVectorCompare(instruction, IL::CompareOp::UNe, false, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::UNe, VectorPredicate::Compare, false, false);
         case Op::V_CmpGeU32:
-            return LiftVectorCompare(instruction, IL::CompareOp::UGe, false, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::UGe, VectorPredicate::Compare, false, false);
+        case Op::V_CmpFalseU32:
+            return LiftVectorCompare(instruction, IL::CompareOp::UEq, VectorPredicate::False, false, false);
+        case Op::V_CmpTrueU32:
+            return LiftVectorCompare(instruction, IL::CompareOp::UEq, VectorPredicate::True, false, false);
         case Op::V_CmpLtF32:
-            return LiftVectorCompare(instruction, IL::CompareOp::FOrdLt, true, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdLt, VectorPredicate::Compare, true, false);
         case Op::V_CmpEqF32:
-            return LiftVectorCompare(instruction, IL::CompareOp::FOrdEq, true, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdEq, VectorPredicate::Compare, true, false);
         case Op::V_CmpLeF32:
-            return LiftVectorCompare(instruction, IL::CompareOp::FOrdLe, true, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdLe, VectorPredicate::Compare, true, false);
         case Op::V_CmpGtF32:
-            return LiftVectorCompare(instruction, IL::CompareOp::FOrdGt, true, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdGt, VectorPredicate::Compare, true, false);
         case Op::V_CmpLgF32:
-            return LiftVectorCompare(instruction, IL::CompareOp::FOrdNe, true, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdNe, VectorPredicate::Compare, true, false);
         case Op::V_CmpGeF32:
-            return LiftVectorCompare(instruction, IL::CompareOp::FOrdGe, true, false);
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdGe, VectorPredicate::Compare, true, false);
+        case Op::V_CmpFalseF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdEq, VectorPredicate::False, true, false);
+        case Op::V_CmpTrueF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdEq, VectorPredicate::True, true, false);
+        case Op::V_CmpOrdF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdEq, VectorPredicate::Ordered, true, false);
+        case Op::V_CmpUnordF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdEq, VectorPredicate::Unordered, true, false);
+        case Op::V_CmpNgeF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FUnordLt, VectorPredicate::Compare, true, false);
+        case Op::V_CmpNlgF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FUnordEq, VectorPredicate::Compare, true, false);
+        case Op::V_CmpNgtF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FUnordLe, VectorPredicate::Compare, true, false);
+        case Op::V_CmpNleF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FUnordGt, VectorPredicate::Compare, true, false);
+        case Op::V_CmpNeqF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FOrdNe, VectorPredicate::Compare, true, false);
+        case Op::V_CmpNltF32:
+            return LiftVectorCompare(instruction, IL::CompareOp::FUnordGe, VectorPredicate::Compare, true, false);
         case Op::V_CndmaskB32:
             return LiftCndmask(instruction);
         case Op::V_BfeU32:
@@ -2040,6 +2159,7 @@ private:
     std::array<IL::ValueId, 256> m_vgprSlots;
     IL::ValueId m_sccSlot = IL::InvalidValue;
     IL::ValueId m_vccSlot = IL::InvalidValue;
+    IL::ValueId m_execSlot = IL::InvalidValue;
 };
 
 } // namespace

@@ -653,10 +653,10 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 taken = result.state.vcc;
                 break;
             case Op::S_CbranchExecz:
-                taken = false;
+                taken = !result.state.exec;
                 break;
             case Op::S_CbranchExecnz:
-                taken = true;
+                taken = result.state.exec;
                 break;
             default:
                 break;
@@ -961,12 +961,26 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
         case Op::V_CmpGtU32:
         case Op::V_CmpNeU32:
         case Op::V_CmpGeU32:
+        case Op::V_CmpFalseI32:
+        case Op::V_CmpTrueI32:
+        case Op::V_CmpFalseU32:
+        case Op::V_CmpTrueU32:
         case Op::V_CmpLtF32:
         case Op::V_CmpEqF32:
         case Op::V_CmpLeF32:
         case Op::V_CmpGtF32:
         case Op::V_CmpLgF32:
         case Op::V_CmpGeF32:
+        case Op::V_CmpFalseF32:
+        case Op::V_CmpTrueF32:
+        case Op::V_CmpOrdF32:
+        case Op::V_CmpUnordF32:
+        case Op::V_CmpNgeF32:
+        case Op::V_CmpNlgF32:
+        case Op::V_CmpNgtF32:
+        case Op::V_CmpNleF32:
+        case Op::V_CmpNeqF32:
+        case Op::V_CmpNltF32:
         {
             const auto left = source(1);
             const auto right = source(2);
@@ -1011,6 +1025,14 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             case Op::V_CmpGeU32:
                 condition = *left >= *right;
                 break;
+            case Op::V_CmpFalseI32:
+            case Op::V_CmpFalseU32:
+                condition = false;
+                break;
+            case Op::V_CmpTrueI32:
+            case Op::V_CmpTrueU32:
+                condition = true;
+                break;
             default:
             {
                 const float a = FloatSource(instruction, 1, *left);
@@ -1036,6 +1058,36 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 case Op::V_CmpGeF32:
                     condition = ordered && a >= b;
                     break;
+                case Op::V_CmpFalseF32:
+                    condition = false;
+                    break;
+                case Op::V_CmpTrueF32:
+                    condition = true;
+                    break;
+                case Op::V_CmpOrdF32:
+                    condition = ordered;
+                    break;
+                case Op::V_CmpUnordF32:
+                    condition = !ordered;
+                    break;
+                case Op::V_CmpNgeF32:
+                    condition = !ordered || a < b;
+                    break;
+                case Op::V_CmpNlgF32:
+                    condition = !ordered || a == b;
+                    break;
+                case Op::V_CmpNgtF32:
+                    condition = !ordered || a <= b;
+                    break;
+                case Op::V_CmpNleF32:
+                    condition = !ordered || a > b;
+                    break;
+                case Op::V_CmpNeqF32:
+                    condition = ordered && a != b;
+                    break;
+                case Op::V_CmpNltF32:
+                    condition = !ordered || a >= b;
+                    break;
                 default:
                     break;
                 }
@@ -1043,6 +1095,8 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             }
             }
             result.state.vcc = condition;
+            if (instruction.execMask)
+                result.state.exec = result.state.exec && condition;
             break;
         }
         case Op::V_CndmaskB32:

@@ -73,6 +73,10 @@ enum SpvOp : std::uint16_t
     OpFRem = 140,
     OpFMod = 141,
     OpLogicalNot = 168,
+    OpLogicalEqual = 164,
+    OpLogicalNotEqual = 165,
+    OpLogicalOr = 166,
+    OpLogicalAnd = 167,
     OpSelect = 169,
     OpIEqual = 170,
     OpINotEqual = 171,
@@ -614,7 +618,7 @@ private:
 
         if (typeValue.kind == IL::TypeKind::Bool)
         {
-            Op(constant.bits != 0 ? OpConstantTrue : OpConstantFalse, {id});
+            Op(constant.bits != 0 ? OpConstantTrue : OpConstantFalse, {*type, id});
         }
         else if (typeValue.kind == IL::TypeKind::Int || typeValue.kind == IL::TypeKind::Float)
         {
@@ -1681,6 +1685,23 @@ private:
                 return {};
             default:
                 return std::unexpected(EmitError("SR-SPV-051", "unsupported float binary op", instruction.sourcePc));
+            }
+        }
+        else if (resultType.kind == IL::TypeKind::Bool)
+        {
+            switch (subop)
+            {
+            case IL::BinaryOp::And:
+                opcode = OpLogicalAnd;
+                break;
+            case IL::BinaryOp::Or:
+                opcode = OpLogicalOr;
+                break;
+            case IL::BinaryOp::Xor:
+                opcode = OpLogicalNotEqual;
+                break;
+            default:
+                return std::unexpected(EmitError("SR-SPV-054", "unsupported boolean binary op", instruction.sourcePc));
             }
         }
         else if (resultType.kind == IL::TypeKind::Int)

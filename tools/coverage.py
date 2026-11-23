@@ -72,6 +72,11 @@ LIFTED = {
     "V_CmpLeU32", "V_CmpGtU32", "V_CmpNeU32", "V_CmpGeU32",
     "V_CmpLtF32", "V_CmpEqF32", "V_CmpLeF32", "V_CmpGtF32",
     "V_CmpLgF32", "V_CmpGeF32",
+    # Compare predicates.
+    "V_CmpFalseF32", "V_CmpOrdF32", "V_CmpUnordF32", "V_CmpNgeF32",
+    "V_CmpNlgF32", "V_CmpNgtF32", "V_CmpNleF32", "V_CmpNeqF32",
+    "V_CmpNltF32", "V_CmpTrueF32", "V_CmpFalseI32", "V_CmpTrueI32",
+    "V_CmpFalseU32", "V_CmpTrueU32",
     # Bitfield.
     "V_BfeI32", "V_BfeU32", "V_BfiB32", "V_BfmB32", "V_AlignbitB32",
     "V_AlignbyteB32",
@@ -110,6 +115,30 @@ def parse_tables():
     base = parse("kGfx10")
     gfx11 = parse("kGfx11")
     gfx12 = parse("kGfx12")
+
+    def parse_include(path, array_name):
+        if not os.path.exists(path):
+            return []
+        text = open(path, encoding="utf-8").read()
+        match = re.search(r"constexpr std::array " + array_name + r" = \{(.*?)\n\};", text, re.S)
+        if not match:
+            return []
+        entries = []
+        for item in re.finditer(
+            r"(Make|Remove)\(Encoding::(\w+),\s*(\d+)(?:,\s*Op::(\w+))?", match.group(1)
+        ):
+            entries.append({
+                "kind": item.group(1),
+                "encoding": item.group(2),
+                "opcode": int(item.group(3)),
+                "op": item.group(4),
+            })
+        return entries
+
+    include = os.path.join(ROOT, "SR.Frontend/src/Arch/Gfx/GfxVectorCompareTables.inc")
+    base.extend(parse_include(include, "kGfx10Compare"))
+    gfx11.extend(parse_include(include, "kGfx11Compare"))
+    gfx12.extend(parse_include(include, "kGfx12Compare"))
 
     def apply(table, delta):
         result = {(entry["encoding"], entry["opcode"]): entry for entry in table}

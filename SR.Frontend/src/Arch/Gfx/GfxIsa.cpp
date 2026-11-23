@@ -17,13 +17,15 @@ struct Entry
     std::uint8_t operandCount;
     std::array<OperandKind, 4> operands;
     bool removed;
+    bool execMask = false;
 };
 
 constexpr Entry Make(Encoding encoding,
                      std::uint16_t opcode,
                      Op op,
                      std::string_view mnemonic,
-                     std::initializer_list<OperandKind> operands)
+                     std::initializer_list<OperandKind> operands,
+                     bool execMask = false)
 {
     Entry entry{};
     entry.encoding = encoding;
@@ -31,6 +33,7 @@ constexpr Entry Make(Encoding encoding,
     entry.op = op;
     entry.mnemonic = mnemonic;
     entry.operandCount = static_cast<std::uint8_t>(operands.size());
+    entry.execMask = execMask;
     std::size_t i = 0;
     for (const OperandKind kind : operands)
     {
@@ -49,6 +52,8 @@ constexpr Entry Remove(Encoding encoding, std::uint16_t opcode)
     entry.removed = true;
     return entry;
 }
+
+#include "GfxVectorCompareTables.inc"
 
 // RDNA1 is the root of the lineage.
 constexpr std::array kGfx10 = {
@@ -488,27 +493,39 @@ const Entry* FindInLevel(Arch arch, Encoding encoding, std::uint16_t opcode) noe
         return entry.encoding == encoding && entry.opcode == opcode;
     };
 
-    if (arch == Arch::Gfx10)
-    {
-        for (auto it = kGfx10.rbegin(); it != kGfx10.rend(); ++it)
-        {
-            if (matches(*it))
-                return &*it;
-        }
-        return nullptr;
-    }
-
-    const std::span<const Entry> entries = LevelEntries(arch);
-    if (!entries.empty())
-    {
+    const auto search = [&matches](std::span<const Entry> entries) -> const Entry* {
         for (auto it = entries.rbegin(); it != entries.rend(); ++it)
         {
             if (matches(*it))
                 return &*it;
         }
+        return nullptr;
+    };
+
+    const auto compareEntries = [arch]() -> std::span<const Entry> {
+        switch (arch)
+        {
+        case Arch::Gfx10:
+            return kGfx10Compare;
+        case Arch::Gfx11:
+            return kGfx11Compare;
+        case Arch::Gfx12:
+            return kGfx12Compare;
+        default:
+            return {};
+        }
+    };
+
+    if (arch == Arch::Gfx10)
+    {
+        const Entry* base = search(kGfx10);
+        const Entry* compares = search(kGfx10Compare);
+        return compares != nullptr ? compares : base;
     }
 
-    return nullptr;
+    const Entry* base = search(LevelEntries(arch));
+    const Entry* compares = search(compareEntries());
+    return compares != nullptr ? compares : base;
 }
 
 std::vector<Arch> Lineage(Arch arch)
@@ -908,6 +925,34 @@ std::string_view ToString(Op op) noexcept
         return "v_cmp_lg_f32";
     case Op::V_CmpGeF32:
         return "v_cmp_ge_f32";
+    case Op::V_CmpFalseF32:
+        return "v_cmp_f_f32";
+    case Op::V_CmpOrdF32:
+        return "v_cmp_o_f32";
+    case Op::V_CmpUnordF32:
+        return "v_cmp_u_f32";
+    case Op::V_CmpNgeF32:
+        return "v_cmp_nge_f32";
+    case Op::V_CmpNlgF32:
+        return "v_cmp_nlg_f32";
+    case Op::V_CmpNgtF32:
+        return "v_cmp_ngt_f32";
+    case Op::V_CmpNleF32:
+        return "v_cmp_nle_f32";
+    case Op::V_CmpNeqF32:
+        return "v_cmp_neq_f32";
+    case Op::V_CmpNltF32:
+        return "v_cmp_nlt_f32";
+    case Op::V_CmpTrueF32:
+        return "v_cmp_t_f32";
+    case Op::V_CmpFalseI32:
+        return "v_cmp_f_i32";
+    case Op::V_CmpTrueI32:
+        return "v_cmp_t_i32";
+    case Op::V_CmpFalseU32:
+        return "v_cmp_f_u32";
+    case Op::V_CmpTrueU32:
+        return "v_cmp_t_u32";
     case Op::V_BfeI32:
         return "v_bfe_i32";
     case Op::V_BfeU32:
@@ -1128,6 +1173,7 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
     instruction.pc = bytePc;
     instruction.word0 = word0;
     instruction.word1 = baseWords == 2 ? words[1] : 0;
+    instruction.execMask = entry->execMask;
 
     const auto push = [&instruction](Operand operand) {
         if (instruction.operandCount < instruction.operands.size())

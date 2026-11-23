@@ -145,6 +145,7 @@ enum class RegisterClass : std::uint8_t
     Vgpr,
     Scc,
     Vcc,
+    Exec,
 };
 
 // Debug/diagnostic mapping from a source register to its function-local slot.

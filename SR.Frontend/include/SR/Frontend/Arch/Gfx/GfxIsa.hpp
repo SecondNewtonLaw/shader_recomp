@@ -188,6 +188,20 @@ enum class Op : std::uint16_t
     V_CmpGtF32,
     V_CmpLgF32,
     V_CmpGeF32,
+    V_CmpFalseF32,
+    V_CmpOrdF32,
+    V_CmpUnordF32,
+    V_CmpNgeF32,
+    V_CmpNlgF32,
+    V_CmpNgtF32,
+    V_CmpNleF32,
+    V_CmpNeqF32,
+    V_CmpNltF32,
+    V_CmpTrueF32,
+    V_CmpFalseI32,
+    V_CmpTrueI32,
+    V_CmpFalseU32,
+    V_CmpTrueU32,
     V_BfeI32,
     V_BfeU32,
     V_BfiB32,
@@ -259,6 +273,7 @@ struct DecodedInstruction
     std::uint8_t neg = 0;
     std::uint8_t omod = 0;
     bool clamp = false;
+    bool execMask = false; // V_CMPX updates EXEC in addition to VCC
 
     std::array<Operand, 4> operands{};
     std::uint8_t operandCount = 0;
