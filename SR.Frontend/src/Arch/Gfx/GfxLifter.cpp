@@ -853,6 +853,332 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    [[nodiscard]] IL::ValueId BuildBitMask(IL::ValueId width, bool uniform)
+    {
+        const IL::ValueId one64 = m_builder.ConstantU64(1);
+        const IL::ValueId width64 = m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, width, uniform);
+        IL::ValueId shifted = m_builder.Emit(m_module.types.U64(),
+                                             IL::Op::Binary,
+                                             static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                             {one64, width64},
+                                             {},
+                                             IL::NoPayload,
+                                             0,
+                                             0,
+                                             uniform);
+        shifted = m_builder.Emit(m_module.types.U64(),
+                                 IL::Op::Binary,
+                                 static_cast<std::uint16_t>(IL::BinaryOp::ISub),
+                                 {shifted, one64},
+                                 {},
+                                 IL::NoPayload,
+                                 0,
+                                 0,
+                                 uniform);
+        return m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, shifted, uniform);
+    }
+
+    [[nodiscard]] IL::ValueId MaskShiftCount(IL::ValueId value, std::uint32_t mask, bool uniform)
+    {
+        return m_builder.Emit(m_module.types.U32(),
+                              IL::Op::Binary,
+                              static_cast<std::uint16_t>(IL::BinaryOp::And),
+                              {value, m_builder.ConstantU32(mask)},
+                              {},
+                              IL::NoPayload,
+                              0,
+                              0,
+                              uniform);
+    }
+
+    [[nodiscard]] Result<void> LiftAbsDiff(const DecodedInstruction& instruction)
+    {
+        const auto left = ReadSigned(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadSigned(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        const IL::ValueId difference = m_builder.Emit(m_module.types.I32(),
+                                                      IL::Op::Binary,
+                                                      static_cast<std::uint16_t>(IL::BinaryOp::ISub),
+                                                      {*left, *right},
+                                                      {},
+                                                      IL::NoPayload,
+                                                      instruction.pc,
+                                                      static_cast<std::uint16_t>(instruction.op),
+                                                      true);
+        const IL::ValueId negative = m_builder.CompareValue(IL::CompareOp::ILt,
+                                                            difference,
+                                                            m_builder.ConstantI32(0),
+                                                            true);
+        const IL::ValueId negated = m_builder.UnaryValue(IL::UnaryOp::Neg,
+                                                         m_module.types.I32(),
+                                                         difference,
+                                                         true);
+        const IL::ValueId absolute = m_builder.SelectValue(m_module.types.I32(),
+                                                           negative,
+                                                           negated,
+                                                           difference,
+                                                           true);
+        const IL::ValueId bits = Bitcast(m_module.types.U32(), absolute);
+        const auto scc = WriteSccIfNonZero(bits, instruction.pc, true);
+        if (!scc)
+            return scc;
+        return WriteDest(instruction.operands[0], bits, instruction.pc);
+    }
+
+    // S_BFM_B32 / V_BFM_B32: mask = ((1 << size) - 1) << offset.
+    [[nodiscard]] Result<void> LiftBitMask(const DecodedInstruction& instruction, bool uniform)
+    {
+        const auto offset = ReadBits(instruction.operands[1], instruction.pc);
+        if (!offset)
+            return std::unexpected(offset.error());
+        const auto size = ReadBits(instruction.operands[2], instruction.pc);
+        if (!size)
+            return std::unexpected(size.error());
+
+        const IL::ValueId mask = BuildBitMask(*size, uniform);
+        const IL::ValueId shifted = m_builder.Emit(m_module.types.U32(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                                   {mask, MaskShiftCount(*offset, 31, uniform)},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   uniform);
+        return WriteDest(instruction.operands[0], shifted, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftBitFieldExtract(const DecodedInstruction& instruction,
+                                                   bool signedField,
+                                                   bool scalar)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        IL::ValueId offset;
+        IL::ValueId width;
+        const bool uniform = scalar;
+        if (scalar)
+        {
+            const auto control = ReadBits(instruction.operands[2], instruction.pc);
+            if (!control)
+                return std::unexpected(control.error());
+            offset = MaskShiftCount(*control, 31, true);
+            width = m_builder.Emit(m_module.types.U32(),
+                                   IL::Op::Binary,
+                                   static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                   {m_builder.Emit(m_module.types.U32(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::LShr),
+                                                   {*control, m_builder.ConstantU32(16)},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   true),
+                                    m_builder.ConstantU32(0x7F)},
+                                   {},
+                                   IL::NoPayload,
+                                   instruction.pc,
+                                   static_cast<std::uint16_t>(instruction.op),
+                                   true);
+        }
+        else
+        {
+            const auto offsetValue = ReadBits(instruction.operands[2], instruction.pc);
+            if (!offsetValue)
+                return std::unexpected(offsetValue.error());
+            offset = MaskShiftCount(*offsetValue, 31, uniform);
+
+            const auto widthValue = ReadBits(instruction.operands[3], instruction.pc);
+            if (!widthValue)
+                return std::unexpected(widthValue.error());
+            width = m_builder.Emit(m_module.types.U32(),
+                                   IL::Op::Binary,
+                                   static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                   {*widthValue, m_builder.ConstantU32(0x7F)},
+                                   {},
+                                   IL::NoPayload,
+                                   instruction.pc,
+                                   static_cast<std::uint16_t>(instruction.op),
+                                   uniform);
+        }
+
+        const IL::ValueId mask = BuildBitMask(width, uniform);
+        IL::ValueId value = m_builder.Emit(m_module.types.U32(),
+                                           IL::Op::Binary,
+                                           static_cast<std::uint16_t>(IL::BinaryOp::LShr),
+                                           {*source, offset},
+                                           {},
+                                           IL::NoPayload,
+                                           instruction.pc,
+                                           static_cast<std::uint16_t>(instruction.op),
+                                           uniform);
+        value = m_builder.Emit(m_module.types.U32(),
+                               IL::Op::Binary,
+                               static_cast<std::uint16_t>(IL::BinaryOp::And),
+                               {value, mask},
+                               {},
+                               IL::NoPayload,
+                               instruction.pc,
+                               static_cast<std::uint16_t>(instruction.op),
+                               uniform);
+
+        if (signedField)
+        {
+            const IL::ValueId amount = m_builder.Emit(m_module.types.U32(),
+                                                      IL::Op::Binary,
+                                                      static_cast<std::uint16_t>(IL::BinaryOp::ISub),
+                                                      {m_builder.ConstantU32(32), width},
+                                                      {},
+                                                      IL::NoPayload,
+                                                      instruction.pc,
+                                                      static_cast<std::uint16_t>(instruction.op),
+                                                      uniform);
+            const IL::ValueId shift = MaskShiftCount(amount, 31, uniform);
+            IL::ValueId shifted = m_builder.Emit(m_module.types.U32(),
+                                                 IL::Op::Binary,
+                                                 static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                                 {value, shift},
+                                                 {},
+                                                 IL::NoPayload,
+                                                 instruction.pc,
+                                                 static_cast<std::uint16_t>(instruction.op),
+                                                 uniform);
+            shifted = m_builder.Emit(m_module.types.I32(),
+                                     IL::Op::Binary,
+                                     static_cast<std::uint16_t>(IL::BinaryOp::AShr),
+                                     {Bitcast(m_module.types.I32(), shifted), shift},
+                                     {},
+                                     IL::NoPayload,
+                                     instruction.pc,
+                                     static_cast<std::uint16_t>(instruction.op),
+                                     uniform);
+            value = Bitcast(m_module.types.U32(), shifted);
+        }
+
+        if (scalar)
+        {
+            const auto scc = WriteSccIfNonZero(value, instruction.pc, true);
+            if (!scc)
+                return scc;
+        }
+        return WriteDest(instruction.operands[0], value, instruction.pc);
+    }
+
+    // V_BFI_B32: mask from src0, inserted bits from src1, base from src2.
+    [[nodiscard]] Result<void> LiftBitFieldInsert(const DecodedInstruction& instruction)
+    {
+        const auto mask = ReadBits(instruction.operands[1], instruction.pc);
+        if (!mask)
+            return std::unexpected(mask.error());
+        const auto value = ReadBits(instruction.operands[2], instruction.pc);
+        if (!value)
+            return std::unexpected(value.error());
+        const auto base = ReadBits(instruction.operands[3], instruction.pc);
+        if (!base)
+            return std::unexpected(base.error());
+
+        const IL::ValueId cleared = m_builder.Emit(m_module.types.U32(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                   {*base,
+                                                    m_builder.UnaryValue(IL::UnaryOp::Not,
+                                                                         m_module.types.U32(),
+                                                                         *mask,
+                                                                         false)},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   false);
+        const IL::ValueId inserted = m_builder.Emit(m_module.types.U32(),
+                                                    IL::Op::Binary,
+                                                    static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                    {*value, *mask},
+                                                    {},
+                                                    IL::NoPayload,
+                                                    instruction.pc,
+                                                    static_cast<std::uint16_t>(instruction.op),
+                                                    false);
+        const IL::ValueId result = m_builder.Emit(m_module.types.U32(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(IL::BinaryOp::Or),
+                                                  {cleared, inserted},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    // V_ALIGNBIT_B32 / V_ALIGNBYTE_B32: take a 32-bit window from the 64-bit
+    // value {src0, src1}, starting at src2 bits or bytes.
+    [[nodiscard]] Result<void> LiftAlign(const DecodedInstruction& instruction, bool bytes)
+    {
+        const auto high = ReadBits(instruction.operands[1], instruction.pc);
+        if (!high)
+            return std::unexpected(high.error());
+        const auto low = ReadBits(instruction.operands[2], instruction.pc);
+        if (!low)
+            return std::unexpected(low.error());
+        const auto shift = ReadBits(instruction.operands[3], instruction.pc);
+        if (!shift)
+            return std::unexpected(shift.error());
+
+        IL::ValueId amount = MaskShiftCount(*shift, bytes ? 7u : 31u, false);
+        if (bytes)
+        {
+            amount = m_builder.Emit(m_module.types.U32(),
+                                    IL::Op::Binary,
+                                    static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                    {amount, m_builder.ConstantU32(3)},
+                                    {},
+                                    IL::NoPayload,
+                                    instruction.pc,
+                                    static_cast<std::uint16_t>(instruction.op),
+                                    false);
+        }
+
+        const IL::ValueId high64 = m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *high, false);
+        const IL::ValueId low64 = m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *low, false);
+        IL::ValueId value = m_builder.Emit(m_module.types.U64(),
+                                           IL::Op::Binary,
+                                           static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                           {high64, m_builder.ConstantU64(32)},
+                                           {},
+                                           IL::NoPayload,
+                                           instruction.pc,
+                                           static_cast<std::uint16_t>(instruction.op),
+                                           false);
+        value = m_builder.Emit(m_module.types.U64(),
+                               IL::Op::Binary,
+                               static_cast<std::uint16_t>(IL::BinaryOp::Or),
+                               {value, low64},
+                               {},
+                               IL::NoPayload,
+                               instruction.pc,
+                               static_cast<std::uint16_t>(instruction.op),
+                               false);
+        value = m_builder.Emit(m_module.types.U64(),
+                               IL::Op::Binary,
+                               static_cast<std::uint16_t>(IL::BinaryOp::LShr),
+                               {value, m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, amount, false)},
+                               {},
+                               IL::NoPayload,
+                               instruction.pc,
+                               static_cast<std::uint16_t>(instruction.op),
+                               false);
+        const IL::ValueId result = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, value, false);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCompare(const DecodedInstruction& instruction)
     {
         const bool isSigned = instruction.op == Op::S_CmpEqI32 || instruction.op == Op::S_CmpLgI32 ||
@@ -1271,6 +1597,14 @@ private:
             return LiftBitScan(instruction, false, true);
         case Op::S_FlbitI32B32:
             return LiftBitScan(instruction, true, true);
+        case Op::S_AbsDiffI32:
+            return LiftAbsDiff(instruction);
+        case Op::S_BfmB32:
+            return LiftBitMask(instruction, true);
+        case Op::S_BfeU32:
+            return LiftBitFieldExtract(instruction, false, true);
+        case Op::S_BfeI32:
+            return LiftBitFieldExtract(instruction, true, true);
         case Op::S_AbsI32:
             return LiftAbs(instruction);
         case Op::S_MulI32:
@@ -1383,6 +1717,18 @@ private:
             return LiftVectorCompare(instruction, IL::CompareOp::FOrdGe, true, false);
         case Op::V_CndmaskB32:
             return LiftCndmask(instruction);
+        case Op::V_BfeU32:
+            return LiftBitFieldExtract(instruction, false, false);
+        case Op::V_BfeI32:
+            return LiftBitFieldExtract(instruction, true, false);
+        case Op::V_BfiB32:
+            return LiftBitFieldInsert(instruction);
+        case Op::V_BfmB32:
+            return LiftBitMask(instruction, false);
+        case Op::V_AlignbitB32:
+            return LiftAlign(instruction, false);
+        case Op::V_AlignbyteB32:
+            return LiftAlign(instruction, true);
         case Op::V_FfbhU32:
         case Op::V_ClzI32U32:
             return LiftBitScan(instruction, true, false);

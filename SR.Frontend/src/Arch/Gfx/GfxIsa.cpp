@@ -70,6 +70,11 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Sop2, 26, Op::S_NorB32, "s_nor_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 28, Op::S_XnorB32, "s_xnor_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 34, Op::S_AshrI32, "s_ashr_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 36, Op::S_BfmB32, "s_bfm_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 39, Op::S_BfeU32, "s_bfe_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 40, Op::S_BfeI32, "s_bfe_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 44, Op::S_AbsDiffI32, "s_absdiff_i32",
+         {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
 
     Make(Encoding::Sop1, 7, Op::S_NotB32, "s_not_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
     Make(Encoding::Sop1, 11, Op::S_BrevB32, "s_brev_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
@@ -190,6 +195,14 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Vop3, 293, Op::V_AddNcU32, "v_add_nc_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 294, Op::V_SubNcU32, "v_sub_nc_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 278, Op::V_LshrrevB32, "v_lshrrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 328, Op::V_BfeU32, "v_bfe_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 329, Op::V_BfeI32, "v_bfe_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 330, Op::V_BfiB32, "v_bfi_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 867, Op::V_BfmB32, "v_bfm_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 334, Op::V_AlignbitB32, "v_alignbit_b32",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 335, Op::V_AlignbyteB32, "v_alignbyte_b32",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
 
     Make(Encoding::VopC, 1, Op::V_CmpLtF32, "v_cmp_lt_f32", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::VopC, 2, Op::V_CmpEqF32, "v_cmp_eq_f32", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
@@ -268,6 +281,12 @@ constexpr std::array kGfx11 = {
     Remove(Encoding::Vop3, 337),
     Remove(Encoding::Vop3, 340),
     Remove(Encoding::Vop3, 278),
+    Remove(Encoding::Vop3, 328),
+    Remove(Encoding::Vop3, 329),
+    Remove(Encoding::Vop3, 330),
+    Remove(Encoding::Vop3, 867),
+    Remove(Encoding::Vop3, 334),
+    Remove(Encoding::Vop3, 335),
     Remove(Encoding::Vop3, 441),
     Remove(Encoding::Vop3, 442),
     Remove(Encoding::Vop3, 868),
@@ -314,6 +333,11 @@ constexpr std::array kGfx11 = {
     Make(Encoding::Sop2, 30, Op::S_NorB32, "s_nor_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 32, Op::S_XnorB32, "s_xnor_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 12, Op::S_AshrI32, "s_ashr_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 6, Op::S_AbsDiffI32, "s_absdiff_i32",
+         {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 42, Op::S_BfmB32, "s_bfm_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 38, Op::S_BfeU32, "s_bfe_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 39, Op::S_BfeI32, "s_bfe_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 34, Op::S_AndNot1B32, "s_and_not1_b32",
          {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 36, Op::S_OrNot1B32, "s_or_not1_b32",
@@ -350,6 +374,14 @@ constexpr std::array kGfx11 = {
     Make(Encoding::Vop3, 540, Op::V_Max3F32, "v_max3_f32",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 281, Op::V_LshrrevB32, "v_lshrrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 528, Op::V_BfeU32, "v_bfe_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 529, Op::V_BfeI32, "v_bfe_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 530, Op::V_BfiB32, "v_bfi_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 797, Op::V_BfmB32, "v_bfm_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 534, Op::V_AlignbitB32, "v_alignbit_b32",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 535, Op::V_AlignbyteB32, "v_alignbyte_b32",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop2, 25, Op::V_LshrrevB32, "v_lshrrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
 
     Make(Encoding::VopC, 17, Op::V_CmpLtF32, "v_cmp_lt_f32", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
@@ -681,6 +713,14 @@ std::string_view ToString(Op op) noexcept
         return "s_ff1_i32_b32";
     case Op::S_FlbitI32B32:
         return "s_flbit_i32_b32";
+    case Op::S_AbsDiffI32:
+        return "s_absdiff_i32";
+    case Op::S_BfmB32:
+        return "s_bfm_b32";
+    case Op::S_BfeI32:
+        return "s_bfe_i32";
+    case Op::S_BfeU32:
+        return "s_bfe_u32";
     case Op::S_CmpEqI32:
         return "s_cmp_eq_i32";
     case Op::S_CmpLgI32:
@@ -839,6 +879,18 @@ std::string_view ToString(Op op) noexcept
         return "v_cmp_lg_f32";
     case Op::V_CmpGeF32:
         return "v_cmp_ge_f32";
+    case Op::V_BfeI32:
+        return "v_bfe_i32";
+    case Op::V_BfeU32:
+        return "v_bfe_u32";
+    case Op::V_BfiB32:
+        return "v_bfi_b32";
+    case Op::V_BfmB32:
+        return "v_bfm_b32";
+    case Op::V_AlignbitB32:
+        return "v_alignbit_b32";
+    case Op::V_AlignbyteB32:
+        return "v_alignbyte_b32";
     case Op::S_LoadB32:
         return "s_load_b32";
     case Op::S_BufferLoadB32:

@@ -384,6 +384,17 @@ private:
         return false;
     }
 
+    [[nodiscard]] static bool UsesInt64(const IL::Module& module)
+    {
+        for (std::size_t index = 0; index < module.types.size(); ++index)
+        {
+            const IL::Type& type = module.types.Get(static_cast<IL::TypeId>(index));
+            if (type.kind == IL::TypeKind::Int && type.width == 64)
+                return true;
+        }
+        return false;
+    }
+
     [[nodiscard]] static bool UsesFloatReciprocal(const IL::Module& module)
     {
         for (const IL::Function& function : module.functions)
@@ -447,6 +458,8 @@ private:
         m_words.push_back(0); // schema
 
         Op(OpCapability, {1}); // Shader
+        if (UsesInt64(m_module))
+            Op(OpCapability, {11}); // Int64
         if (m_useGlsl)
         {
             m_glslSet = NewId();

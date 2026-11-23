@@ -42,6 +42,13 @@ std::uint32_t BitReverse(std::uint32_t value) noexcept
     return result;
 }
 
+std::uint32_t BitMask(std::uint32_t width) noexcept
+{
+    if (width >= 32)
+        return 0xFFFFFFFFu;
+    return (1u << width) - 1u;
+}
+
 bool Ordered(float left, float right) noexcept
 {
     return !std::isnan(left) && !std::isnan(right);
@@ -386,6 +393,53 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             setSccNonZero(resultValue);
             if (!write(resultValue))
                 return std::unexpected(Error("SR-GFX-ISA-030", "invalid abs destination", pc));
+            break;
+        }
+        case Op::S_AbsDiffI32:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-076", "invalid absdiff operands", pc));
+            const std::int64_t difference =
+                static_cast<std::int64_t>(AsSigned(*left)) - static_cast<std::int64_t>(AsSigned(*right));
+            const std::uint32_t resultValue =
+                static_cast<std::uint32_t>(difference < 0 ? -difference : difference);
+            setSccNonZero(resultValue);
+            if (!write(resultValue))
+                return std::unexpected(Error("SR-GFX-ISA-077", "invalid absdiff destination", pc));
+            break;
+        }
+        case Op::S_BfmB32:
+        {
+            const auto offset = source(1);
+            const auto size = source(2);
+            if (!offset || !size)
+                return std::unexpected(Error("SR-GFX-ISA-078", "invalid bfm operands", pc));
+            if (!write(BitMask(*size) << (*offset & 31u)))
+                return std::unexpected(Error("SR-GFX-ISA-079", "invalid bfm destination", pc));
+            break;
+        }
+        case Op::S_BfeU32:
+        case Op::S_BfeI32:
+        {
+            const auto value = source(1);
+            const auto control = source(2);
+            if (!value || !control)
+                return std::unexpected(Error("SR-GFX-ISA-080", "invalid bfe operands", pc));
+            const std::uint32_t offset = *control & 31u;
+            const std::uint32_t width = (*control >> 16) & 0x7Fu;
+            const std::uint32_t mask = BitMask(width);
+            std::uint32_t extracted = (*value >> offset) & mask;
+            if (instruction.op == Op::S_BfeI32 && width != 0 && width < 32)
+            {
+                const std::uint32_t shift = 32u - width;
+                extracted = static_cast<std::uint32_t>(
+                    static_cast<std::int32_t>(extracted << shift) >> shift);
+            }
+            setSccNonZero(extracted);
+            if (!write(extracted))
+                return std::unexpected(Error("SR-GFX-ISA-081", "invalid bfe destination", pc));
             break;
         }
         case Op::S_MulI32:
@@ -919,6 +973,65 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const auto right = source(2);
             if (!left || !right || !write(result.state.vcc ? *left : *right))
                 return std::unexpected(Error("SR-GFX-ISA-070", "invalid cndmask operands", pc));
+            break;
+        }
+        case Op::V_BfeU32:
+        case Op::V_BfeI32:
+        {
+            const auto value = source(1);
+            const auto offsetValue = source(2);
+            const auto widthValue = source(3);
+            if (!value || !offsetValue || !widthValue)
+                return std::unexpected(Error("SR-GFX-ISA-082", "invalid v_bfe operands", pc));
+            const std::uint32_t offset = *offsetValue & 31u;
+            const std::uint32_t width = *widthValue & 0x7Fu;
+            const std::uint32_t mask = BitMask(width);
+            std::uint32_t extracted = (*value >> offset) & mask;
+            if (instruction.op == Op::V_BfeI32 && width != 0 && width < 32)
+            {
+                const std::uint32_t shift = 32u - width;
+                extracted = static_cast<std::uint32_t>(
+                    static_cast<std::int32_t>(extracted << shift) >> shift);
+            }
+            if (!write(extracted))
+                return std::unexpected(Error("SR-GFX-ISA-083", "invalid v_bfe destination", pc));
+            break;
+        }
+        case Op::V_BfiB32:
+        {
+            const auto mask = source(1);
+            const auto value = source(2);
+            const auto base = source(3);
+            if (!mask || !value || !base)
+                return std::unexpected(Error("SR-GFX-ISA-084", "invalid v_bfi operands", pc));
+            if (!write((*base & ~*mask) | (*value & *mask)))
+                return std::unexpected(Error("SR-GFX-ISA-085", "invalid v_bfi destination", pc));
+            break;
+        }
+        case Op::V_BfmB32:
+        {
+            const auto offset = source(1);
+            const auto size = source(2);
+            if (!offset || !size)
+                return std::unexpected(Error("SR-GFX-ISA-086", "invalid v_bfm operands", pc));
+            if (!write(BitMask(*size) << (*offset & 31u)))
+                return std::unexpected(Error("SR-GFX-ISA-087", "invalid v_bfm destination", pc));
+            break;
+        }
+        case Op::V_AlignbitB32:
+        case Op::V_AlignbyteB32:
+        {
+            const auto high = source(1);
+            const auto low = source(2);
+            const auto shiftValue = source(3);
+            if (!high || !low || !shiftValue)
+                return std::unexpected(Error("SR-GFX-ISA-088", "invalid v_align operands", pc));
+            const std::uint32_t shift = instruction.op == Op::V_AlignbyteB32 ? ((*shiftValue & 7u) * 8u)
+                                                                             : (*shiftValue & 31u);
+            const std::uint64_t value = (static_cast<std::uint64_t>(*high) << 32) |
+                                        static_cast<std::uint64_t>(*low);
+            if (!write(static_cast<std::uint32_t>(value >> shift)))
+                return std::unexpected(Error("SR-GFX-ISA-089", "invalid v_align destination", pc));
             break;
         }
         case Op::GlobalStoreB32:
