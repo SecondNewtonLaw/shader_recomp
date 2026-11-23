@@ -1,0 +1,116 @@
+{
+  "generations": {
+    "gfx10": {
+      "total": 1149,
+      "decoded": 45,
+      "lifted": 42
+    },
+    "gfx1013": {
+      "total": 1153,
+      "decoded": 45,
+      "lifted": 42
+    },
+    "gfx1030": {
+      "total": 1153,
+      "decoded": 45,
+      "lifted": 42
+    },
+    "gfx1100": {
+      "total": 1148,
+      "decoded": 45,
+      "lifted": 42
+    },
+    "gfx1150": {
+      "total": 1208,
+      "decoded": 45,
+      "lifted": 42
+    },
+    "gfx1200": {
+      "total": 1264,
+      "decoded": 46,
+      "lifted": 42
+    }
+  },
+  "gfx1200_families": {
+    "VOP3": {
+      "total": 363,
+      "decoded": 8,
+      "lifted": 8
+    },
+    "DS": {
+      "total": 125,
+      "decoded": 0,
+      "lifted": 0
+    },
+    "VOP1": {
+      "total": 90,
+      "decoded": 1,
+      "lifted": 1
+    },
+    "BUFFER": {
+      "total": 89,
+      "decoded": 0,
+      "lifted": 0
+    },
+    "SOP1": {
+      "total": 84,
+      "decoded": 1,
+      "lifted": 1
+    },
+    "SOP2": {
+      "total": 72,
+      "decoded": 8,
+      "lifted": 8
+    },
+    "GLOBAL": {
+      "total": 65,
+      "decoded": 1,
+      "lifted": 0
+    },
+    "IMAGE": {
+      "total": 58,
+      "decoded": 0,
+      "lifted": 0
+    },
+    "FLAT": {
+      "total": 55,
+      "decoded": 0,
+      "lifted": 0
+    },
+    "SOPC": {
+      "total": 46,
+      "decoded": 12,
+      "lifted": 12
+    },
+    "VOP2": {
+      "total": 45,
+      "decoded": 6,
+      "lifted": 6
+    },
+    "SOPP": {
+      "total": 41,
+      "decoded": 9,
+      "lifted": 6
+    },
+    "OTHER": {
+      "total": 40,
+      "decoded": 0,
+      "lifted": 0
+    },
+    "SMEM": {
+      "total": 28,
+      "decoded": 0,
+      "lifted": 0
+    },
+    "SCRATCH": {
+      "total": 24,
+      "decoded": 0,
+      "lifted": 0
+    },
+    "SOPK": {
+      "total": 8,
+      "decoded": 0,
+      "lifted": 0
+    }
+  }
+}

@@ -1,0 +1,191 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { font-family: var(--font-sans, system-ui, sans-serif); color: var(--foreground, #e6e6e6); font-size: 13px; }
+  .wrap { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 8px; }
+  h2 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+  .panel { display: flex; flex-direction: column; gap: 6px; }
+  .row { display: grid; grid-template-columns: 64px 1fr 128px; gap: 10px; align-items: center; }
+  .label { font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; }
+  .bar { height: 14px; display: flex; overflow: hidden; border-radius: 4px; background: var(--secondary, #2a2a2a); }
+  .bar div { height: 100%; }
+  .lifted { background: var(--chart-2, #4ac26b); }
+  .decoded { background: var(--chart-1, #62a8e8); opacity: 0.45; }
+  .value { font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+  .value span { color: var(--muted-foreground, #9a9a9a); }
+  .legend { display: flex; gap: 14px; color: var(--muted-foreground, #9a9a9a); font-size: 11px; }
+  .legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .note { color: var(--muted-foreground, #9a9a9a); font-size: 11px; }
+</style>
+<div class="wrap">
+  <div class="panel">
+    <h2>Instruction coverage by generation</h2>
+    <div class="row">
+  <div class="label">gfx10</div>
+  <div class="bar">
+    <div class="lifted" style="width:3.655%"></div>
+    <div class="decoded" style="width:0.261%"></div>
+  </div>
+  <div class="value">42 / 1149 lifted<br><span>3.92% decoded</span></div>
+</div><div class="row">
+  <div class="label">gfx1013</div>
+  <div class="bar">
+    <div class="lifted" style="width:3.643%"></div>
+    <div class="decoded" style="width:0.260%"></div>
+  </div>
+  <div class="value">42 / 1153 lifted<br><span>3.90% decoded</span></div>
+</div><div class="row">
+  <div class="label">gfx1030</div>
+  <div class="bar">
+    <div class="lifted" style="width:3.643%"></div>
+    <div class="decoded" style="width:0.260%"></div>
+  </div>
+  <div class="value">42 / 1153 lifted<br><span>3.90% decoded</span></div>
+</div><div class="row">
+  <div class="label">gfx1100</div>
+  <div class="bar">
+    <div class="lifted" style="width:3.659%"></div>
+    <div class="decoded" style="width:0.261%"></div>
+  </div>
+  <div class="value">42 / 1148 lifted<br><span>3.92% decoded</span></div>
+</div><div class="row">
+  <div class="label">gfx1150</div>
+  <div class="bar">
+    <div class="lifted" style="width:3.477%"></div>
+    <div class="decoded" style="width:0.248%"></div>
+  </div>
+  <div class="value">42 / 1208 lifted<br><span>3.73% decoded</span></div>
+</div><div class="row">
+  <div class="label">gfx1200</div>
+  <div class="bar">
+    <div class="lifted" style="width:3.323%"></div>
+    <div class="decoded" style="width:0.316%"></div>
+  </div>
+  <div class="value">42 / 1264 lifted<br><span>3.64% decoded</span></div>
+</div>
+  </div>
+  <div class="panel">
+    <h2>gfx1200 by instruction family</h2>
+    <div class="row">
+  <div class="label">VOP3</div>
+  <div class="bar">
+    <div class="lifted" style="width:2.204%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">8 / 363<br><span>2.20%</span></div>
+</div><div class="row">
+  <div class="label">DS</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">0 / 125<br><span>0.00%</span></div>
+</div><div class="row">
+  <div class="label">VOP1</div>
+  <div class="bar">
+    <div class="lifted" style="width:1.111%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">1 / 90<br><span>1.11%</span></div>
+</div><div class="row">
+  <div class="label">BUFFER</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">0 / 89<br><span>0.00%</span></div>
+</div><div class="row">
+  <div class="label">SOP1</div>
+  <div class="bar">
+    <div class="lifted" style="width:1.190%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">1 / 84<br><span>1.19%</span></div>
+</div><div class="row">
+  <div class="label">SOP2</div>
+  <div class="bar">
+    <div class="lifted" style="width:11.111%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">8 / 72<br><span>11.11%</span></div>
+</div><div class="row">
+  <div class="label">GLOBAL</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:1.538%"></div>
+  </div>
+  <div class="value">0 / 65<br><span>1.54%</span></div>
+</div><div class="row">
+  <div class="label">IMAGE</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">0 / 58<br><span>0.00%</span></div>
+</div><div class="row">
+  <div class="label">FLAT</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">0 / 55<br><span>0.00%</span></div>
+</div><div class="row">
+  <div class="label">SOPC</div>
+  <div class="bar">
+    <div class="lifted" style="width:26.087%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">12 / 46<br><span>26.09%</span></div>
+</div><div class="row">
+  <div class="label">VOP2</div>
+  <div class="bar">
+    <div class="lifted" style="width:13.333%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">6 / 45<br><span>13.33%</span></div>
+</div><div class="row">
+  <div class="label">SOPP</div>
+  <div class="bar">
+    <div class="lifted" style="width:14.634%"></div>
+    <div class="decoded" style="width:7.317%"></div>
+  </div>
+  <div class="value">6 / 41<br><span>21.95%</span></div>
+</div><div class="row">
+  <div class="label">OTHER</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">0 / 40<br><span>0.00%</span></div>
+</div><div class="row">
+  <div class="label">SMEM</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">0 / 28<br><span>0.00%</span></div>
+</div><div class="row">
+  <div class="label">SCRATCH</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">0 / 24<br><span>0.00%</span></div>
+</div><div class="row">
+  <div class="label">SOPK</div>
+  <div class="bar">
+    <div class="lifted" style="width:0.000%"></div>
+    <div class="decoded" style="width:0.000%"></div>
+  </div>
+  <div class="value">0 / 8<br><span>0.00%</span></div>
+</div>
+  </div>
+  <div class="legend">
+    <span><i class="lifted" style="background:var(--chart-2,#4ac26b)"></i>lifted to IL</span>
+    <span><i class="decoded" style="background:var(--chart-1,#62a8e8);opacity:.45"></i>decoded, not lifted</span>
+    <span>denominator: AMD ISA XML instruction count</span>
+  </div>
+  <div class="note">gfx1200 has 46 decoded opcodes and 42 lifted to IL. The 29-vs-7 loop review is about emitted ISA quality, not coverage.</div>
+</div>
