@@ -1,0 +1,772 @@
+#include "SR/Frontend/Arch/Gfx/GfxLifter.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <map>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "SR/Common/IL/Builder.hpp"
+
+namespace SR::Frontend::Gfx {
+namespace {
+
+Diagnostic LiftError(std::string code, std::string message, std::uint32_t pc)
+{
+    return Diagnostic::Error(std::move(code), std::move(message), pc);
+}
+
+constexpr std::uint32_t kLastSgpr = 105; // 106..127 are VCC/SCC/M0/EXEC
+
+class Lifter
+{
+public:
+    Lifter(IL::Module& module, IL::Function& function, IL::FunctionBuilder& builder, Arch arch)
+        : m_module(module)
+        , m_function(function)
+        , m_builder(builder)
+        , m_arch(arch)
+    {
+        m_sgprSlots.fill(IL::InvalidValue);
+        m_vgprSlots.fill(IL::InvalidValue);
+    }
+
+    [[nodiscard]] Result<void> Run(std::span<const std::uint32_t> words)
+    {
+        const auto decoded = DecodeProgram(words);
+        if (!decoded)
+            return std::unexpected(decoded.error());
+
+        m_items = std::move(decoded->items);
+        m_byPc = std::move(decoded->byPc);
+
+        if (m_items.empty())
+            return std::unexpected(LiftError("SR-GFX-LIFT-001", "code object has no instructions", 0));
+
+        const auto leaders = ComputeLeaders();
+        if (!leaders)
+            return std::unexpected(leaders.error());
+
+        m_leaders = *leaders;
+        m_blockByPc.clear();
+        m_pcByBlock.clear();
+
+        for (std::size_t i = 0; i < m_leaders.size(); ++i)
+        {
+            const IL::BlockId block = m_builder.CreateBlock("pc=" + std::to_string(m_leaders[i]));
+            m_blockByPc[m_leaders[i]] = block;
+            m_pcByBlock.push_back(m_leaders[i]);
+        }
+
+        m_entry = m_blockByPc.at(m_leaders.front());
+        m_builder.SetEntry(m_entry);
+
+        for (std::size_t blockIndex = 0; blockIndex < m_leaders.size(); ++blockIndex)
+        {
+            const auto status = LiftBlock(blockIndex);
+            if (!status)
+                return status;
+        }
+
+        return {};
+    }
+
+private:
+    struct Program
+    {
+        std::vector<DecodedInstruction> items;
+        std::unordered_map<std::uint32_t, std::size_t> byPc;
+    };
+
+    [[nodiscard]] Result<Program> DecodeProgram(std::span<const std::uint32_t> words) const
+    {
+        Program program;
+        std::size_t index = 0;
+        while (index < words.size())
+        {
+            const std::uint32_t pc = static_cast<std::uint32_t>(index * sizeof(std::uint32_t));
+            const auto instruction = Decode(words.subspan(index), m_arch, pc);
+            if (!instruction)
+                return std::unexpected(instruction.error());
+
+            program.byPc.emplace(pc, program.items.size());
+            program.items.push_back(*instruction);
+
+            if (instruction->op == Op::S_Endpgm)
+                break;
+
+            index += instruction->wordCount;
+        }
+
+        return program;
+    }
+
+    [[nodiscard]] Result<std::uint32_t> BranchTarget(const DecodedInstruction& instruction) const
+    {
+        if (instruction.operands.empty() || instruction.operands[0].kind != OperandKind::Label)
+            return std::unexpected(LiftError("SR-GFX-LIFT-002", "branch has no label operand", instruction.pc));
+
+        const auto relative = static_cast<std::int16_t>(instruction.operands[0].value & 0xFFFFu);
+        const std::int64_t target = static_cast<std::int64_t>(instruction.pc) + 4 + static_cast<std::int64_t>(relative) * 4;
+        if (target < 0)
+            return std::unexpected(LiftError("SR-GFX-LIFT-003", "branch target is before the code object", instruction.pc));
+
+        const auto pc = static_cast<std::uint32_t>(target);
+        if (m_byPc.find(pc) == m_byPc.end())
+            return std::unexpected(LiftError("SR-GFX-LIFT-004", "branch target is not an instruction boundary", instruction.pc));
+
+        return pc;
+    }
+
+    [[nodiscard]] static bool IsBranch(Op op) noexcept
+    {
+        switch (op)
+        {
+        case Op::S_Branch:
+        case Op::S_CbranchScc0:
+        case Op::S_CbranchScc1:
+        case Op::S_CbranchVccz:
+        case Op::S_CbranchVccnz:
+        case Op::S_CbranchExecz:
+        case Op::S_CbranchExecnz:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    [[nodiscard]] Result<std::vector<std::uint32_t>> ComputeLeaders() const
+    {
+        std::set<std::uint32_t> leaders{0};
+
+        for (const DecodedInstruction& instruction : m_items)
+        {
+            if (!IsBranch(instruction.op))
+                continue;
+
+            const auto target = BranchTarget(instruction);
+            if (!target)
+                return std::unexpected(target.error());
+            leaders.insert(*target);
+
+            if (instruction.op != Op::S_Branch)
+            {
+                const std::uint32_t fallthrough = instruction.pc + 4;
+                if (m_byPc.find(fallthrough) == m_byPc.end())
+                    return std::unexpected(LiftError("SR-GFX-LIFT-005",
+                                                     "conditional branch has no fallthrough instruction",
+                                                     instruction.pc));
+                leaders.insert(fallthrough);
+            }
+        }
+
+        return std::vector<std::uint32_t>(leaders.begin(), leaders.end());
+    }
+
+    [[nodiscard]] IL::BlockId BlockForPc(std::uint32_t pc, std::uint32_t sourcePc) const
+    {
+        const auto it = m_blockByPc.find(pc);
+        if (it == m_blockByPc.end())
+            return IL::InvalidBlockId;
+        (void)sourcePc;
+        return it->second;
+    }
+
+    [[nodiscard]] IL::ValueId Slot(std::array<IL::ValueId, 256>& slots, std::uint32_t index, IL::RegisterClass kind)
+    {
+        IL::ValueId& slot = slots[index];
+        if (slot == IL::InvalidValue)
+        {
+            const IL::TypeId pointer = m_module.types.Pointer(IL::Space::Private, m_module.types.U32());
+            slot = m_builder.Alloca(pointer, m_entry);
+            m_module.registerSlots.push_back({kind, index, slot});
+        }
+        return slot;
+    }
+
+    [[nodiscard]] IL::ValueId SccSlot()
+    {
+        if (m_sccSlot == IL::InvalidValue)
+        {
+            const IL::TypeId pointer = m_module.types.Pointer(IL::Space::Private, m_module.types.Bool());
+            m_sccSlot = m_builder.Alloca(pointer, m_entry);
+            m_module.registerSlots.push_back({IL::RegisterClass::Scc, 0, m_sccSlot});
+        }
+        return m_sccSlot;
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadSgpr(std::uint32_t index, std::uint32_t pc)
+    {
+        if (index > kLastSgpr)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-006",
+                                             "special scalar register " + std::to_string(index) +
+                                                 " (VCC/SCC/M0/EXEC) is not supported yet",
+                                             pc));
+        }
+        return m_builder.Load(m_module.types.U32(), Slot(m_sgprSlots, index, IL::RegisterClass::Sgpr), pc, true);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadVgpr(std::uint32_t index, std::uint32_t pc)
+    {
+        return m_builder.Load(m_module.types.U32(), Slot(m_vgprSlots, index, IL::RegisterClass::Vgpr), pc, false);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadValue(const Operand& operand, std::uint32_t pc)
+    {
+        switch (operand.kind)
+        {
+        case OperandKind::Sgpr:
+            if (operand.value >= 256)
+                return std::unexpected(LiftError("SR-GFX-LIFT-007", "SGPR index out of range", pc));
+            return ReadSgpr(operand.value, pc);
+        case OperandKind::Vgpr:
+        case OperandKind::Vsrc:
+            if (operand.value >= 256)
+                return std::unexpected(LiftError("SR-GFX-LIFT-008", "VGPR index out of range", pc));
+            return ReadVgpr(operand.value, pc);
+        case OperandKind::Literal:
+            return m_builder.ConstantU32(operand.value);
+        case OperandKind::Ssrc:
+        case OperandKind::Src:
+            if (operand.isInline)
+                return InlineConstant(operand.value, pc);
+            return std::unexpected(LiftError("SR-GFX-LIFT-009", "unresolved source operand", pc));
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-010", "operand is not a value", pc));
+        }
+    }
+
+    [[nodiscard]] Result<IL::ValueId> InlineConstant(std::uint32_t index, std::uint32_t pc)
+    {
+        if (const auto bits = InlineFloatBits(index))
+            return m_builder.ConstantU32(*bits);
+
+        if ((index >= 128 && index <= 192) || (index >= 193 && index <= 208))
+            return m_builder.ConstantU32(InlineInteger(index));
+
+        return std::unexpected(LiftError("SR-GFX-LIFT-011",
+                                         "unsupported inline constant index " + std::to_string(index),
+                                         pc));
+    }
+
+    [[nodiscard]] IL::ValueId Bitcast(IL::TypeId type, IL::ValueId value)
+    {
+        if (m_function.values[value].type == type)
+            return value;
+        const bool uniform = m_function.values[value].uniform;
+        return m_builder.Emit(type, IL::Op::Bitcast, 0, {value}, {}, IL::NoPayload, 0, 0, uniform);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadBits(const Operand& operand, std::uint32_t pc)
+    {
+        const auto value = ReadValue(operand, pc);
+        if (!value)
+            return value;
+        return Bitcast(m_module.types.U32(), *value);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadFloat(const Operand& operand, std::uint32_t pc)
+    {
+        const auto value = ReadValue(operand, pc);
+        if (!value)
+            return value;
+        return Bitcast(m_module.types.F32(), *value);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadSigned(const Operand& operand, std::uint32_t pc)
+    {
+        const auto value = ReadValue(operand, pc);
+        if (!value)
+            return value;
+        return Bitcast(m_module.types.I32(), *value);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadScc(std::uint32_t pc)
+    {
+        return m_builder.Load(m_module.types.Bool(), SccSlot(), pc, true);
+    }
+
+    [[nodiscard]] Result<void> WriteScc(IL::ValueId value, std::uint32_t pc)
+    {
+        m_builder.Store(SccSlot(), value, pc);
+        return {};
+    }
+
+    [[nodiscard]] Result<void> WriteDest(const Operand& destination, IL::ValueId value, std::uint32_t pc)
+    {
+        switch (destination.kind)
+        {
+        case OperandKind::Sdst:
+            if (destination.value > kLastSgpr)
+            {
+                return std::unexpected(LiftError("SR-GFX-LIFT-012",
+                                                 "write to special scalar register " + std::to_string(destination.value),
+                                                 pc));
+            }
+            m_builder.Store(Slot(m_sgprSlots, destination.value, IL::RegisterClass::Sgpr), value, pc);
+            return {};
+        case OperandKind::Vgpr:
+            m_builder.Store(Slot(m_vgprSlots, destination.value, IL::RegisterClass::Vgpr), value, pc);
+            return {};
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-013", "instruction has no writable destination", pc));
+        }
+    }
+
+    [[nodiscard]] Result<void> LiftBinary(const DecodedInstruction& instruction,
+                                          IL::BinaryOp subop,
+                                          bool isFloat,
+                                          bool uniform)
+    {
+        const auto left = isFloat ? ReadFloat(instruction.operands[1], instruction.pc)
+                                  : ReadBits(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = isFloat ? ReadFloat(instruction.operands[2], instruction.pc)
+                                   : ReadBits(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        const IL::TypeId type = isFloat ? m_module.types.F32() : m_module.types.U32();
+        IL::ValueId result = m_builder.Emit(type,
+                                            IL::Op::Binary,
+                                            static_cast<std::uint16_t>(subop),
+                                            {*left, *right},
+                                            {},
+                                            IL::NoPayload,
+                                            instruction.pc,
+                                            static_cast<std::uint16_t>(instruction.op),
+                                            uniform);
+        if (isFloat)
+            result = Bitcast(m_module.types.U32(), result);
+
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftCarry(const DecodedInstruction& instruction, bool subtract)
+    {
+        const auto leftBits = ReadBits(instruction.operands[1], instruction.pc);
+        if (!leftBits)
+            return std::unexpected(leftBits.error());
+        const auto rightBits = ReadBits(instruction.operands[2], instruction.pc);
+        if (!rightBits)
+            return std::unexpected(rightBits.error());
+
+        const auto result = m_builder.Emit(m_module.types.U32(),
+                                           IL::Op::Binary,
+                                           static_cast<std::uint16_t>(subtract ? IL::BinaryOp::ISub : IL::BinaryOp::IAdd),
+                                           {*leftBits, *rightBits},
+                                           {},
+                                           IL::NoPayload,
+                                           instruction.pc,
+                                           static_cast<std::uint16_t>(instruction.op),
+                                           true);
+
+        // Carry/borrow is unsigned: add carries when result < left, sub borrows
+        // when left < right.
+        const IL::ValueId carryLeft = subtract ? *leftBits : result;
+        const IL::ValueId carryRight = subtract ? *rightBits : *leftBits;
+        const IL::ValueId carry = m_builder.CompareValue(IL::CompareOp::ULt, carryLeft, carryRight, true);
+        const auto scc = WriteScc(carry, instruction.pc);
+        if (!scc)
+            return scc;
+
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftCompare(const DecodedInstruction& instruction)
+    {
+        const bool isSigned = instruction.op == Op::S_CmpEqI32 || instruction.op == Op::S_CmpLgI32 ||
+                              instruction.op == Op::S_CmpLtI32 || instruction.op == Op::S_CmpLeI32 ||
+                              instruction.op == Op::S_CmpGtI32 || instruction.op == Op::S_CmpGeI32;
+
+        const auto left = isSigned ? ReadSigned(instruction.operands[0], instruction.pc)
+                                   : ReadBits(instruction.operands[0], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = isSigned ? ReadSigned(instruction.operands[1], instruction.pc)
+                                    : ReadBits(instruction.operands[1], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        IL::CompareOp op = IL::CompareOp::IEq;
+        switch (instruction.op)
+        {
+        case Op::S_CmpEqI32:
+        case Op::S_CmpEqU32:
+            op = IL::CompareOp::IEq;
+            break;
+        case Op::S_CmpLgI32:
+        case Op::S_CmpLgU32:
+            op = IL::CompareOp::INe;
+            break;
+        case Op::S_CmpLtI32:
+            op = IL::CompareOp::ILt;
+            break;
+        case Op::S_CmpLeI32:
+            op = IL::CompareOp::ILe;
+            break;
+        case Op::S_CmpGtI32:
+            op = IL::CompareOp::IGt;
+            break;
+        case Op::S_CmpGeI32:
+            op = IL::CompareOp::IGe;
+            break;
+        case Op::S_CmpLtU32:
+            op = IL::CompareOp::ULt;
+            break;
+        case Op::S_CmpLeU32:
+            op = IL::CompareOp::ULe;
+            break;
+        case Op::S_CmpGtU32:
+            op = IL::CompareOp::UGt;
+            break;
+        case Op::S_CmpGeU32:
+            op = IL::CompareOp::UGe;
+            break;
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-014", "not a scalar compare", instruction.pc));
+        }
+
+        const IL::ValueId comparison = m_builder.CompareValue(op, *left, *right, true);
+        return WriteScc(comparison, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
+    {
+        const auto condition = ReadScc(instruction.pc);
+        if (!condition)
+            return std::unexpected(condition.error());
+        const auto left = ReadBits(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadBits(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        const IL::ValueId selected = m_builder.SelectValue(m_module.types.U32(), *condition, *left, *right, true);
+        return WriteDest(instruction.operands[0], selected, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftFma(const DecodedInstruction& instruction)
+    {
+        const auto a = ReadFloat(instruction.operands[1], instruction.pc);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadFloat(instruction.operands[2], instruction.pc);
+        if (!b)
+            return std::unexpected(b.error());
+        const auto c = ReadFloat(instruction.operands[3], instruction.pc);
+        if (!c)
+            return std::unexpected(c.error());
+
+        IL::ValueId result = m_builder.Emit(m_module.types.F32(),
+                                            IL::Op::Ternary,
+                                            static_cast<std::uint16_t>(IL::TernaryOp::Fma),
+                                            {*a, *b, *c},
+                                            {},
+                                            IL::NoPayload,
+                                            instruction.pc,
+                                            static_cast<std::uint16_t>(instruction.op),
+                                            false);
+        result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> SetBranch(IL::BlockId block, std::uint32_t targetPc, std::uint32_t pc)
+    {
+        const IL::BlockId target = BlockForPc(targetPc, pc);
+        if (target == IL::InvalidBlockId)
+            return std::unexpected(LiftError("SR-GFX-LIFT-015", "branch target has no basic block", pc));
+
+        IL::Terminator terminator;
+        terminator.kind = IL::TerminatorKind::Br;
+        terminator.target = target;
+        terminator.sourcePc = pc;
+        m_builder.Terminate(block, std::move(terminator));
+        return {};
+    }
+
+    [[nodiscard]] Result<void> SetCondBranch(IL::BlockId block,
+                                             IL::ValueId condition,
+                                             std::uint32_t targetPc,
+                                             std::uint32_t fallthroughPc,
+                                             std::uint32_t pc,
+                                             bool uniform)
+    {
+        const IL::BlockId target = BlockForPc(targetPc, pc);
+        const IL::BlockId fallthrough = BlockForPc(fallthroughPc, pc);
+        if (target == IL::InvalidBlockId || fallthrough == IL::InvalidBlockId)
+            return std::unexpected(LiftError("SR-GFX-LIFT-016", "conditional branch target has no basic block", pc));
+
+        IL::Terminator terminator;
+        terminator.kind = IL::TerminatorKind::CondBr;
+        terminator.condition = condition;
+        terminator.trueTarget = target;
+        terminator.falseTarget = fallthrough;
+        terminator.uniformHint = uniform;
+        terminator.sourcePc = pc;
+        m_builder.Terminate(block, std::move(terminator));
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftBranch(const DecodedInstruction& instruction)
+    {
+        const IL::BlockId block = m_builder.CurrentBlock();
+        const auto target = BranchTarget(instruction);
+        if (!target)
+            return std::unexpected(target.error());
+
+        switch (instruction.op)
+        {
+        case Op::S_Branch:
+            return SetBranch(block, *target, instruction.pc);
+        case Op::S_CbranchScc0:
+        case Op::S_CbranchScc1:
+        {
+            const auto scc = ReadScc(instruction.pc);
+            if (!scc)
+                return std::unexpected(scc.error());
+            IL::ValueId condition = *scc;
+            if (instruction.op == Op::S_CbranchScc0)
+                condition = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), condition, true);
+            return SetCondBranch(block, condition, *target, instruction.pc + 4, instruction.pc, true);
+        }
+        case Op::S_CbranchExecz:
+        case Op::S_CbranchExecnz:
+            // No instruction in the lifted subset writes EXEC, so the wave mask
+            // is all-active: EXECZ never branches and EXECNZ always does.
+            if (instruction.op == Op::S_CbranchExecz)
+                return SetBranch(block, instruction.pc + 4, instruction.pc);
+            return SetBranch(block, *target, instruction.pc);
+        case Op::S_CbranchVccz:
+        case Op::S_CbranchVccnz:
+            return std::unexpected(LiftError("SR-GFX-LIFT-017", "VCC branches need mask tracking", instruction.pc));
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-018", "not a branch", instruction.pc));
+        }
+    }
+
+    [[nodiscard]] Result<void> LiftOne(const DecodedInstruction& instruction)
+    {
+        if (instruction.abs != 0 || instruction.neg != 0 || instruction.omod != 0 || instruction.clamp)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-019",
+                                             std::string("unsupported modifiers on ") +
+                                                 std::string(ToString(instruction.op)),
+                                             instruction.pc));
+        }
+
+        switch (instruction.op)
+        {
+        case Op::S_MovB32:
+        case Op::V_MovB32:
+        {
+            const auto value = ReadBits(instruction.operands[1], instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+            return WriteDest(instruction.operands[0], *value, instruction.pc);
+        }
+        case Op::S_AddU32:
+            return LiftBinary(instruction, IL::BinaryOp::IAdd, false, true);
+        case Op::S_SubU32:
+            return LiftBinary(instruction, IL::BinaryOp::ISub, false, true);
+        case Op::S_AddCoU32:
+            return LiftCarry(instruction, false);
+        case Op::S_SubCoU32:
+            return LiftCarry(instruction, true);
+        case Op::S_AndB32:
+            return LiftBinary(instruction, IL::BinaryOp::And, false, true);
+        case Op::S_OrB32:
+            return LiftBinary(instruction, IL::BinaryOp::Or, false, true);
+        case Op::S_XorB32:
+            return LiftBinary(instruction, IL::BinaryOp::Xor, false, true);
+        case Op::S_LshlB32:
+            return LiftBinary(instruction, IL::BinaryOp::Shl, false, true);
+        case Op::S_LshrB32:
+            return LiftBinary(instruction, IL::BinaryOp::LShr, false, true);
+        case Op::S_CselectB32:
+            return LiftCselect(instruction);
+        case Op::S_CmpEqI32:
+        case Op::S_CmpLgI32:
+        case Op::S_CmpLtI32:
+        case Op::S_CmpLeI32:
+        case Op::S_CmpGtI32:
+        case Op::S_CmpGeI32:
+        case Op::S_CmpEqU32:
+        case Op::S_CmpLgU32:
+        case Op::S_CmpLtU32:
+        case Op::S_CmpLeU32:
+        case Op::S_CmpGtU32:
+        case Op::S_CmpGeU32:
+            return LiftCompare(instruction);
+        case Op::V_AddF32:
+            return LiftBinary(instruction, IL::BinaryOp::FAdd, true, false);
+        case Op::V_SubF32:
+            return LiftBinary(instruction, IL::BinaryOp::FSub, true, false);
+        case Op::V_MulF32:
+            return LiftBinary(instruction, IL::BinaryOp::FMul, true, false);
+        case Op::V_AndB32:
+            return LiftBinary(instruction, IL::BinaryOp::And, false, false);
+        case Op::V_OrB32:
+            return LiftBinary(instruction, IL::BinaryOp::Or, false, false);
+        case Op::V_XorB32:
+            return LiftBinary(instruction, IL::BinaryOp::Xor, false, false);
+        case Op::V_FmaF32:
+            return LiftFma(instruction);
+        case Op::GlobalStoreB32:
+        {
+            if (!m_module.testAbi)
+            {
+                return std::unexpected(LiftError("SR-GFX-LIFT-024",
+                                                 "global_store_b32 requires --test-abi (no descriptor model yet)",
+                                                 instruction.pc));
+            }
+
+            const auto address = ReadBits(instruction.operands[0], instruction.pc);
+            if (!address)
+                return std::unexpected(address.error());
+            const auto value = ReadBits(instruction.operands[1], instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+
+            IL::ValueId offset = *address;
+            if (instruction.operands[2].value != 0)
+            {
+                const IL::ValueId immediate = m_builder.ConstantU32(instruction.operands[2].value);
+                offset = m_builder.Emit(m_module.types.U32(),
+                                        IL::Op::Binary,
+                                        static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                        {offset, immediate},
+                                        {},
+                                        IL::NoPayload,
+                                        instruction.pc,
+                                        static_cast<std::uint16_t>(instruction.op),
+                                        false);
+            }
+
+            const IL::PayloadId payload = m_module.payloads.Add(IL::TestBufferDesc{0, 0});
+            m_builder.IntrinsicVoid(IL::IntrinsicId::TestBufferStore, {offset, *value}, payload, instruction.pc);
+            return {};
+        }
+        case Op::S_Branch:
+        case Op::S_CbranchScc0:
+        case Op::S_CbranchScc1:
+        case Op::S_CbranchVccz:
+        case Op::S_CbranchVccnz:
+        case Op::S_CbranchExecz:
+        case Op::S_CbranchExecnz:
+            return LiftBranch(instruction);
+        case Op::S_Endpgm:
+        {
+            IL::Terminator terminator;
+            terminator.kind = IL::TerminatorKind::Ret;
+            terminator.sourcePc = instruction.pc;
+            m_builder.Terminate(m_builder.CurrentBlock(), std::move(terminator));
+            return {};
+        }
+        case Op::S_Barrier:
+            return std::unexpected(LiftError("SR-GFX-LIFT-020", "s_barrier is not implemented yet", instruction.pc));
+        case Op::V_CndmaskB32:
+            return std::unexpected(LiftError("SR-GFX-LIFT-021", "v_cndmask_b32 needs VCC tracking", instruction.pc));
+        case Op::Invalid:
+            break;
+        }
+
+        return std::unexpected(LiftError("SR-GFX-LIFT-022",
+                                         std::string("unsupported instruction: ") + std::string(ToString(instruction.op)),
+                                         instruction.pc));
+    }
+
+    [[nodiscard]] Result<void> LiftBlock(std::size_t blockIndex)
+    {
+        const std::uint32_t leaderPc = m_leaders[blockIndex];
+        const IL::BlockId block = m_blockByPc.at(leaderPc);
+        m_builder.SetCurrentBlock(block);
+
+        const std::size_t start = m_byPc.at(leaderPc);
+        const std::size_t end = blockIndex + 1 < m_leaders.size() ? m_byPc.at(m_leaders[blockIndex + 1]) : m_items.size();
+
+        bool terminated = false;
+        for (std::size_t i = start; i < end; ++i)
+        {
+            const auto status = LiftOne(m_items[i]);
+            if (!status)
+                return status;
+
+            if (m_items[i].op == Op::S_Endpgm || IsBranch(m_items[i].op))
+            {
+                terminated = true;
+                break;
+            }
+        }
+
+        if (!terminated)
+        {
+            if (blockIndex + 1 >= m_leaders.size())
+                return std::unexpected(LiftError("SR-GFX-LIFT-023", "basic block has no terminator", leaderPc));
+
+            const auto status = SetBranch(block, m_leaders[blockIndex + 1], leaderPc);
+            if (!status)
+                return status;
+        }
+
+        return {};
+    }
+
+    IL::Module& m_module;
+    IL::Function& m_function;
+    IL::FunctionBuilder& m_builder;
+    Arch m_arch;
+
+    std::vector<DecodedInstruction> m_items;
+    std::unordered_map<std::uint32_t, std::size_t> m_byPc;
+    std::vector<std::uint32_t> m_leaders;
+    std::map<std::uint32_t, IL::BlockId> m_blockByPc;
+    std::vector<std::uint32_t> m_pcByBlock;
+    IL::BlockId m_entry = IL::InvalidBlockId;
+
+    std::array<IL::ValueId, 256> m_sgprSlots;
+    std::array<IL::ValueId, 256> m_vgprSlots;
+    IL::ValueId m_sccSlot = IL::InvalidValue;
+};
+
+} // namespace
+
+Result<IL::Module> Lift(const DecodedShader& shader, Arch arch, std::string_view entryPoint, LiftOptions options)
+{
+    if (shader.rawBytecode.empty())
+        return std::unexpected(LiftError("SR-GFX-LIFT-030", "code object has no .text payload", 0));
+
+    if (shader.rawBytecode.size() % 4 != 0)
+        return std::unexpected(LiftError("SR-GFX-LIFT-031", "code object size is not a multiple of 4", 0));
+
+    std::vector<std::uint32_t> words(shader.rawBytecode.size() / 4);
+    std::memcpy(words.data(), shader.rawBytecode.data(), words.size() * sizeof(std::uint32_t));
+
+    IL::Module module;
+    module.stage = IL::Stage::Compute;
+    module.entryPoint = std::string(entryPoint);
+    module.architecture = std::string(GetArchInfo(arch).name);
+    module.executionModes.workgroupSize = {64, 1, 1};
+    module.testAbi = options.testAbi;
+
+    IL::Function& function = IL::CreateFunction(module, std::string(entryPoint), module.types.Void());
+    function.isEntry = true;
+    module.entryFunction = function.id;
+
+    IL::FunctionBuilder builder(module, function);
+    Lifter lifter(module, function, builder, arch);
+    const auto status = lifter.Run(words);
+    if (!status)
+        return std::unexpected(status.error());
+
+    return module;
+}
+
+} // namespace SR::Frontend::Gfx
