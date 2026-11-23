@@ -47,6 +47,30 @@ bool Ordered(float left, float right) noexcept
     return !std::isnan(left) && !std::isnan(right);
 }
 
+float FloatSource(const DecodedInstruction& instruction, std::uint8_t index, std::uint32_t bits) noexcept
+{
+    float value = AsFloat(bits);
+    const std::uint8_t bit = static_cast<std::uint8_t>(index - 1);
+    if ((instruction.abs & (1u << bit)) != 0)
+        value = std::fabs(value);
+    if ((instruction.neg & (1u << bit)) != 0)
+        value = -value;
+    return value;
+}
+
+std::uint32_t FloatResult(const DecodedInstruction& instruction, float value) noexcept
+{
+    if (instruction.omod == 1)
+        value *= 2.0f;
+    else if (instruction.omod == 2)
+        value *= 4.0f;
+    else if (instruction.omod == 3)
+        value *= 0.5f;
+    if (instruction.clamp)
+        value = std::fmin(std::fmax(value, 0.0f), 1.0f);
+    return AsBits(value);
+}
+
 std::optional<std::uint32_t> ReadOperand(const IsaState& state, const Operand& operand)
 {
     switch (operand.kind)
@@ -536,12 +560,12 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 return std::unexpected(Error("SR-GFX-ISA-038", "invalid float binary operands", pc));
             float value = 0.0f;
             if (instruction.op == Op::V_AddF32)
-                value = AsFloat(*left) + AsFloat(*right);
+                value = FloatSource(instruction, 1, *left) + FloatSource(instruction, 2, *right);
             else if (instruction.op == Op::V_SubF32)
-                value = AsFloat(*left) - AsFloat(*right);
+                value = FloatSource(instruction, 1, *left) - FloatSource(instruction, 2, *right);
             else
-                value = AsFloat(*left) * AsFloat(*right);
-            if (!write(AsBits(value)))
+                value = FloatSource(instruction, 1, *left) * FloatSource(instruction, 2, *right);
+            if (!write(FloatResult(instruction, value)))
                 return std::unexpected(Error("SR-GFX-ISA-039", "invalid float binary destination", pc));
             break;
         }
@@ -567,7 +591,12 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                     return std::unexpected(Error("SR-GFX-ISA-042", "invalid fma third operand", pc));
                 c = *third;
             }
-            if (!write(AsBits(std::fma(AsFloat(*a), AsFloat(*b), AsFloat(c)))))
+            const float third = instruction.op == Op::V_MacF32 ? AsFloat(c)
+                                                               : FloatSource(instruction, 3, c);
+            if (!write(FloatResult(instruction,
+                                   std::fma(FloatSource(instruction, 1, *a),
+                                            FloatSource(instruction, 2, *b),
+                                            third))))
                 return std::unexpected(Error("SR-GFX-ISA-043", "invalid fma destination", pc));
             break;
         }
@@ -578,9 +607,9 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const auto c = source(3);
             if (!a || !b || !c)
                 return std::unexpected(Error("SR-GFX-ISA-044", "invalid mad operands", pc));
-            const float product = AsFloat(*a) * AsFloat(*b);
-            const float value = product + AsFloat(*c);
-            if (!write(AsBits(value)))
+            const float product = FloatSource(instruction, 1, *a) * FloatSource(instruction, 2, *b);
+            const float value = product + FloatSource(instruction, 3, *c);
+            if (!write(FloatResult(instruction, value)))
                 return std::unexpected(Error("SR-GFX-ISA-045", "invalid mad destination", pc));
             break;
         }
@@ -631,9 +660,10 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const auto right = source(2);
             if (!left || !right)
                 return std::unexpected(Error("SR-GFX-ISA-050", "invalid float min/max operands", pc));
-            const float value = instruction.op == Op::V_MinF32 ? std::fmin(AsFloat(*left), AsFloat(*right))
-                                                               : std::fmax(AsFloat(*left), AsFloat(*right));
-            if (!write(AsBits(value)))
+            const float value = instruction.op == Op::V_MinF32
+                                    ? std::fmin(FloatSource(instruction, 1, *left), FloatSource(instruction, 2, *right))
+                                    : std::fmax(FloatSource(instruction, 1, *left), FloatSource(instruction, 2, *right));
+            if (!write(FloatResult(instruction, value)))
                 return std::unexpected(Error("SR-GFX-ISA-051", "invalid float min/max destination", pc));
             break;
         }
@@ -645,11 +675,13 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const auto c = source(3);
             if (!a || !b || !c)
                 return std::unexpected(Error("SR-GFX-ISA-052", "invalid min3/max3 operands", pc));
-            const float first = instruction.op == Op::V_Min3F32 ? std::fmin(AsFloat(*a), AsFloat(*b))
-                                                                : std::fmax(AsFloat(*a), AsFloat(*b));
-            const float value = instruction.op == Op::V_Min3F32 ? std::fmin(first, AsFloat(*c))
-                                                                : std::fmax(first, AsFloat(*c));
-            if (!write(AsBits(value)))
+            const float first = instruction.op == Op::V_Min3F32
+                                    ? std::fmin(FloatSource(instruction, 1, *a), FloatSource(instruction, 2, *b))
+                                    : std::fmax(FloatSource(instruction, 1, *a), FloatSource(instruction, 2, *b));
+            const float value = instruction.op == Op::V_Min3F32
+                                    ? std::fmin(first, FloatSource(instruction, 3, *c))
+                                    : std::fmax(first, FloatSource(instruction, 3, *c));
+            if (!write(FloatResult(instruction, value)))
                 return std::unexpected(Error("SR-GFX-ISA-053", "invalid min3/max3 destination", pc));
             break;
         }
@@ -759,7 +791,7 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const auto value = source(1);
             if (!value)
                 return std::unexpected(Error("SR-GFX-ISA-067", "invalid math operand", pc));
-            const float input = AsFloat(*value);
+            const float input = FloatSource(instruction, 1, *value);
             float converted = 0.0f;
             switch (instruction.op)
             {
@@ -781,7 +813,7 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             default:
                 break;
             }
-            if (!write(AsBits(converted)))
+            if (!write(FloatResult(instruction, converted)))
                 return std::unexpected(Error("SR-GFX-ISA-068", "invalid math destination", pc));
             break;
         }
@@ -849,8 +881,8 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 break;
             default:
             {
-                const float a = AsFloat(*left);
-                const float b = AsFloat(*right);
+                const float a = FloatSource(instruction, 1, *left);
+                const float b = FloatSource(instruction, 2, *right);
                 const bool ordered = Ordered(a, b);
                 switch (instruction.op)
                 {

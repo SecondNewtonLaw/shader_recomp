@@ -122,6 +122,7 @@ enum GlslStd450 : std::uint32_t
     GlslFAbs = 4,
     GlslFMin = 37,
     GlslFMax = 40,
+    GlslFClamp = 43,
     GlslFma = 50,
     GlslExp2 = 29,
     GlslLog2 = 30,
@@ -346,7 +347,7 @@ private:
                     {
                         const auto subop = static_cast<IL::TernaryOp>(instruction.subop);
                         if (subop == IL::TernaryOp::Fma || subop == IL::TernaryOp::FMin3 ||
-                            subop == IL::TernaryOp::FMax3)
+                            subop == IL::TernaryOp::FMax3 || subop == IL::TernaryOp::Clamp)
                             return true;
                     }
                     if (instruction.op == IL::Op::Unary)
@@ -1979,6 +1980,9 @@ private:
             Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFMax, first, *c});
             break;
         }
+        case IL::TernaryOp::Clamp:
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFClamp, *a, *b, *c});
+            break;
         default:
             return std::unexpected(EmitError("SR-SPV-090", "unsupported ternary op", instruction.sourcePc));
         }

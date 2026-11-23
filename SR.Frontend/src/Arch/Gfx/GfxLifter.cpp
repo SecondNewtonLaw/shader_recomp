@@ -297,6 +297,98 @@ private:
         return Bitcast(m_module.types.I32(), *value);
     }
 
+    // VOP3 attaches abs/neg to each of the first three sources, bit 0 for
+    // source 0 and so on.
+    [[nodiscard]] Result<IL::ValueId> ReadFloatSource(const DecodedInstruction& instruction,
+                                                      std::uint8_t index,
+                                                      bool uniform = false)
+    {
+        const auto value = ReadFloat(instruction.operands[index], instruction.pc);
+        if (!value)
+            return value;
+
+        IL::ValueId result = *value;
+        const std::uint8_t bit = static_cast<std::uint8_t>(index - 1);
+        if ((instruction.abs & (1u << bit)) != 0)
+            result = m_builder.UnaryValue(IL::UnaryOp::FAbs, m_module.types.F32(), result, uniform);
+        if ((instruction.neg & (1u << bit)) != 0)
+            result = m_builder.UnaryValue(IL::UnaryOp::Neg, m_module.types.F32(), result, uniform);
+        return result;
+    }
+
+    // VOP3 omod doubles/quadruples/halves the result, then clamp fixes it to
+    // [0, 1].
+    [[nodiscard]] IL::ValueId ApplyOutputModifiers(const DecodedInstruction& instruction,
+                                                   IL::ValueId value,
+                                                   bool uniform)
+    {
+        float scale = 0.0f;
+        if (instruction.omod == 1)
+            scale = 2.0f;
+        else if (instruction.omod == 2)
+            scale = 4.0f;
+        else if (instruction.omod == 3)
+            scale = 0.5f;
+
+        if (scale != 0.0f)
+        {
+            value = m_builder.Emit(m_module.types.F32(),
+                                   IL::Op::Binary,
+                                   static_cast<std::uint16_t>(IL::BinaryOp::FMul),
+                                   {value, m_builder.ConstantF32(scale)},
+                                   {},
+                                   IL::NoPayload,
+                                   instruction.pc,
+                                   static_cast<std::uint16_t>(instruction.op),
+                                   uniform);
+        }
+
+        if (instruction.clamp)
+        {
+            value = m_builder.Emit(m_module.types.F32(),
+                                   IL::Op::Ternary,
+                                   static_cast<std::uint16_t>(IL::TernaryOp::Clamp),
+                                   {value, m_builder.ConstantF32(0.0f), m_builder.ConstantF32(1.0f)},
+                                   {},
+                                   IL::NoPayload,
+                                   instruction.pc,
+                                   static_cast<std::uint16_t>(instruction.op),
+                                   uniform);
+        }
+        return value;
+    }
+
+    [[nodiscard]] static bool SupportsFloatModifiers(Op op) noexcept
+    {
+        switch (op)
+        {
+        case Op::V_AddF32:
+        case Op::V_SubF32:
+        case Op::V_MulF32:
+        case Op::V_FmaF32:
+        case Op::V_MacF32:
+        case Op::V_MadF32:
+        case Op::V_MinF32:
+        case Op::V_MaxF32:
+        case Op::V_Min3F32:
+        case Op::V_Max3F32:
+        case Op::V_RcpF32:
+        case Op::V_RsqF32:
+        case Op::V_SqrtF32:
+        case Op::V_ExpF32:
+        case Op::V_LogF32:
+        case Op::V_CmpLtF32:
+        case Op::V_CmpEqF32:
+        case Op::V_CmpLeF32:
+        case Op::V_CmpGtF32:
+        case Op::V_CmpLgF32:
+        case Op::V_CmpGeF32:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     [[nodiscard]] Result<IL::ValueId> ReadScc(std::uint32_t pc)
     {
         return m_builder.Load(m_module.types.Bool(), SccSlot(), pc, true);
@@ -353,11 +445,11 @@ private:
                                           bool uniform,
                                           bool updatesScc = false)
     {
-        const auto left = isFloat ? ReadFloat(instruction.operands[1], instruction.pc)
+        const auto left = isFloat ? ReadFloatSource(instruction, 1, uniform)
                                   : ReadBits(instruction.operands[1], instruction.pc);
         if (!left)
             return std::unexpected(left.error());
-        const auto right = isFloat ? ReadFloat(instruction.operands[2], instruction.pc)
+        const auto right = isFloat ? ReadFloatSource(instruction, 2, uniform)
                                    : ReadBits(instruction.operands[2], instruction.pc);
         if (!right)
             return std::unexpected(right.error());
@@ -373,7 +465,10 @@ private:
                                             static_cast<std::uint16_t>(instruction.op),
                                             uniform);
         if (isFloat)
+        {
+            result = ApplyOutputModifiers(instruction, result, uniform);
             result = Bitcast(m_module.types.U32(), result);
+        }
 
         if (updatesScc)
         {
@@ -477,12 +572,12 @@ private:
                                                  bool isFloat,
                                                  bool isSigned)
     {
-        const auto left = isFloat ? ReadFloat(instruction.operands[1], instruction.pc)
+        const auto left = isFloat ? ReadFloatSource(instruction, 1)
                                   : isSigned ? ReadSigned(instruction.operands[1], instruction.pc)
                                              : ReadBits(instruction.operands[1], instruction.pc);
         if (!left)
             return std::unexpected(left.error());
-        const auto right = isFloat ? ReadFloat(instruction.operands[2], instruction.pc)
+        const auto right = isFloat ? ReadFloatSource(instruction, 2)
                                    : isSigned ? ReadSigned(instruction.operands[2], instruction.pc)
                                               : ReadBits(instruction.operands[2], instruction.pc);
         if (!right)
@@ -513,10 +608,10 @@ private:
     // V_MAC_F32 / V_FMAC_F32: destination = src0 * src1 + destination.
     [[nodiscard]] Result<void> LiftMac(const DecodedInstruction& instruction)
     {
-        const auto a = ReadFloat(instruction.operands[1], instruction.pc);
+        const auto a = ReadFloatSource(instruction, 1);
         if (!a)
             return std::unexpected(a.error());
-        const auto b = ReadFloat(instruction.operands[2], instruction.pc);
+        const auto b = ReadFloatSource(instruction, 2);
         if (!b)
             return std::unexpected(b.error());
         const auto accumulator = ReadFloat(instruction.operands[0], instruction.pc);
@@ -532,19 +627,20 @@ private:
                                             instruction.pc,
                                             static_cast<std::uint16_t>(instruction.op),
                                             false);
+        result = ApplyOutputModifiers(instruction, result, false);
         result = Bitcast(m_module.types.U32(), result);
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
     [[nodiscard]] Result<void> LiftTernaryFloat(const DecodedInstruction& instruction, IL::TernaryOp subop)
     {
-        const auto a = ReadFloat(instruction.operands[1], instruction.pc);
+        const auto a = ReadFloatSource(instruction, 1);
         if (!a)
             return std::unexpected(a.error());
-        const auto b = ReadFloat(instruction.operands[2], instruction.pc);
+        const auto b = ReadFloatSource(instruction, 2);
         if (!b)
             return std::unexpected(b.error());
-        const auto c = ReadFloat(instruction.operands[3], instruction.pc);
+        const auto c = ReadFloatSource(instruction, 3);
         if (!c)
             return std::unexpected(c.error());
 
@@ -557,16 +653,18 @@ private:
                                             instruction.pc,
                                             static_cast<std::uint16_t>(instruction.op),
                                             false);
+        result = ApplyOutputModifiers(instruction, result, false);
         result = Bitcast(m_module.types.U32(), result);
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
     [[nodiscard]] Result<void> LiftUnaryFloat(const DecodedInstruction& instruction, IL::UnaryOp subop)
     {
-        const auto source = ReadFloat(instruction.operands[1], instruction.pc);
+        const auto source = ReadFloatSource(instruction, 1);
         if (!source)
             return std::unexpected(source.error());
         IL::ValueId result = m_builder.UnaryValue(subop, m_module.types.F32(), *source, false);
+        result = ApplyOutputModifiers(instruction, result, false);
         result = Bitcast(m_module.types.U32(), result);
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
@@ -831,13 +929,13 @@ private:
 
     [[nodiscard]] Result<void> LiftFma(const DecodedInstruction& instruction)
     {
-        const auto a = ReadFloat(instruction.operands[1], instruction.pc);
+        const auto a = ReadFloatSource(instruction, 1);
         if (!a)
             return std::unexpected(a.error());
-        const auto b = ReadFloat(instruction.operands[2], instruction.pc);
+        const auto b = ReadFloatSource(instruction, 2);
         if (!b)
             return std::unexpected(b.error());
-        const auto c = ReadFloat(instruction.operands[3], instruction.pc);
+        const auto c = ReadFloatSource(instruction, 3);
         if (!c)
             return std::unexpected(c.error());
 
@@ -850,6 +948,7 @@ private:
                                             instruction.pc,
                                             static_cast<std::uint16_t>(instruction.op),
                                             false);
+        result = ApplyOutputModifiers(instruction, result, false);
         result = Bitcast(m_module.types.U32(), result);
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
@@ -1107,7 +1206,8 @@ private:
 
     [[nodiscard]] Result<void> LiftOne(const DecodedInstruction& instruction)
     {
-        if (instruction.abs != 0 || instruction.neg != 0 || instruction.omod != 0 || instruction.clamp)
+        if ((instruction.abs != 0 || instruction.neg != 0 || instruction.omod != 0 || instruction.clamp) &&
+            !SupportsFloatModifiers(instruction.op))
         {
             return std::unexpected(LiftError("SR-GFX-LIFT-019",
                                              std::string("unsupported modifiers on ") +
