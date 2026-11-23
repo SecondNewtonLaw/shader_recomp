@@ -26,6 +26,19 @@ std::vector<std::uint8_t> ReadFile(const std::filesystem::path& path)
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 
+std::uint64_t RegisterValue(const SR::IL::Module& module,
+                            const SR::IL::ExecutionResult& execution,
+                            SR::IL::RegisterClass kind,
+                            std::uint32_t index)
+{
+    for (const auto& entry : module.registerSlots)
+    {
+        if (entry.kind == kind && entry.index == index)
+            return execution.memory.at(entry.alloca);
+    }
+    return SR::IL::InvalidValue;
+}
+
 } // namespace
 
 TEST_CASE("gfx lineage inherits and overrides opcodes", "[gfx][decode]")
@@ -415,6 +428,202 @@ TEST_CASE("gfx vector integer batch interprets across generations", "[gfx][valu]
         REQUIRE(vector(9) == 0xFFFFFFFAu);
         REQUIRE(vector(10) == 5u);
         REQUIRE(vector(11) == 640u);
+
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+        REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
+TEST_CASE("gfx scalar carry batch interprets across generations", "[gfx][scc][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "scc.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader, testCase.arch);
+        if (!module.has_value())
+            INFO(SR::ToString(module.error()));
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto execution = SR::IL::Interpret(*module);
+        if (!execution.has_value())
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+
+        const auto scalar = [&](std::uint32_t index) {
+            return RegisterValue(*module, *execution, SR::IL::RegisterClass::Sgpr, index);
+        };
+
+        REQUIRE(scalar(1) == 0xFFFFFFFEu);
+        REQUIRE(scalar(2) == 1u);
+        REQUIRE(scalar(4) == 10u);
+        REQUIRE(scalar(5) == 0u);
+        REQUIRE(scalar(6) == 0x00000006u);
+        REQUIRE(scalar(7) == 1u);
+        REQUIRE(scalar(8) == 0xFFFFFFFAu);
+        REQUIRE(scalar(9) == 0u);
+        REQUIRE(scalar(10) == 4u);
+        REQUIRE(scalar(11) == 1u);
+        REQUIRE(scalar(12) == 0xFFFFFFF7u);
+        REQUIRE(scalar(13) == 2u);
+        REQUIRE(scalar(14) == 8u);
+        REQUIRE(scalar(15) == 0u);
+
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+        REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
+TEST_CASE("gfx scalar bit operations interpret across generations", "[gfx][bitops][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "bitops.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader, testCase.arch);
+        if (!module.has_value())
+            INFO(SR::ToString(module.error()));
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto execution = SR::IL::Interpret(*module);
+        if (!execution.has_value())
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+
+        const auto scalar = [&](std::uint32_t index) {
+            return RegisterValue(*module, *execution, SR::IL::RegisterClass::Sgpr, index);
+        };
+
+        // RDNA1/2 expose S_FF1/S_FLBIT; RDNA3+ dropped them in favour of the
+        // vector CLZ/CTZ forms exercised by the vector test.
+        if (testCase.arch == SR::Frontend::Gfx::Arch::Gfx10)
+        {
+            REQUIRE(scalar(1) == 8u);
+            REQUIRE(scalar(2) == 16u);
+            REQUIRE(scalar(4) == 0xFFFFFFFFu);
+            REQUIRE(scalar(5) == 0xFFFFFFFFu);
+        }
+        REQUIRE(scalar(6) == 0x0000FF00u);
+        REQUIRE(scalar(7) == 0xFFFF00FFu);
+        REQUIRE(scalar(8) == 8u);
+        REQUIRE(scalar(9) == 1u);
+        REQUIRE(scalar(10) == 0u);
+        REQUIRE(scalar(11) == 0u);
+
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+        REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
+TEST_CASE("gfx vector bit operations interpret across generations", "[gfx][vbits][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "vbits.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader, testCase.arch);
+        if (!module.has_value())
+            INFO(SR::ToString(module.error()));
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto execution = SR::IL::Interpret(*module);
+        if (!execution.has_value())
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+
+        const auto vector = [&](std::uint32_t index) {
+            return RegisterValue(*module, *execution, SR::IL::RegisterClass::Vgpr, index);
+        };
+
+        REQUIRE(vector(1) == 16u);
+        REQUIRE(vector(2) == 8u);
+        REQUIRE(vector(4) == 0xFFFFFFFFu);
+        REQUIRE(vector(5) == 0xFFFFFFFFu);
+        REQUIRE(vector(6) == 8u);
+        REQUIRE(vector(8) == 13u);
+        REQUIRE(vector(9) == 16u);
+        REQUIRE(vector(10) == 13u);
 
         REQUIRE(SR::IL::RunPipeline(*module).has_value());
         REQUIRE(SR::IL::VerifyModule(*module).has_value());

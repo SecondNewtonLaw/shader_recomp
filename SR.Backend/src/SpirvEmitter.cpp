@@ -120,6 +120,8 @@ enum GlslStd450 : std::uint32_t
     GlslFma = 50,
     GlslFMin = 37,
     GlslFMax = 40,
+    GlslFindUMsb = 73,
+    GlslFindILsb = 74,
 };
 
 Diagnostic EmitError(std::string code, std::string message, std::uint32_t pc = 0)
@@ -156,6 +158,13 @@ public:
             const auto status = EmitConstant(constant);
             if (!status)
                 return std::unexpected(status.error());
+        }
+
+        if (UsesClz(m_module))
+        {
+            const auto thirtyOne = U32Constant(31);
+            if (!thirtyOne)
+                return std::unexpected(thirtyOne.error());
         }
 
         const auto status = EmitFunction();
@@ -208,8 +217,28 @@ private:
                     if (instruction.op == IL::Op::Unary)
                     {
                         const auto subop = static_cast<IL::UnaryOp>(instruction.subop);
-                        if (subop == IL::UnaryOp::FAbs || subop == IL::UnaryOp::Sqrt)
+                        if (subop == IL::UnaryOp::FAbs || subop == IL::UnaryOp::Sqrt ||
+                            subop == IL::UnaryOp::Clz || subop == IL::UnaryOp::Ctz)
                             return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] static bool UsesClz(const IL::Module& module)
+    {
+        for (const IL::Function& function : module.functions)
+        {
+            for (const IL::Block& block : function.blocks)
+            {
+                for (const IL::Instruction& instruction : block.body)
+                {
+                    if (instruction.op == IL::Op::Unary &&
+                        static_cast<IL::UnaryOp>(instruction.subop) == IL::UnaryOp::Clz)
+                    {
+                        return true;
                     }
                 }
             }
@@ -1360,6 +1389,25 @@ private:
             return {};
         case IL::UnaryOp::Sqrt:
             Op(OpExtInst, {typeId, resultId, m_glslSet, GlslSqrt, *operand});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        case IL::UnaryOp::Clz:
+        {
+            // GLSL FindUMsb returns -1 for a zero input, so 31 - msb yields 32,
+            // matching the IL Clz contract (width for zero).
+            const std::uint32_t msb = NewId();
+            Op(OpExtInst, {typeId, msb, m_glslSet, GlslFindUMsb, *operand});
+            const auto thirtyOne = m_u32Constants.find(31);
+            if (thirtyOne == m_u32Constants.end())
+                return std::unexpected(EmitError("SR-SPV-082", "clz constant was not pre-emitted", instruction.sourcePc));
+            Op(OpISub, {typeId, resultId, thirtyOne->second, msb});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        }
+        case IL::UnaryOp::Ctz:
+            // GLSL FindILsb returns -1 for a zero input, matching the IL path
+            // after the zero select that the lifter emits.
+            Op(OpExtInst, {typeId, resultId, m_glslSet, GlslFindILsb, *operand});
             m_valueIds[resultValue] = resultId;
             return {};
         default:
