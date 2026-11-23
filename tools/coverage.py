@@ -76,6 +76,11 @@ LIFTED = {
     "V_SubrevF32", "V_MulDx9ZeroF32", "V_MulI32I24", "V_MulHiI32I24",
     "V_MulU32U24", "V_MulHiU32U24", "V_XnorB32", "V_LshlrevB64",
     "V_AddCoCiU32", "V_SubCoCiU32", "V_SubrevCoCiU32", "V_SubrevNcU32",
+    # VOP3 3-input integer operations.
+    "V_Add3U32", "V_AddLshlU32", "V_AndOrB32", "V_Or3B32", "V_Xor3B32",
+    "V_LshlAddU32", "V_LshlOrB32", "V_XadU32", "V_MulHiI32", "V_MulHiU32",
+    "V_Min3I32", "V_Min3U32", "V_Med3I32", "V_Med3U32", "V_Max3I32",
+    "V_Max3U32", "V_MadI32I24", "V_MadU32U24", "V_SadU32", "V_LdexpF32",
     # Vector compares.
     "V_CmpLtI32", "V_CmpEqI32", "V_CmpLeI32", "V_CmpGtI32",
     "V_CmpNeI32", "V_CmpGeI32", "V_CmpLtU32", "V_CmpEqU32",

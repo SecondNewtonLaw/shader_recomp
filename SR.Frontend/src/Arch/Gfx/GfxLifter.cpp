@@ -1371,6 +1371,254 @@ private:
         return WriteVgpr64(instruction.operands[0], result, instruction.pc);
     }
 
+    enum class IntegerTernary
+    {
+        Add3,
+        AddLshl,
+        AndOr,
+        Or3,
+        Xor3,
+        LshlAdd,
+        LshlOr,
+        Xad,
+        Min3Signed,
+        Min3Unsigned,
+        Med3Signed,
+        Med3Unsigned,
+        Max3Signed,
+        Max3Unsigned,
+        Sad,
+    };
+
+    [[nodiscard]] IL::ValueId SelectMin(IL::ValueId a, IL::ValueId b, bool isSigned)
+    {
+        const IL::ValueId condition =
+            m_builder.CompareValue(isSigned ? IL::CompareOp::ILt : IL::CompareOp::ULt, a, b, false);
+        return m_builder.SelectValue(m_module.types.U32(), condition, a, b, false);
+    }
+
+    [[nodiscard]] IL::ValueId SelectMax(IL::ValueId a, IL::ValueId b, bool isSigned)
+    {
+        const IL::ValueId condition =
+            m_builder.CompareValue(isSigned ? IL::CompareOp::IGt : IL::CompareOp::UGt, a, b, false);
+        return m_builder.SelectValue(m_module.types.U32(), condition, a, b, false);
+    }
+
+    [[nodiscard]] Result<void> LiftIntegerTernary(const DecodedInstruction& instruction,
+                                                  IntegerTernary kind)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto third = ReadBits(instruction.operands[3], instruction.pc);
+        if (!third)
+            return std::unexpected(third.error());
+
+        const auto emit = [&](IL::BinaryOp subop, IL::ValueId left, IL::ValueId right) {
+            return m_builder.Emit(m_module.types.U32(),
+                                  IL::Op::Binary,
+                                  static_cast<std::uint16_t>(subop),
+                                  {left, right},
+                                  {},
+                                  IL::NoPayload,
+                                  instruction.pc,
+                                  static_cast<std::uint16_t>(instruction.op),
+                                  false);
+        };
+
+        IL::ValueId result = IL::InvalidValue;
+        switch (kind)
+        {
+        case IntegerTernary::Add3:
+            result = emit(IL::BinaryOp::IAdd, emit(IL::BinaryOp::IAdd, *first, *second), *third);
+            break;
+        case IntegerTernary::AddLshl:
+        {
+            const IL::ValueId sum = emit(IL::BinaryOp::IAdd, *first, *second);
+            result = emit(IL::BinaryOp::Shl, sum, MaskShiftCount(*third, 31, false));
+            break;
+        }
+        case IntegerTernary::AndOr:
+            result = emit(IL::BinaryOp::Or, emit(IL::BinaryOp::And, *first, *second), *third);
+            break;
+        case IntegerTernary::Or3:
+            result = emit(IL::BinaryOp::Or, emit(IL::BinaryOp::Or, *first, *second), *third);
+            break;
+        case IntegerTernary::Xor3:
+            result = emit(IL::BinaryOp::Xor, emit(IL::BinaryOp::Xor, *first, *second), *third);
+            break;
+        case IntegerTernary::LshlAdd:
+        {
+            const IL::ValueId shifted = emit(IL::BinaryOp::Shl, *first, MaskShiftCount(*second, 31, false));
+            result = emit(IL::BinaryOp::IAdd, shifted, *third);
+            break;
+        }
+        case IntegerTernary::LshlOr:
+        {
+            const IL::ValueId shifted = emit(IL::BinaryOp::Shl, *first, MaskShiftCount(*second, 31, false));
+            result = emit(IL::BinaryOp::Or, shifted, *third);
+            break;
+        }
+        case IntegerTernary::Xad:
+            result = emit(IL::BinaryOp::IAdd, emit(IL::BinaryOp::Xor, *first, *second), *third);
+            break;
+        case IntegerTernary::Min3Signed:
+        case IntegerTernary::Min3Unsigned:
+        {
+            const bool isSigned = kind == IntegerTernary::Min3Signed;
+            result = SelectMin(SelectMin(*first, *second, isSigned), *third, isSigned);
+            break;
+        }
+        case IntegerTernary::Max3Signed:
+        case IntegerTernary::Max3Unsigned:
+        {
+            const bool isSigned = kind == IntegerTernary::Max3Signed;
+            result = SelectMax(SelectMax(*first, *second, isSigned), *third, isSigned);
+            break;
+        }
+        case IntegerTernary::Med3Signed:
+        case IntegerTernary::Med3Unsigned:
+        {
+            const bool isSigned = kind == IntegerTernary::Med3Signed;
+            const IL::ValueId low = SelectMin(*first, *second, isSigned);
+            const IL::ValueId high = SelectMax(*first, *second, isSigned);
+            result = SelectMin(SelectMax(low, *third, isSigned), high, isSigned);
+            break;
+        }
+        case IntegerTernary::Sad:
+        {
+            const IL::ValueId leftLess =
+                m_builder.CompareValue(IL::CompareOp::ULt, *first, *second, false);
+            const IL::ValueId forward = emit(IL::BinaryOp::ISub, *first, *second);
+            const IL::ValueId reverse = emit(IL::BinaryOp::ISub, *second, *first);
+            const IL::ValueId difference =
+                m_builder.SelectValue(m_module.types.U32(), leftLess, reverse, forward, false);
+            result = emit(IL::BinaryOp::IAdd, difference, *third);
+            break;
+        }
+        }
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftMulHi32(const DecodedInstruction& instruction, bool isSigned)
+    {
+        const auto left = ReadBits(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadBits(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        const IL::ConvertOp extend = isSigned ? IL::ConvertOp::SExt : IL::ConvertOp::ZExt;
+        const IL::TypeId wide = isSigned ? m_module.types.I64() : m_module.types.U64();
+        IL::ValueId a64 = m_builder.ConvertValue(wide, extend, *left, false);
+        IL::ValueId b64 = m_builder.ConvertValue(wide, extend, *right, false);
+        const IL::ValueId product = m_builder.Emit(m_module.types.U64(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::IMul),
+                                                   {a64, b64},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   false);
+        const IL::ValueId shifted = m_builder.Emit(wide,
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(isSigned ? IL::BinaryOp::AShr
+                                                                                      : IL::BinaryOp::LShr),
+                                                   {isSigned ? Bitcast(wide, product) : product,
+                                                    m_builder.ConstantU64(32)},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   false);
+        const IL::ValueId result = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc,
+                                                          shifted, false);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftMad24(const DecodedInstruction& instruction, bool isSigned)
+    {
+        auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto third = ReadBits(instruction.operands[3], instruction.pc);
+        if (!third)
+            return std::unexpected(third.error());
+
+        IL::ValueId a = *first;
+        IL::ValueId b = *second;
+        if (isSigned)
+        {
+            a = SignExtend24(a);
+            b = SignExtend24(b);
+        }
+        else
+        {
+            a = m_builder.Emit(m_module.types.U32(), IL::Op::Binary,
+                               static_cast<std::uint16_t>(IL::BinaryOp::And),
+                               {a, m_builder.ConstantU32(0xFFFFFF)}, {}, IL::NoPayload,
+                               instruction.pc, static_cast<std::uint16_t>(instruction.op), false);
+            b = m_builder.Emit(m_module.types.U32(), IL::Op::Binary,
+                               static_cast<std::uint16_t>(IL::BinaryOp::And),
+                               {b, m_builder.ConstantU32(0xFFFFFF)}, {}, IL::NoPayload,
+                               instruction.pc, static_cast<std::uint16_t>(instruction.op), false);
+        }
+        const IL::ValueId product = m_builder.Emit(m_module.types.U32(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::IMul),
+                                                   {a, b},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   false);
+        const IL::ValueId result = m_builder.Emit(m_module.types.U32(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                                  {product, *third},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftLdexp(const DecodedInstruction& instruction)
+    {
+        const auto value = ReadFloatSource(instruction, 1);
+        if (!value)
+            return std::unexpected(value.error());
+        const auto exponent = ReadSigned(instruction.operands[2], instruction.pc);
+        if (!exponent)
+            return std::unexpected(exponent.error());
+
+        IL::ValueId exponentFloat =
+            m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::SIToFP, *exponent, false);
+        const IL::ValueId scale =
+            m_builder.UnaryValue(IL::UnaryOp::Exp2, m_module.types.F32(), exponentFloat, false);
+        IL::ValueId result = m_builder.Emit(m_module.types.F32(),
+                                            IL::Op::Binary,
+                                            static_cast<std::uint16_t>(IL::BinaryOp::FMul),
+                                            {*value, scale},
+                                            {},
+                                            IL::NoPayload,
+                                            instruction.pc,
+                                            static_cast<std::uint16_t>(instruction.op),
+                                            false);
+        result = ApplyOutputModifiers(instruction, result, false);
+        result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftUnaryFloat(const DecodedInstruction& instruction, IL::UnaryOp subop)
     {
         const auto source = ReadFloatSource(instruction, 1);
@@ -2552,6 +2800,46 @@ private:
             return LiftConvert16(instruction, true);
         case Op::V_CvtU32U16:
             return LiftConvert16(instruction, false);
+        case Op::V_Add3U32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Add3);
+        case Op::V_AddLshlU32:
+            return LiftIntegerTernary(instruction, IntegerTernary::AddLshl);
+        case Op::V_AndOrB32:
+            return LiftIntegerTernary(instruction, IntegerTernary::AndOr);
+        case Op::V_Or3B32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Or3);
+        case Op::V_Xor3B32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Xor3);
+        case Op::V_LshlAddU32:
+            return LiftIntegerTernary(instruction, IntegerTernary::LshlAdd);
+        case Op::V_LshlOrB32:
+            return LiftIntegerTernary(instruction, IntegerTernary::LshlOr);
+        case Op::V_XadU32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Xad);
+        case Op::V_Min3I32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Min3Signed);
+        case Op::V_Min3U32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Min3Unsigned);
+        case Op::V_Med3I32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Med3Signed);
+        case Op::V_Med3U32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Med3Unsigned);
+        case Op::V_Max3I32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Max3Signed);
+        case Op::V_Max3U32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Max3Unsigned);
+        case Op::V_SadU32:
+            return LiftIntegerTernary(instruction, IntegerTernary::Sad);
+        case Op::V_MulHiI32:
+            return LiftMulHi32(instruction, true);
+        case Op::V_MulHiU32:
+            return LiftMulHi32(instruction, false);
+        case Op::V_MadI32I24:
+            return LiftMad24(instruction, true);
+        case Op::V_MadU32U24:
+            return LiftMad24(instruction, false);
+        case Op::V_LdexpF32:
+            return LiftLdexp(instruction);
         case Op::V_BfeU32:
             return LiftBitFieldExtract(instruction, false, false);        case Op::V_BfeI32:
             return LiftBitFieldExtract(instruction, true, false);

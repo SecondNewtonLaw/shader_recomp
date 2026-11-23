@@ -963,6 +963,149 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 return std::unexpected(Error("SR-GFX-ISA-118", "invalid 64-bit shift destination", pc));
             break;
         }
+        case Op::V_Add3U32:
+        case Op::V_AddLshlU32:
+        case Op::V_AndOrB32:
+        case Op::V_Or3B32:
+        case Op::V_Xor3B32:
+        case Op::V_LshlAddU32:
+        case Op::V_LshlOrB32:
+        case Op::V_XadU32:
+        case Op::V_Min3I32:
+        case Op::V_Min3U32:
+        case Op::V_Med3I32:
+        case Op::V_Med3U32:
+        case Op::V_Max3I32:
+        case Op::V_Max3U32:
+        case Op::V_SadU32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-119", "invalid 3-input VALU operands", pc));
+            std::uint32_t value = 0;
+            switch (instruction.op)
+            {
+            case Op::V_Add3U32:
+                value = *first + *second + *third;
+                break;
+            case Op::V_AddLshlU32:
+                value = (*first + *second) << (*third & 31u);
+                break;
+            case Op::V_AndOrB32:
+                value = (*first & *second) | *third;
+                break;
+            case Op::V_Or3B32:
+                value = *first | *second | *third;
+                break;
+            case Op::V_Xor3B32:
+                value = *first ^ *second ^ *third;
+                break;
+            case Op::V_LshlAddU32:
+                value = (*first << (*second & 31u)) + *third;
+                break;
+            case Op::V_LshlOrB32:
+                value = (*first << (*second & 31u)) | *third;
+                break;
+            case Op::V_XadU32:
+                value = (*first ^ *second) + *third;
+                break;
+            case Op::V_Min3I32:
+                value = static_cast<std::uint32_t>(
+                    std::min({AsSigned(*first), AsSigned(*second), AsSigned(*third)}));
+                break;
+            case Op::V_Min3U32:
+                value = std::min({*first, *second, *third});
+                break;
+            case Op::V_Max3I32:
+                value = static_cast<std::uint32_t>(
+                    std::max({AsSigned(*first), AsSigned(*second), AsSigned(*third)}));
+                break;
+            case Op::V_Max3U32:
+                value = std::max({*first, *second, *third});
+                break;
+            case Op::V_Med3I32:
+            {
+                const std::int32_t a = AsSigned(*first);
+                const std::int32_t b = AsSigned(*second);
+                const std::int32_t c = AsSigned(*third);
+                const std::int32_t low = std::min(a, b);
+                const std::int32_t high = std::max(a, b);
+                value = static_cast<std::uint32_t>(std::min(std::max(low, c), high));
+                break;
+            }
+            case Op::V_Med3U32:
+            {
+                const std::uint32_t low = std::min(*first, *second);
+                const std::uint32_t high = std::max(*first, *second);
+                value = std::min(std::max(low, *third), high);
+                break;
+            }
+            case Op::V_SadU32:
+                value = (*first > *second ? *first - *second : *second - *first) + *third;
+                break;
+            default:
+                break;
+            }
+            if (!write(value))
+                return std::unexpected(Error("SR-GFX-ISA-120", "invalid 3-input VALU destination", pc));
+            break;
+        }
+        case Op::V_MulHiI32:
+        case Op::V_MulHiU32:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-121", "invalid mul_hi operands", pc));
+            std::uint32_t value = 0;
+            if (instruction.op == Op::V_MulHiI32)
+            {
+                const std::int64_t product = static_cast<std::int64_t>(AsSigned(*left)) *
+                                             static_cast<std::int64_t>(AsSigned(*right));
+                value = static_cast<std::uint32_t>(static_cast<std::uint64_t>(product) >> 32);
+            }
+            else
+            {
+                const std::uint64_t product = static_cast<std::uint64_t>(*left) *
+                                              static_cast<std::uint64_t>(*right);
+                value = static_cast<std::uint32_t>(product >> 32);
+            }
+            if (!write(value))
+                return std::unexpected(Error("SR-GFX-ISA-122", "invalid mul_hi destination", pc));
+            break;
+        }
+        case Op::V_MadI32I24:
+        case Op::V_MadU32U24:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-123", "invalid mad24 operands", pc));
+            std::uint32_t a = *first & 0xFFFFFFu;
+            std::uint32_t b = *second & 0xFFFFFFu;
+            if (instruction.op == Op::V_MadI32I24)
+            {
+                a = static_cast<std::uint32_t>(static_cast<std::int32_t>(a << 8) >> 8);
+                b = static_cast<std::uint32_t>(static_cast<std::int32_t>(b << 8) >> 8);
+            }
+            if (!write(a * b + *third))
+                return std::unexpected(Error("SR-GFX-ISA-124", "invalid mad24 destination", pc));
+            break;
+        }
+        case Op::V_LdexpF32:
+        {
+            const auto value = source(1);
+            const auto exponent = source(2);
+            if (!value || !exponent)
+                return std::unexpected(Error("SR-GFX-ISA-125", "invalid ldexp operands", pc));
+            const float scale = std::exp2(static_cast<float>(AsSigned(*exponent)));
+            if (!write(FloatResult(instruction, FloatSource(instruction, 1, *value) * scale)))
+                return std::unexpected(Error("SR-GFX-ISA-126", "invalid ldexp destination", pc));
+            break;
+        }
         case Op::V_LshlrevB32:
         case Op::V_LshrrevB32:
         case Op::V_AshrrevI32:
