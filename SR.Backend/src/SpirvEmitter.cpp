@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <initializer_list>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -10,6 +11,8 @@
 #include <vector>
 
 #include <spirv-tools/libspirv.h>
+
+#include "SR/Common/IL/Analysis.hpp"
 
 namespace SR::Backend {
 namespace {
@@ -102,6 +105,7 @@ enum SpvOp : std::uint16_t
     OpNot = 200,
     OpBitReverse = 204,
     OpBitCount = 205,
+    OpPhi = 245,
     OpLoopMerge = 246,
     OpSelectionMerge = 247,
     OpLabel = 248,
@@ -129,11 +133,105 @@ Diagnostic EmitError(std::string code, std::string message, std::uint32_t pc = 0
     return Diagnostic::Error(std::move(code), std::move(message), pc);
 }
 
+// Post-dominator sets for one function. The virtual exit has index blockCount.
+class PostDominators
+{
+public:
+    explicit PostDominators(const IL::Function& function)
+        : m_blockCount(function.blocks.size())
+        , m_exit(m_blockCount)
+    {
+        const std::size_t nodes = m_blockCount + 1;
+        m_sets.assign(nodes, std::vector<bool>(nodes, true));
+        m_sets[m_exit].assign(nodes, false);
+        m_sets[m_exit][m_exit] = true;
+
+        bool changed = true;
+        std::size_t rounds = 0;
+        while (changed && rounds++ < nodes * 4 + 16)
+        {
+            changed = false;
+            for (IL::BlockId block = 0; block < m_blockCount; ++block)
+            {
+                std::vector<bool> common(nodes, true);
+                for (const IL::BlockId successor : Successors(function, block))
+                {
+                    for (std::size_t i = 0; i < nodes; ++i)
+                        common[i] = common[i] && m_sets[successor][i];
+                }
+                common[block] = true;
+                if (common != m_sets[block])
+                {
+                    m_sets[block] = std::move(common);
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    [[nodiscard]] IL::BlockId Immediate(IL::BlockId block) const noexcept
+    {
+        if (block >= m_blockCount)
+            return IL::InvalidBlockId;
+
+        IL::BlockId best = IL::InvalidBlockId;
+        std::size_t bestSize = 0;
+        for (IL::BlockId candidate = 0; candidate < m_blockCount + 1; ++candidate)
+        {
+            if (candidate == block || !m_sets[block][candidate])
+                continue;
+            const std::size_t size = static_cast<std::size_t>(
+                std::count(m_sets[candidate].begin(), m_sets[candidate].end(), true));
+            if (size > bestSize)
+            {
+                best = candidate;
+                bestSize = size;
+            }
+        }
+        return best;
+    }
+
+    [[nodiscard]] IL::BlockId Exit() const noexcept { return m_exit; }
+
+private:
+    [[nodiscard]] std::vector<IL::BlockId> Successors(const IL::Function& function, IL::BlockId block) const
+    {
+        const IL::Terminator& terminator = function.blocks[block].terminator;
+        std::vector<IL::BlockId> successors;
+        switch (terminator.kind)
+        {
+        case IL::TerminatorKind::Br:
+            if (terminator.target < m_blockCount)
+                successors.push_back(terminator.target);
+            break;
+        case IL::TerminatorKind::CondBr:
+            if (terminator.trueTarget < m_blockCount)
+                successors.push_back(terminator.trueTarget);
+            if (terminator.falseTarget < m_blockCount)
+                successors.push_back(terminator.falseTarget);
+            break;
+        case IL::TerminatorKind::Ret:
+        case IL::TerminatorKind::Unreachable:
+            break;
+        default:
+            break;
+        }
+        if (successors.empty())
+            successors.push_back(m_exit);
+        return successors;
+    }
+
+    std::size_t m_blockCount = 0;
+    std::size_t m_exit = 0;
+    std::vector<std::vector<bool>> m_sets;
+};
+
 class Emitter
 {
 public:
-    explicit Emitter(const IL::Module& module)
+    explicit Emitter(const IL::Module& module, bool preferStructured = false)
         : m_module(module)
+        , m_structured(preferStructured)
     {
     }
 
@@ -581,8 +679,12 @@ private:
                 return std::unexpected(type.error());
         }
 
-        const bool dispatcher = function.blocks.size() > 1;
-        if (dispatcher)
+        const bool multiBlock = function.blocks.size() > 1;
+        bool structured = false;
+        if (multiBlock && m_structured)
+            structured = PrepareStructure(function);
+
+        if (multiBlock && !structured)
         {
             const auto status = PrepareSsa(function);
             if (!status)
@@ -590,17 +692,20 @@ private:
         }
 
         // Constants for dispatcher state must exist in the global section.
-        for (IL::BlockId block = 0; block < function.blocks.size(); ++block)
+        if (multiBlock && !structured)
         {
-            const auto constant = U32Constant(block);
-            if (!constant)
-                return std::unexpected(constant.error());
+            for (IL::BlockId block = 0; block < function.blocks.size(); ++block)
+            {
+                const auto constant = U32Constant(block);
+                if (!constant)
+                    return std::unexpected(constant.error());
+            }
         }
 
         const std::uint32_t functionType = NewId();
         Op(OpTypeFunction, {functionType, *returnType});
 
-        if (dispatcher)
+        if (multiBlock && !structured)
         {
             const IL::TypeId u32Type = m_module.types.FindInt(32, false);
             if (u32Type == IL::InvalidType)
@@ -610,24 +715,313 @@ private:
                 return std::unexpected(u32.error());
         }
 
-        m_valueIds.assign(function.values.size(), 0);
-
         Op(OpFunction, {*returnType, m_mainId, 0, functionType});
 
-        if (dispatcher)
+        if (structured)
         {
+            const auto status = EmitStructured(function);
+            if (!status)
+                return std::unexpected(status.error());
+        }
+        else if (multiBlock)
+        {
+            m_valueIds.assign(function.values.size(), 0);
             const auto status = EmitDispatcher(function);
             if (!status)
                 return std::unexpected(status.error());
         }
         else
         {
+            m_valueIds.assign(function.values.size(), 0);
             const auto status = EmitStraightLine(function);
             if (!status)
                 return std::unexpected(status.error());
         }
 
         Op(OpFunctionEnd, {});
+        return {};
+    }
+
+    // Prepares a structured layout for reducible control flow: while-style
+    // natural loops and acyclic conditionals with a real post-dominator merge.
+    // Anything outside that shape falls back to the dispatcher.
+    [[nodiscard]] bool PrepareStructure(const IL::Function& function)
+    {
+        const std::size_t count = function.blocks.size();
+        m_analysis = IL::AnalyzeFunction(function);
+        m_post.emplace(function);
+        m_loopMerge.assign(count, IL::InvalidBlockId);
+        m_loopContinue.assign(count, IL::InvalidBlockId);
+        m_membership.assign(count, std::vector<bool>(count, false));
+
+        for (const IL::NaturalLoop& loop : m_analysis.loops)
+        {
+            if (loop.header >= count || loop.blocks.empty())
+                return false;
+
+            std::vector<bool> member(count, false);
+            for (const IL::BlockId block : loop.blocks)
+            {
+                if (block >= count)
+                    return false;
+                member[block] = true;
+            }
+
+            IL::BlockId latch = IL::InvalidBlockId;
+            for (const IL::BlockId block : loop.blocks)
+            {
+                for (const IL::BlockId successor : IL::SuccessorsOf(function.blocks[block].terminator))
+                {
+                    if (successor != loop.header)
+                        continue;
+                    if (latch != IL::InvalidBlockId && latch != block)
+                        return false;
+                    latch = block;
+                }
+            }
+            if (latch == IL::InvalidBlockId)
+                return false;
+
+            IL::BlockId exit = IL::InvalidBlockId;
+            for (const IL::BlockId block : loop.blocks)
+            {
+                for (const IL::BlockId successor : IL::SuccessorsOf(function.blocks[block].terminator))
+                {
+                    if (successor >= count || member[successor])
+                        continue;
+                    if (exit != IL::InvalidBlockId && exit != successor)
+                        return false;
+                    exit = successor;
+                }
+            }
+            if (exit == IL::InvalidBlockId)
+                return false;
+
+            // Only while-style headers (a conditional at the header) are
+            // structured; do-while latches fall back to the dispatcher.
+            const IL::Terminator& header = function.blocks[loop.header].terminator;
+            if (header.kind != IL::TerminatorKind::CondBr)
+                return false;
+
+            const IL::BlockId first = header.trueTarget;
+            const IL::BlockId second = header.falseTarget;
+            IL::BlockId body = IL::InvalidBlockId;
+            if (first == exit && second != exit)
+                body = second;
+            else if (second == exit && first != exit)
+                body = first;
+            else
+                return false;
+            if (body >= count || !member[body])
+                return false;
+
+            m_loopMerge[loop.header] = exit;
+            m_loopContinue[loop.header] = latch;
+            m_membership[loop.header] = std::move(member);
+        }
+
+        std::vector<bool> insideLoop(count, false);
+        for (const IL::NaturalLoop& loop : m_analysis.loops)
+        {
+            for (const IL::BlockId block : loop.blocks)
+                insideLoop[block] = true;
+        }
+
+        for (const IL::BlockId block : m_analysis.rpo)
+        {
+            const IL::Terminator& terminator = function.blocks[block].terminator;
+            if (terminator.kind == IL::TerminatorKind::Switch ||
+                terminator.kind == IL::TerminatorKind::IndirectBr)
+            {
+                return false;
+            }
+
+            if (terminator.kind != IL::TerminatorKind::CondBr)
+                continue;
+            if (m_loopMerge[block] != IL::InvalidBlockId)
+                continue;
+            if (insideLoop[block])
+                return false; // conditionals inside loop bodies are not structured yet
+
+            const IL::BlockId merge = m_post->Immediate(block);
+            if (merge == IL::InvalidBlockId || merge == m_post->Exit())
+                return false;
+        }
+
+        return true;
+    }
+
+    [[nodiscard]] std::uint32_t Label(IL::BlockId block) const noexcept
+    {
+        return block < m_blockLabels.size() ? m_blockLabels[block] : 0;
+    }
+
+    [[nodiscard]] Result<void> EmitStructured(const IL::Function& function)
+    {
+        const std::size_t count = function.blocks.size();
+        m_blockLabels.assign(count, 0);
+        m_emitted.assign(count, false);
+        for (std::uint32_t& label : m_blockLabels)
+            label = NewId();
+
+        m_valueIds.assign(function.values.size(), 0);
+        for (IL::ValueId value = 0; value < function.values.size(); ++value)
+        {
+            if (function.values[value].kind == IL::ValueKind::Instruction)
+                m_valueIds[value] = NewId();
+        }
+
+        const std::uint32_t setup = NewId();
+        Op(OpLabel, {setup});
+
+        const auto allocas = EmitAllocas(function);
+        if (!allocas)
+            return std::unexpected(allocas.error());
+
+        Op(OpBranch, {m_blockLabels[function.entry]});
+        return EmitStructuredBlock(function, function.entry, IL::InvalidBlockId);
+    }
+
+    [[nodiscard]] Result<void> EmitStructuredBlock(const IL::Function& function,
+                                                   IL::BlockId block,
+                                                   IL::BlockId stop)
+    {
+        if (block == IL::InvalidBlockId || block == stop)
+            return {};
+        if (block >= function.blocks.size())
+            return std::unexpected(EmitError("SR-SPV-034", "structured branch target is out of range"));
+
+        if (m_emitted[block])
+        {
+            // A block reached twice outside a proper merge means the CFG did
+            // not match the supported shape. Emit the branch so validation can
+            // reject this attempt and the dispatcher fallback takes over.
+            Op(OpBranch, {m_blockLabels[block]});
+            return {};
+        }
+
+        m_emitted[block] = true;
+        Op(OpLabel, {m_blockLabels[block]});
+
+        const auto phis = EmitPhis(function, block);
+        if (!phis)
+            return std::unexpected(phis.error());
+
+        const IL::Block& body = function.blocks[block];
+        for (const IL::Instruction& instruction : body.body)
+        {
+            if (instruction.op == IL::Op::Alloca || instruction.op == IL::Op::Phi)
+                continue;
+            const auto status = EmitInstruction(function, instruction);
+            if (!status)
+                return std::unexpected(status.error());
+        }
+
+        const IL::Terminator& terminator = body.terminator;
+        switch (terminator.kind)
+        {
+        case IL::TerminatorKind::Br:
+        {
+            if (terminator.target == stop)
+            {
+                Op(OpBranch, {m_blockLabels[stop]});
+                return {};
+            }
+            Op(OpBranch, {m_blockLabels[terminator.target]});
+            if (m_emitted[terminator.target])
+                return {};
+            return EmitStructuredBlock(function, terminator.target, stop);
+        }
+        case IL::TerminatorKind::CondBr:
+        {
+            const auto condition = ValueId(function, terminator.condition);
+            if (!condition)
+                return std::unexpected(condition.error());
+
+            if (m_loopMerge[block] != IL::InvalidBlockId)
+            {
+                const IL::BlockId merge = m_loopMerge[block];
+                const IL::BlockId continueTarget = m_loopContinue[block];
+                Op(OpLoopMerge, {m_blockLabels[merge], m_blockLabels[continueTarget], 0});
+                Op(OpBranchConditional,
+                   {*condition, m_blockLabels[terminator.trueTarget], m_blockLabels[terminator.falseTarget]});
+
+                const IL::BlockId bodyTarget = terminator.trueTarget == merge ? terminator.falseTarget
+                                                                              : terminator.trueTarget;
+                if (bodyTarget == merge)
+                    return std::unexpected(EmitError("SR-SPV-035", "loop has no body target"));
+
+                const auto status = EmitStructuredBlock(function, bodyTarget, merge);
+                if (!status)
+                    return std::unexpected(status.error());
+                if (merge == stop)
+                    return {};
+                return EmitStructuredBlock(function, merge, stop);            }
+
+            const IL::BlockId merge = m_post ? m_post->Immediate(block) : IL::InvalidBlockId;
+            if (merge == IL::InvalidBlockId || merge == m_post->Exit())
+                return std::unexpected(EmitError("SR-SPV-036", "conditional block has no structured merge"));
+
+            Op(OpSelectionMerge, {m_blockLabels[merge], 0});
+            Op(OpBranchConditional,
+               {*condition, m_blockLabels[terminator.trueTarget], m_blockLabels[terminator.falseTarget]});
+
+            if (terminator.trueTarget != merge && !m_emitted[terminator.trueTarget])
+            {
+                const auto status = EmitStructuredBlock(function, terminator.trueTarget, merge);
+                if (!status)
+                    return std::unexpected(status.error());
+            }
+            if (terminator.falseTarget != merge && !m_emitted[terminator.falseTarget])
+            {
+                const auto status = EmitStructuredBlock(function, terminator.falseTarget, merge);
+                if (!status)
+                    return std::unexpected(status.error());
+            }
+            if (merge == stop)
+                return {};
+            return EmitStructuredBlock(function, merge, stop);
+        }
+        case IL::TerminatorKind::Ret:
+            Op(OpReturn, {});
+            return {};
+        case IL::TerminatorKind::Unreachable:
+            Op(OpUnreachable, {});
+            return {};
+        default:
+            return std::unexpected(EmitError("SR-SPV-037", "unsupported structured terminator", terminator.sourcePc));
+        }
+    }
+
+    [[nodiscard]] Result<void> EmitPhis(const IL::Function& function, IL::BlockId block)
+    {
+        for (const IL::Instruction& instruction : function.blocks[block].body)
+        {
+            if (instruction.op != IL::Op::Phi)
+                continue;
+            if (instruction.results.size() != 1)
+                return std::unexpected(EmitError("SR-SPV-038", "phi must have one result", instruction.sourcePc));
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto type = EmitType(function.values[resultValue].type);
+            if (!type)
+                return std::unexpected(type.error());
+
+            const std::uint32_t resultId = m_valueIds[resultValue] != 0 ? m_valueIds[resultValue] : NewId();
+            std::vector<std::uint32_t> operands = {*type, resultId};
+            for (const IL::PhiIncoming& incoming : instruction.incoming)
+            {
+                const auto value = ValueId(function, incoming.value);
+                if (!value)
+                    return std::unexpected(value.error());
+                if (incoming.block >= m_blockLabels.size())
+                    return std::unexpected(EmitError("SR-SPV-039", "phi predecessor is out of range", instruction.sourcePc));
+                operands.push_back(*value);
+                operands.push_back(m_blockLabels[incoming.block]);
+            }
+            Op(OpPhi, operands);
+            m_valueIds[resultValue] = resultId;
+        }
         return {};
     }
 
@@ -789,7 +1183,8 @@ private:
             if (!type)
                 return std::unexpected(type.error());
 
-            const std::uint32_t id = NewId();
+            const std::uint32_t id =
+                (result < m_valueIds.size() && m_valueIds[result] != 0) ? m_valueIds[result] : NewId();
             Op(OpVariable, {*type, id, 7 /* Function */});
             m_valueIds[result] = id;
 
@@ -1066,7 +1461,8 @@ private:
 
             const std::uint32_t pointer = NewId();
             Op(OpAccessChain, {m_bufferPtrU32, pointer, m_bufferVar, m_bufferZero, *offset});
-            const std::uint32_t resultId = NewId();
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
             Op(OpLoad, {*resultType, resultId, pointer});
             m_valueIds[resultValue] = resultId;
             if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
@@ -1094,7 +1490,8 @@ private:
             return std::unexpected(resultType.error());
 
         const IL::Type& resultTypeValue = m_module.types.Get(resultTypeId);
-        const std::uint32_t resultId = NewId();
+        const std::uint32_t resultId =
+            (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
 
         switch (instruction.op)
         {
@@ -1547,6 +1944,15 @@ private:
     std::uint32_t m_bufferPtrU32 = 0;
     std::uint32_t m_bufferZero = 0;
     std::uint32_t m_mainId = 0;
+
+    bool m_structured = false;
+    IL::FunctionAnalysis m_analysis;
+    std::optional<PostDominators> m_post;
+    std::vector<IL::BlockId> m_loopMerge;
+    std::vector<IL::BlockId> m_loopContinue;
+    std::vector<std::vector<bool>> m_membership;
+    std::vector<std::uint32_t> m_blockLabels;
+    std::vector<bool> m_emitted;
 };
 
 Status Validate(const std::vector<std::uint32_t>& words, std::string& message)
@@ -1581,8 +1987,21 @@ Result<Emission> Reemit(const IL::Module& module, const TargetProfile& profile)
 {
     (void)profile;
 
-    Emitter emitter(module);
-    auto emission = emitter.Run();
+    // Prefer structured control flow for reducible functions; if the result
+    // does not validate, retry with the dispatcher, which handles any CFG.
+    {
+        Emitter structured(module, true);
+        auto emission = structured.Run();
+        if (emission)
+        {
+            std::string message;
+            if (Validate(emission->words, message))
+                return emission;
+        }
+    }
+
+    Emitter dispatcher(module, false);
+    auto emission = dispatcher.Run();
     if (!emission)
         return std::unexpected(emission.error());
 

@@ -39,6 +39,27 @@ std::uint64_t RegisterValue(const SR::IL::Module& module,
     return SR::IL::InvalidValue;
 }
 
+bool HasOpcode(const std::vector<std::uint32_t>& words, std::uint16_t opcode)
+{
+    std::size_t index = 5; // skip the SPIR-V header
+    while (index < words.size())
+    {
+        const std::uint32_t word = words[index];
+        const std::uint32_t length = word >> 16;
+        if (length == 0 || index + length > words.size())
+            return false;
+        if ((word & 0xFFFFu) == opcode)
+            return true;
+        index += length;
+    }
+    return false;
+}
+
+constexpr std::uint16_t kSpirvOpPhi = 245;
+constexpr std::uint16_t kSpirvOpLoopMerge = 246;
+constexpr std::uint16_t kSpirvOpSelectionMerge = 247;
+constexpr std::uint16_t kSpirvOpSwitch = 251;
+
 } // namespace
 
 TEST_CASE("gfx lineage inherits and overrides opcodes", "[gfx][decode]")
@@ -685,6 +706,110 @@ TEST_CASE("gfx scalar and global loads feed a store", "[gfx][load][test-abi]")
         REQUIRE(SR::IL::RunPipeline(*module).has_value());
         REQUIRE(SR::IL::VerifyModule(*module).has_value());
         REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
+TEST_CASE("gfx structured emission lowers loops without a dispatcher", "[gfx][structured][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "loop.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader, testCase.arch);
+        if (!module.has_value())
+            INFO(SR::ToString(module.error()));
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto emission = SR::Backend::Reemit(*module);
+        if (!emission.has_value())
+            INFO(SR::ToString(emission.error()));
+        REQUIRE(emission.has_value());
+        REQUIRE(HasOpcode(emission->words, kSpirvOpLoopMerge));
+        REQUIRE(HasOpcode(emission->words, kSpirvOpPhi));
+        REQUIRE_FALSE(HasOpcode(emission->words, kSpirvOpSwitch));
+    }
+#endif
+}
+
+TEST_CASE("gfx structured emission lowers conditionals without a dispatcher", "[gfx][structured][if]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "branch.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader,
+                                             testCase.arch,
+                                             "main",
+                                             SR::Frontend::Gfx::LiftOptions{true});
+        if (!module.has_value())
+            INFO(SR::ToString(module.error()));
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto execution = SR::IL::Interpret(*module);
+        if (!execution.has_value())
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+        REQUIRE(execution->buffer.at(0) == 7u);
+
+        const auto emission = SR::Backend::Reemit(*module);
+        if (!emission.has_value())
+            INFO(SR::ToString(emission.error()));
+        REQUIRE(emission.has_value());
+        REQUIRE(HasOpcode(emission->words, kSpirvOpSelectionMerge));
+        REQUIRE_FALSE(HasOpcode(emission->words, kSpirvOpSwitch));
     }
 #endif
 }
