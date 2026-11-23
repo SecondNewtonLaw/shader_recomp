@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "description": "Shader Recompiler test corpus. Sources are HLSL; compiled DXBC/DXIL artifacts are checked in for deterministic tests.",
+  "targets": [
+    {
+      "name": "basic/arithmetic",
+      "source": "sources/basic/arithmetic.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["alu", "float", "integer", "bitops", "conversion"]
+    },
+    {
+      "name": "basic/control_flow",
+      "source": "sources/basic/control_flow.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["control", "branch", "loop", "switch"]
+    },
+    {
+      "name": "basic/functions",
+      "source": "sources/basic/functions.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["functions", "structs", "float"]
+    },
+    {
+      "name": "memory/global_rw",
+      "source": "sources/memory/global_rw.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["memory", "byte-address", "load", "store"]
+    },
+    {
+      "name": "memory/groupshared",
+      "source": "sources/memory/groupshared.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["memory", "groupshared", "barrier"]
+    },
+    {
+      "name": "memory/atomics",
+      "source": "sources/memory/atomics.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["memory", "atomics", "groupshared"]
+    },
+    {
+      "name": "memory/structured_append",
+      "source": "sources/memory/structured_append.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["memory", "structured-buffer", "append", "consume"]
+    },
+    {
+      "name": "memory/typed_buffers",
+      "source": "sources/memory/typed_buffers.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["memory", "typed-buffer", "bitcast"]
+    },
+    {
+      "name": "wave/ballot",
+      "source": "sources/wave/ballot.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "features": ["wave", "ballot", "vote"]
+    },
+    {
+      "name": "wave/shuffle",
+      "source": "sources/wave/shuffle.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "features": ["wave", "shuffle", "lane"]
+    },
+    {
+      "name": "wave/reduce_prefix",
+      "source": "sources/wave/reduce_prefix.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "features": ["wave", "reduction", "prefix"]
+    },
+    {
+      "name": "texture/sample",
+      "source": "sources/texture/sample.hlsl",
+      "entry": "main",
+      "dxilProfile": "ps_6_0",
+      "dxbcProfile": "ps_5_0",
+      "features": ["texture", "sample", "derivatives"]
+    },
+    {
+      "name": "texture/gather",
+      "source": "sources/texture/gather.hlsl",
+      "entry": "main",
+      "dxilProfile": "ps_6_0",
+      "dxbcProfile": "ps_5_0",
+      "features": ["texture", "gather", "comparison"]
+    },
+    {
+      "name": "texture/load_store",
+      "source": "sources/texture/load_store.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["texture", "load", "store", "multisample"]
+    },
+    {
+      "name": "texture/derivatives",
+      "source": "sources/texture/derivatives.hlsl",
+      "entry": "main",
+      "dxilProfile": "ps_6_0",
+      "dxbcProfile": "ps_5_0",
+      "features": ["texture", "derivatives", "fine", "coarse"]
+    },
+    {
+      "name": "graphics/vertex",
+      "source": "sources/graphics/vertex.hlsl",
+      "entry": "main",
+      "dxilProfile": "vs_6_0",
+      "dxbcProfile": "vs_5_0",
+      "features": ["graphics", "vertex", "matrix"]
+    },
+    {
+      "name": "graphics/pixel",
+      "source": "sources/graphics/pixel.hlsl",
+      "entry": "main",
+      "dxilProfile": "ps_6_0",
+      "dxbcProfile": "ps_5_0",
+      "features": ["graphics", "pixel", "discard"]
+    },
+    {
+      "name": "graphics/geometry",
+      "source": "sources/graphics/geometry.hlsl",
+      "entry": "main",
+      "dxilProfile": "gs_6_0",
+      "dxbcProfile": "gs_5_0",
+      "features": ["graphics", "geometry", "stream"]
+    },
+    {
+      "name": "mesh/mesh",
+      "source": "sources/mesh/mesh.hlsl",
+      "entry": "main",
+      "dxilProfile": "ms_6_5",
+      "features": ["mesh", "mesh-shader", "output-topology"]
+    },
+    {
+      "name": "mesh/amplification",
+      "source": "sources/mesh/amplification.hlsl",
+      "entry": "main",
+      "dxilProfile": "as_6_5",
+      "features": ["mesh", "amplification", "payload"]
+    },
+    {
+      "name": "wmma/wave_f16",
+      "source": "sources/wmma/wave_f16.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_10",
+      "linalg": true,
+      "enable16Bit": true,
+      "features": ["wmma", "wave-matrix", "f16", "f32-accum"]
+    },
+    {
+      "name": "wmma/wave_f8_e4m3",
+      "source": "sources/wmma/wave_f8_e4m3.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_10",
+      "linalg": true,
+      "enable16Bit": true,
+      "features": ["wmma", "wave-matrix", "fp8", "e4m3", "f32-accum"]
+    },
+    {
+      "name": "wmma/wave_i8",
+      "source": "sources/wmma/wave_i8.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_10",
+      "linalg": true,
+      "enable16Bit": true,
+      "features": ["wmma", "wave-matrix", "int8", "i32-accum"]
+    },
+    {
+      "name": "wmma/threadgroup_f16",
+      "source": "sources/wmma/threadgroup_f16.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_10",
+      "linalg": true,
+      "enable16Bit": true,
+      "features": ["wmma", "threadgroup-matrix", "f16", "f32-accum"]
+    },
+    {
+      "name": "wmma/outer_product",
+      "source": "sources/wmma/outer_product.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_10",
+      "linalg": true,
+      "enable16Bit": true,
+      "features": ["wmma", "outer-product", "interlocked-accumulate"]
+    },
+    {
+      "name": "raytracing/raygen",
+      "source": "sources/raytracing/raygen.hlsl",
+      "dxilProfile": "lib_6_9",
+      "features": ["raytracing", "raygen", "tlas", "traceray"]
+    },
+    {
+      "name": "raytracing/closesthit",
+      "source": "sources/raytracing/closesthit.hlsl",
+      "dxilProfile": "lib_6_9",
+      "features": ["raytracing", "closesthit", "payload"]
+    },
+    {
+      "name": "raytracing/anyhit",
+      "source": "sources/raytracing/anyhit.hlsl",
+      "dxilProfile": "lib_6_9",
+      "features": ["raytracing", "anyhit", "ignore", "accept"]
+    },
+    {
+      "name": "raytracing/miss",
+      "source": "sources/raytracing/miss.hlsl",
+      "dxilProfile": "lib_6_9",
+      "features": ["raytracing", "miss", "payload"]
+    },
+    {
+      "name": "raytracing/intersection",
+      "source": "sources/raytracing/intersection.hlsl",
+      "dxilProfile": "lib_6_9",
+      "features": ["raytracing", "intersection", "procedural"]
+    },
+    {
+      "name": "raytracing/rayquery_compute",
+      "source": "sources/raytracing/rayquery_compute.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_9",
+      "features": ["raytracing", "rayquery", "tlas", "inline"]
+    },
+    {
+      "name": "raytracing/blas_build",
+      "source": "sources/raytracing/blas_build.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["raytracing", "blas", "bounds", "morton", "atomics"]
+    },
+    {
+      "name": "raytracing/tlas_build",
+      "source": "sources/raytracing/tlas_build.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["raytracing", "tlas", "instances", "bounds"]
+    },
+    {
+      "name": "raytracing/tlas_traverse",
+      "source": "sources/raytracing/tlas_traverse.hlsl",
+      "entry": "main",
+      "dxilProfile": "cs_6_0",
+      "dxbcProfile": "cs_5_0",
+      "features": ["raytracing", "tlas", "traversal", "ray-aabb", "ray-triangle"]
+    }
+  ]
+}

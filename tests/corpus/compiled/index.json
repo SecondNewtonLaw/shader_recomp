@@ -1,0 +1,541 @@
+﻿{
+    "version":  1,
+    "toolchain":  {
+                      "dxc":  "dxcompiler.dll: 1.10(5373-c4d8f4f9)(1.10.2605.37) - 1.10.2605.37 (c4d8f4f99)",
+                      "fxc":  "10.0.26100.9457 (WinBuild.160101.0800)"
+                  },
+    "targets":  [
+                    {
+                        "name":  "basic/arithmetic",
+                        "source":  "sources/basic/arithmetic.hlsl",
+                        "sourceSha256":  "a767532f68a7e87f615d94f58af814055b7f3f39c0e6e765fff33e76e858272f",
+                        "features":  [
+                                         "alu",
+                                         "float",
+                                         "integer",
+                                         "bitops",
+                                         "conversion"
+                                     ],
+                        "dxil":  "dxil/basic/arithmetic.dxil",
+                        "dxbc":  "dxbc/basic/arithmetic.dxbc",
+                        "dxilAsm":  "dxil-asm/basic/arithmetic.asm",
+                        "dxilSha256":  "d434275d13ace5d57ee43762cfe692cc457fbda7b6b00c488134c1eed7f88934",
+                        "dxbcAsm":  "dxbc-asm/basic/arithmetic.asm",
+                        "dxbcSha256":  "d84b02f0732ea6042878dd1e15d3a52b0a14cecd9650ecc8558ab85d9d43ee24"
+                    },
+                    {
+                        "name":  "basic/control_flow",
+                        "source":  "sources/basic/control_flow.hlsl",
+                        "sourceSha256":  "ebce8320061ffbdf3265611dd76a2e633a22f4be7809ba70b2b57f2f489eb06d",
+                        "features":  [
+                                         "control",
+                                         "branch",
+                                         "loop",
+                                         "switch"
+                                     ],
+                        "dxil":  "dxil/basic/control_flow.dxil",
+                        "dxbc":  "dxbc/basic/control_flow.dxbc",
+                        "dxilAsm":  "dxil-asm/basic/control_flow.asm",
+                        "dxilSha256":  "33aca1acc2751a19d1650894530a34772154c17d2a808260eea70c6c50b31612",
+                        "dxbcAsm":  "dxbc-asm/basic/control_flow.asm",
+                        "dxbcSha256":  "0e736e6e0cb36ff28a13f3a9e1cac2f2b170fe6c069f84d72ccb6cc92014d73d"
+                    },
+                    {
+                        "name":  "basic/functions",
+                        "source":  "sources/basic/functions.hlsl",
+                        "sourceSha256":  "cf458ff3238ae5ac51e541a03cdf882321687feb77b2b1dd56dca2cc87c49123",
+                        "features":  [
+                                         "functions",
+                                         "structs",
+                                         "float"
+                                     ],
+                        "dxil":  "dxil/basic/functions.dxil",
+                        "dxbc":  "dxbc/basic/functions.dxbc",
+                        "dxilAsm":  "dxil-asm/basic/functions.asm",
+                        "dxilSha256":  "5ea10cc71abe408befa81ec2f7dd6f3f63e02626b632c80741610c74329b1fc7",
+                        "dxbcAsm":  "dxbc-asm/basic/functions.asm",
+                        "dxbcSha256":  "9107ede7ca12adc01b86f8c1a988e394c8fc833200e4a279283faa8af58e9b86"
+                    },
+                    {
+                        "name":  "memory/global_rw",
+                        "source":  "sources/memory/global_rw.hlsl",
+                        "sourceSha256":  "f0eb8cc608441126260a227a28b6efad480400c5a39c143e9dc75fda92ccb665",
+                        "features":  [
+                                         "memory",
+                                         "byte-address",
+                                         "load",
+                                         "store"
+                                     ],
+                        "dxil":  "dxil/memory/global_rw.dxil",
+                        "dxbc":  "dxbc/memory/global_rw.dxbc",
+                        "dxilAsm":  "dxil-asm/memory/global_rw.asm",
+                        "dxilSha256":  "9695c6fed7a76aa4dd0f6e6ec855fcb57a8448bb07a1653c9cb288f979458fb7",
+                        "dxbcAsm":  "dxbc-asm/memory/global_rw.asm",
+                        "dxbcSha256":  "6aa8c7c366317c205f46dcdace38b289b89a494d80af08e96df3e4acf9f1da20"
+                    },
+                    {
+                        "name":  "memory/groupshared",
+                        "source":  "sources/memory/groupshared.hlsl",
+                        "sourceSha256":  "a62a8e39298257d2912d1ac7d4e3c18da0631be6a054bcbb1c2d39d2796b8c7c",
+                        "features":  [
+                                         "memory",
+                                         "groupshared",
+                                         "barrier"
+                                     ],
+                        "dxil":  "dxil/memory/groupshared.dxil",
+                        "dxbc":  "dxbc/memory/groupshared.dxbc",
+                        "dxilAsm":  "dxil-asm/memory/groupshared.asm",
+                        "dxilSha256":  "243c6c5bd260e5919482d252d1e6cb5b26ea1eb579a00323437401591b973359",
+                        "dxbcAsm":  "dxbc-asm/memory/groupshared.asm",
+                        "dxbcSha256":  "0f308c367d9219bf732cc22f24fe7514d50a6d05ed39cd90e11300f5b96ef0e7"
+                    },
+                    {
+                        "name":  "memory/atomics",
+                        "source":  "sources/memory/atomics.hlsl",
+                        "sourceSha256":  "938c11fe0c390f473fae8a8966c66614a8e60b0d32e1f6ca8421c6efc1b78008",
+                        "features":  [
+                                         "memory",
+                                         "atomics",
+                                         "groupshared"
+                                     ],
+                        "dxil":  "dxil/memory/atomics.dxil",
+                        "dxbc":  "dxbc/memory/atomics.dxbc",
+                        "dxilAsm":  "dxil-asm/memory/atomics.asm",
+                        "dxilSha256":  "34a9eaca467644d2b505c6bf5aa991255c549c5e1b14cc54fffb983ef5364935",
+                        "dxbcAsm":  "dxbc-asm/memory/atomics.asm",
+                        "dxbcSha256":  "8a8b78e5fd92b22117813946011ebcc22bf94c01fb7e10b163fdf61211d8291c"
+                    },
+                    {
+                        "name":  "memory/structured_append",
+                        "source":  "sources/memory/structured_append.hlsl",
+                        "sourceSha256":  "5b63787dd7e2777263a51df9bcdb8e1aff517607cd25970a6facba1f642acff6",
+                        "features":  [
+                                         "memory",
+                                         "structured-buffer",
+                                         "append",
+                                         "consume"
+                                     ],
+                        "dxil":  "dxil/memory/structured_append.dxil",
+                        "dxbc":  "dxbc/memory/structured_append.dxbc",
+                        "dxilAsm":  "dxil-asm/memory/structured_append.asm",
+                        "dxilSha256":  "377f4989b6fededae16350a00a58c1e30cee1b666511b52df0e83906f5c46902",
+                        "dxbcAsm":  "dxbc-asm/memory/structured_append.asm",
+                        "dxbcSha256":  "f62decde9136cd85e968ffece6664c582b7f3bc96dc8561ff60ea4f059367d13"
+                    },
+                    {
+                        "name":  "memory/typed_buffers",
+                        "source":  "sources/memory/typed_buffers.hlsl",
+                        "sourceSha256":  "24ea9c0ace39029232858aa254f7c5beaf1b14408cb0f661ea449ee69d29d734",
+                        "features":  [
+                                         "memory",
+                                         "typed-buffer",
+                                         "bitcast"
+                                     ],
+                        "dxil":  "dxil/memory/typed_buffers.dxil",
+                        "dxbc":  "dxbc/memory/typed_buffers.dxbc",
+                        "dxilAsm":  "dxil-asm/memory/typed_buffers.asm",
+                        "dxilSha256":  "37791d0472b90e4a2ef1e4008d0bab51b208ee9582cadf0a4b7383586e56ce02",
+                        "dxbcAsm":  "dxbc-asm/memory/typed_buffers.asm",
+                        "dxbcSha256":  "17811a6560f558745bdddca203fff4498e6735f36f3ca25271403891d59e4dd4"
+                    },
+                    {
+                        "name":  "wave/ballot",
+                        "source":  "sources/wave/ballot.hlsl",
+                        "sourceSha256":  "aec98132cc7f84da99b935bb9ea0ec5fadb568c6b486d1be8100b1639e2c6dc3",
+                        "features":  [
+                                         "wave",
+                                         "ballot",
+                                         "vote"
+                                     ],
+                        "dxil":  "dxil/wave/ballot.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/wave/ballot.asm",
+                        "dxilSha256":  "a8118ac846289c8eda16b11510345b0fb80759d2a0705e842e5e838bc11263fc"
+                    },
+                    {
+                        "name":  "wave/shuffle",
+                        "source":  "sources/wave/shuffle.hlsl",
+                        "sourceSha256":  "8fbc0acebe81138725fb1bffbf55bb9dc649ddfd64eeec042283c36520040327",
+                        "features":  [
+                                         "wave",
+                                         "shuffle",
+                                         "lane"
+                                     ],
+                        "dxil":  "dxil/wave/shuffle.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/wave/shuffle.asm",
+                        "dxilSha256":  "55089850a3d94bf1dda6d8f93f0bc3865661248dba524a7d295942e9e422a036"
+                    },
+                    {
+                        "name":  "wave/reduce_prefix",
+                        "source":  "sources/wave/reduce_prefix.hlsl",
+                        "sourceSha256":  "c4aaa6186eda569926a1fea522d3e0625b25b9e0afa6d3564d22534c052e2994",
+                        "features":  [
+                                         "wave",
+                                         "reduction",
+                                         "prefix"
+                                     ],
+                        "dxil":  "dxil/wave/reduce_prefix.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/wave/reduce_prefix.asm",
+                        "dxilSha256":  "b9b7547c90dec05311045b3eb5484eb466de7efa2b4c2344a650defee5e97ef3"
+                    },
+                    {
+                        "name":  "texture/sample",
+                        "source":  "sources/texture/sample.hlsl",
+                        "sourceSha256":  "578771139c0f4b7561d147febed37fdafa01ac8f2b538a4022fd90ed38af30ae",
+                        "features":  [
+                                         "texture",
+                                         "sample",
+                                         "derivatives"
+                                     ],
+                        "dxil":  "dxil/texture/sample.dxil",
+                        "dxbc":  "dxbc/texture/sample.dxbc",
+                        "dxilAsm":  "dxil-asm/texture/sample.asm",
+                        "dxilSha256":  "37665e489abc7ded28ba7d593be0eb2d99c7c59a40b75a0a2275adc21b133666",
+                        "dxbcAsm":  "dxbc-asm/texture/sample.asm",
+                        "dxbcSha256":  "da110d86657a9fdf749ec8f62b63e167d934a0324ebdbc2e6dd0cf8816bb3380"
+                    },
+                    {
+                        "name":  "texture/gather",
+                        "source":  "sources/texture/gather.hlsl",
+                        "sourceSha256":  "53a6c2f9f20b90aaa7069a2e45210a05d272db5adf134629aab7705af1159757",
+                        "features":  [
+                                         "texture",
+                                         "gather",
+                                         "comparison"
+                                     ],
+                        "dxil":  "dxil/texture/gather.dxil",
+                        "dxbc":  "dxbc/texture/gather.dxbc",
+                        "dxilAsm":  "dxil-asm/texture/gather.asm",
+                        "dxilSha256":  "1f82cdf8055294efd60a7d6b394e62cb140c93ad77abe5e5dfdd833ccecec156",
+                        "dxbcAsm":  "dxbc-asm/texture/gather.asm",
+                        "dxbcSha256":  "fdf8100805026e383a50a6e8e93f72373f93e554011ee79fa453f85b46a5ccef"
+                    },
+                    {
+                        "name":  "texture/load_store",
+                        "source":  "sources/texture/load_store.hlsl",
+                        "sourceSha256":  "4de4f841577894b0b5128be065039fc339047e1b59a2852b3a1ff0a6f63de0e2",
+                        "features":  [
+                                         "texture",
+                                         "load",
+                                         "store",
+                                         "multisample"
+                                     ],
+                        "dxil":  "dxil/texture/load_store.dxil",
+                        "dxbc":  "dxbc/texture/load_store.dxbc",
+                        "dxilAsm":  "dxil-asm/texture/load_store.asm",
+                        "dxilSha256":  "d0d434ce389d703b93b0b3df54834356a20c3e5d7fbfe7b7f5bf04c8d8509400",
+                        "dxbcAsm":  "dxbc-asm/texture/load_store.asm",
+                        "dxbcSha256":  "612defe30b3da7fd4e824f38e6cb913ef84f34b38c51fdbc2a4874e314a6936a"
+                    },
+                    {
+                        "name":  "texture/derivatives",
+                        "source":  "sources/texture/derivatives.hlsl",
+                        "sourceSha256":  "869f7ebb439fde0fdadc59a79a7c47fc5eab959e91319733b1041afb4937814a",
+                        "features":  [
+                                         "texture",
+                                         "derivatives",
+                                         "fine",
+                                         "coarse"
+                                     ],
+                        "dxil":  "dxil/texture/derivatives.dxil",
+                        "dxbc":  "dxbc/texture/derivatives.dxbc",
+                        "dxilAsm":  "dxil-asm/texture/derivatives.asm",
+                        "dxilSha256":  "b478acf214ae8a16443a3fc1168b65e006ba57b691a178991e8d8c4e7c6b932c",
+                        "dxbcAsm":  "dxbc-asm/texture/derivatives.asm",
+                        "dxbcSha256":  "02519b3bbd418c5c953490b827a90842e4af060457958a5231f9b1c284ba0e89"
+                    },
+                    {
+                        "name":  "graphics/vertex",
+                        "source":  "sources/graphics/vertex.hlsl",
+                        "sourceSha256":  "c25f2d569e4ecbcbe607c541a12c8242ea2d2a1f834f89df6d427f9349ddcc14",
+                        "features":  [
+                                         "graphics",
+                                         "vertex",
+                                         "matrix"
+                                     ],
+                        "dxil":  "dxil/graphics/vertex.dxil",
+                        "dxbc":  "dxbc/graphics/vertex.dxbc",
+                        "dxilAsm":  "dxil-asm/graphics/vertex.asm",
+                        "dxilSha256":  "59d35f149f70070fe508fb60e38c92fd35226f09513e5f28cab8b0cae4916d01",
+                        "dxbcAsm":  "dxbc-asm/graphics/vertex.asm",
+                        "dxbcSha256":  "33f9246d0cea4d2e503d16adbe4eb69a42bfdd140d1bf9ddfe77660a622afc8e"
+                    },
+                    {
+                        "name":  "graphics/pixel",
+                        "source":  "sources/graphics/pixel.hlsl",
+                        "sourceSha256":  "688cf6b42283ace2ce9e67b749cac086ad487c80b6de2cbe885626f7c2c7134f",
+                        "features":  [
+                                         "graphics",
+                                         "pixel",
+                                         "discard"
+                                     ],
+                        "dxil":  "dxil/graphics/pixel.dxil",
+                        "dxbc":  "dxbc/graphics/pixel.dxbc",
+                        "dxilAsm":  "dxil-asm/graphics/pixel.asm",
+                        "dxilSha256":  "b2c818b31a71fda6572f2fb021ee8495ac10baaf0cf23e0e8e38e499a7523f48",
+                        "dxbcAsm":  "dxbc-asm/graphics/pixel.asm",
+                        "dxbcSha256":  "309937eccb2d9d13642fd0749489630caf39ad2c8cbbe19ad6861672242251d0"
+                    },
+                    {
+                        "name":  "graphics/geometry",
+                        "source":  "sources/graphics/geometry.hlsl",
+                        "sourceSha256":  "2c97dcc6eb56650c008724fad819f305fb55f611576c7b70879152c0057fcd40",
+                        "features":  [
+                                         "graphics",
+                                         "geometry",
+                                         "stream"
+                                     ],
+                        "dxil":  "dxil/graphics/geometry.dxil",
+                        "dxbc":  "dxbc/graphics/geometry.dxbc",
+                        "dxilAsm":  "dxil-asm/graphics/geometry.asm",
+                        "dxilSha256":  "d4e423676056c4f02c2fa0146ce797b8c2bd91fc6e8630959d587f4ddc2f0411",
+                        "dxbcAsm":  "dxbc-asm/graphics/geometry.asm",
+                        "dxbcSha256":  "1e2a204ffa33bef6935bf7121d4840cd97ed0de296d835a292335d86bcd06956"
+                    },
+                    {
+                        "name":  "mesh/mesh",
+                        "source":  "sources/mesh/mesh.hlsl",
+                        "sourceSha256":  "5e28d7fc1663827ea124eaf71220a6b1110982b404cbb0a6435bb526d563d10b",
+                        "features":  [
+                                         "mesh",
+                                         "mesh-shader",
+                                         "output-topology"
+                                     ],
+                        "dxil":  "dxil/mesh/mesh.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/mesh/mesh.asm",
+                        "dxilSha256":  "9a238f40065d92a9f115f08645df0f3951990f8311c627dacefd2225c7097553"
+                    },
+                    {
+                        "name":  "mesh/amplification",
+                        "source":  "sources/mesh/amplification.hlsl",
+                        "sourceSha256":  "e6f974aa77da5fec97bbf36bd75b4b049c5e2193d9c947687788de4d3f4beedb",
+                        "features":  [
+                                         "mesh",
+                                         "amplification",
+                                         "payload"
+                                     ],
+                        "dxil":  "dxil/mesh/amplification.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/mesh/amplification.asm",
+                        "dxilSha256":  "eb45c16d8e406d90afe4d070ec25365e0e6928bb1125854d7b995c4b42f082d4"
+                    },
+                    {
+                        "name":  "wmma/wave_f16",
+                        "source":  "sources/wmma/wave_f16.hlsl",
+                        "sourceSha256":  "e138e9013c7a1ae2e84fc0787e26d8f3320d438598d6266c54d34634710cc03e",
+                        "features":  [
+                                         "wmma",
+                                         "wave-matrix",
+                                         "f16",
+                                         "f32-accum"
+                                     ],
+                        "dxil":  "dxil/wmma/wave_f16.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/wmma/wave_f16.asm",
+                        "dxilSha256":  "f5f704b691f0cac2a78170a6ca1eecd1975edc36b84b8adeec34518adefb534e"
+                    },
+                    {
+                        "name":  "wmma/wave_f8_e4m3",
+                        "source":  "sources/wmma/wave_f8_e4m3.hlsl",
+                        "sourceSha256":  "b7e07e7d567a49f329f736c28c3162029a36c128a775188f90cfc88b364b623d",
+                        "features":  [
+                                         "wmma",
+                                         "wave-matrix",
+                                         "fp8",
+                                         "e4m3",
+                                         "f32-accum"
+                                     ],
+                        "dxil":  "dxil/wmma/wave_f8_e4m3.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/wmma/wave_f8_e4m3.asm",
+                        "dxilSha256":  "ffa497366f1860c85dd1d34411e6fe0859ed9a8a01872f5cd677af64644ccc08"
+                    },
+                    {
+                        "name":  "wmma/wave_i8",
+                        "source":  "sources/wmma/wave_i8.hlsl",
+                        "sourceSha256":  "8fa9633d21244a84560b303d8189fad5f38f6d18a5db83a929f806f2652ff9c7",
+                        "features":  [
+                                         "wmma",
+                                         "wave-matrix",
+                                         "int8",
+                                         "i32-accum"
+                                     ],
+                        "dxil":  "dxil/wmma/wave_i8.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/wmma/wave_i8.asm",
+                        "dxilSha256":  "c7e4401c5159aa8ca79f0cb06541aecb787f61c7d374bd297749216b504c0b6e"
+                    },
+                    {
+                        "name":  "wmma/threadgroup_f16",
+                        "source":  "sources/wmma/threadgroup_f16.hlsl",
+                        "sourceSha256":  "cd549253bafe85283d161ea15732bde7cabab3b4e66211c1fa9e1bdfa8b088c0",
+                        "features":  [
+                                         "wmma",
+                                         "threadgroup-matrix",
+                                         "f16",
+                                         "f32-accum"
+                                     ],
+                        "dxil":  "dxil/wmma/threadgroup_f16.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/wmma/threadgroup_f16.asm",
+                        "dxilSha256":  "eb8cfbfa79cd465d015d53739198b223d853a18e88f9578fb487460e1336524c"
+                    },
+                    {
+                        "name":  "wmma/outer_product",
+                        "source":  "sources/wmma/outer_product.hlsl",
+                        "sourceSha256":  "ab2bdda88129aee82a86ce72bcab8e0362fce92f4d8b78faf099cea1af0a0b63",
+                        "features":  [
+                                         "wmma",
+                                         "outer-product",
+                                         "interlocked-accumulate"
+                                     ],
+                        "dxil":  "dxil/wmma/outer_product.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/wmma/outer_product.asm",
+                        "dxilSha256":  "c4ac250fc9b9b38da301aa737e770748c2509070a68f9bf2957c4fcf77ce323a"
+                    },
+                    {
+                        "name":  "raytracing/raygen",
+                        "source":  "sources/raytracing/raygen.hlsl",
+                        "sourceSha256":  "d72a8f7e41b3a5ac9aed1604d6d9eeb4f670449260a5f21e14947c3fa685787f",
+                        "features":  [
+                                         "raytracing",
+                                         "raygen",
+                                         "tlas",
+                                         "traceray"
+                                     ],
+                        "dxil":  "dxil/raytracing/raygen.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/raytracing/raygen.asm",
+                        "dxilSha256":  "fd6571ba049e8fc974d56503af6dcd07ba8631fac9de86a24e632a9578d764a7"
+                    },
+                    {
+                        "name":  "raytracing/closesthit",
+                        "source":  "sources/raytracing/closesthit.hlsl",
+                        "sourceSha256":  "38e3fadb7bd46ae1eaa6f7ce68f6957fe8aff58b2dc2e4a3b6bfad5e6af01990",
+                        "features":  [
+                                         "raytracing",
+                                         "closesthit",
+                                         "payload"
+                                     ],
+                        "dxil":  "dxil/raytracing/closesthit.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/raytracing/closesthit.asm",
+                        "dxilSha256":  "ce279c20e45d0485278f30df4d1d88c755c2ae744e25c2c23a10298c62b92889"
+                    },
+                    {
+                        "name":  "raytracing/anyhit",
+                        "source":  "sources/raytracing/anyhit.hlsl",
+                        "sourceSha256":  "4d769062c07700a29f1cb425208558baf589d71d6ed32762cf00bdc9c4dc5a2a",
+                        "features":  [
+                                         "raytracing",
+                                         "anyhit",
+                                         "ignore",
+                                         "accept"
+                                     ],
+                        "dxil":  "dxil/raytracing/anyhit.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/raytracing/anyhit.asm",
+                        "dxilSha256":  "967f64af6af9e5861aad471df8808064c88321f630f3482b164c7b744a856944"
+                    },
+                    {
+                        "name":  "raytracing/miss",
+                        "source":  "sources/raytracing/miss.hlsl",
+                        "sourceSha256":  "eed9f49115bce315254519b7c7559309e490b359ed9aa67908f9ac248c214eb3",
+                        "features":  [
+                                         "raytracing",
+                                         "miss",
+                                         "payload"
+                                     ],
+                        "dxil":  "dxil/raytracing/miss.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/raytracing/miss.asm",
+                        "dxilSha256":  "58b40b1d0b076716f9e9377682c39c1bd8ab59570c14f50ab68e1b439635d365"
+                    },
+                    {
+                        "name":  "raytracing/intersection",
+                        "source":  "sources/raytracing/intersection.hlsl",
+                        "sourceSha256":  "43c565f5ec0c8b200efe517fb9666c9447e8c237d33aba1d2189f47ca16a6628",
+                        "features":  [
+                                         "raytracing",
+                                         "intersection",
+                                         "procedural"
+                                     ],
+                        "dxil":  "dxil/raytracing/intersection.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/raytracing/intersection.asm",
+                        "dxilSha256":  "9e638f9195987fa884f3d3dab7284049a92aeb88ff1f43a51c3fb952b1eee8fc"
+                    },
+                    {
+                        "name":  "raytracing/rayquery_compute",
+                        "source":  "sources/raytracing/rayquery_compute.hlsl",
+                        "sourceSha256":  "9b1050afc9fb3e32e17bbb2799738845256621b345f6821f2acec7e60dcb1ef0",
+                        "features":  [
+                                         "raytracing",
+                                         "rayquery",
+                                         "tlas",
+                                         "inline"
+                                     ],
+                        "dxil":  "dxil/raytracing/rayquery_compute.dxil",
+                        "dxbc":  null,
+                        "dxilAsm":  "dxil-asm/raytracing/rayquery_compute.asm",
+                        "dxilSha256":  "52f8d62dac34293acc6bb8b4c78a60bea94d3fa233fd4968837ffcdc72154d9e"
+                    },
+                    {
+                        "name":  "raytracing/blas_build",
+                        "source":  "sources/raytracing/blas_build.hlsl",
+                        "sourceSha256":  "db4a34ad43928a5adc609fa03d85b2e17833986cc164fb1d07ba204a0ac68624",
+                        "features":  [
+                                         "raytracing",
+                                         "blas",
+                                         "bounds",
+                                         "morton",
+                                         "atomics"
+                                     ],
+                        "dxil":  "dxil/raytracing/blas_build.dxil",
+                        "dxbc":  "dxbc/raytracing/blas_build.dxbc",
+                        "dxilAsm":  "dxil-asm/raytracing/blas_build.asm",
+                        "dxilSha256":  "a3e977aa9e47109732851afde6ae9f68ba486fa0b15dc25745a2853f7e8efbdd",
+                        "dxbcAsm":  "dxbc-asm/raytracing/blas_build.asm",
+                        "dxbcSha256":  "1f757b65670735dc44e79a075290c867b3c0adad29b4e82d3020a110e12efddd"
+                    },
+                    {
+                        "name":  "raytracing/tlas_build",
+                        "source":  "sources/raytracing/tlas_build.hlsl",
+                        "sourceSha256":  "2ac87015cc18bf79b1f38686673e7b9f9af4b6bac8e7ef58a1a086127fc963c8",
+                        "features":  [
+                                         "raytracing",
+                                         "tlas",
+                                         "instances",
+                                         "bounds"
+                                     ],
+                        "dxil":  "dxil/raytracing/tlas_build.dxil",
+                        "dxbc":  "dxbc/raytracing/tlas_build.dxbc",
+                        "dxilAsm":  "dxil-asm/raytracing/tlas_build.asm",
+                        "dxilSha256":  "6e850e5554863772fd069eec4bedfa8044ef4fbeb411d2f0aad9272d65a30925",
+                        "dxbcAsm":  "dxbc-asm/raytracing/tlas_build.asm",
+                        "dxbcSha256":  "310db2d6e2440babfc461d0881cbb1d1f749f178a85db9b9c139078a6558af1b"
+                    },
+                    {
+                        "name":  "raytracing/tlas_traverse",
+                        "source":  "sources/raytracing/tlas_traverse.hlsl",
+                        "sourceSha256":  "4d47483671956bab6782813da34700e3e6ae7acf723183d1199a5f6b0edff98d",
+                        "features":  [
+                                         "raytracing",
+                                         "tlas",
+                                         "traversal",
+                                         "ray-aabb",
+                                         "ray-triangle"
+                                     ],
+                        "dxil":  "dxil/raytracing/tlas_traverse.dxil",
+                        "dxbc":  "dxbc/raytracing/tlas_traverse.dxbc",
+                        "dxilAsm":  "dxil-asm/raytracing/tlas_traverse.asm",
+                        "dxilSha256":  "9431b6943e27c76474e269722d75fe8721349b024832608b444e9711d3dc06fa",
+                        "dxbcAsm":  "dxbc-asm/raytracing/tlas_traverse.asm",
+                        "dxbcSha256":  "0b2341953ecbd17e517c683089b39a680ae24759b15eada136ba0b490cefb678"
+                    }
+                ]
+}
