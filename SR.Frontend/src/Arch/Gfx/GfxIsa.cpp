@@ -61,6 +61,22 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Sop2, 30, Op::S_LshlB32, "s_lshl_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 32, Op::S_LshrB32, "s_lshr_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 10, Op::S_CselectB32, "s_cselect_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 6, Op::S_MinI32, "s_min_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 7, Op::S_MinU32, "s_min_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 8, Op::S_MaxI32, "s_max_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 9, Op::S_MaxU32, "s_max_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 38, Op::S_MulI32, "s_mul_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 24, Op::S_NandB32, "s_nand_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 26, Op::S_NorB32, "s_nor_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 28, Op::S_XnorB32, "s_xnor_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 34, Op::S_AshrI32, "s_ashr_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+
+    Make(Encoding::Sop1, 7, Op::S_NotB32, "s_not_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 11, Op::S_BrevB32, "s_brev_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 15, Op::S_Bcnt1I32B32, "s_bcnt1_i32_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 52, Op::S_AbsI32, "s_abs_i32", {OperandKind::Sdst, OperandKind::Ssrc}),
+
+    Make(Encoding::SopK, 0, Op::S_MovkI32, "s_movk_i32", {OperandKind::Sdst, OperandKind::Simm16}),
 
     Make(Encoding::SopC, 0, Op::S_CmpEqI32, "s_cmp_eq_i32", {OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::SopC, 1, Op::S_CmpLgI32, "s_cmp_lg_i32", {OperandKind::Ssrc, OperandKind::Ssrc}),
@@ -86,6 +102,11 @@ constexpr std::array kGfx10 = {
     Make(Encoding::SopP, 10, Op::S_Barrier, "s_barrier", {}),
 
     Make(Encoding::Vop1, 1, Op::V_MovB32, "v_mov_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 55, Op::V_NotB32, "v_not_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 5, Op::V_CvtF32I32, "v_cvt_f32_i32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 6, Op::V_CvtF32U32, "v_cvt_f32_u32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 8, Op::V_CvtI32F32, "v_cvt_i32_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 7, Op::V_CvtU32F32, "v_cvt_u32_f32", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop2, 3, Op::V_AddF32, "v_add_f32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop2, 4, Op::V_SubF32, "v_sub_f32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop2, 8, Op::V_MulF32, "v_mul_f32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
@@ -109,6 +130,10 @@ constexpr std::array kGfx10 = {
 // unrelated instructions as the old mnemonic.
 constexpr std::array kGfx11 = {
     Remove(Encoding::Sop1, 3),
+    Remove(Encoding::Sop1, 7),
+    Remove(Encoding::Sop1, 11),
+    Remove(Encoding::Sop1, 15),
+    Remove(Encoding::Sop1, 52),
 
     Remove(Encoding::Sop2, 14),
     Remove(Encoding::Sop2, 16),
@@ -116,6 +141,15 @@ constexpr std::array kGfx11 = {
     Remove(Encoding::Sop2, 30),
     Remove(Encoding::Sop2, 32),
     Remove(Encoding::Sop2, 10),
+    Remove(Encoding::Sop2, 6),
+    Remove(Encoding::Sop2, 7),
+    Remove(Encoding::Sop2, 8),
+    Remove(Encoding::Sop2, 9),
+    Remove(Encoding::Sop2, 38),
+    Remove(Encoding::Sop2, 24),
+    Remove(Encoding::Sop2, 26),
+    Remove(Encoding::Sop2, 28),
+    Remove(Encoding::Sop2, 34),
 
     Remove(Encoding::SopP, 1),
     Remove(Encoding::SopP, 2),
@@ -137,6 +171,20 @@ constexpr std::array kGfx11 = {
     Make(Encoding::Sop2, 8, Op::S_LshlB32, "s_lshl_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 10, Op::S_LshrB32, "s_lshr_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 48, Op::S_CselectB32, "s_cselect_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 18, Op::S_MinI32, "s_min_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 19, Op::S_MinU32, "s_min_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 20, Op::S_MaxI32, "s_max_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 21, Op::S_MaxU32, "s_max_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 44, Op::S_MulI32, "s_mul_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 28, Op::S_NandB32, "s_nand_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 30, Op::S_NorB32, "s_nor_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 32, Op::S_XnorB32, "s_xnor_b32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 12, Op::S_AshrI32, "s_ashr_i32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+
+    Make(Encoding::Sop1, 30, Op::S_NotB32, "s_not_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 4, Op::S_BrevB32, "s_brev_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 24, Op::S_Bcnt1I32B32, "s_bcnt1_i32_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 21, Op::S_AbsI32, "s_abs_i32", {OperandKind::Sdst, OperandKind::Ssrc}),
 
     Make(Encoding::SopP, 48, Op::S_Endpgm, "s_endpgm", {}),
     Make(Encoding::SopP, 32, Op::S_Branch, "s_branch", {OperandKind::Label}),
@@ -189,16 +237,22 @@ const Entry* FindInLevel(Arch arch, Encoding encoding, std::uint16_t opcode) noe
 
     if (arch == Arch::Gfx10)
     {
-        const auto it = std::find_if(kGfx10.begin(), kGfx10.end(), matches);
-        return it == kGfx10.end() ? nullptr : &*it;
+        for (auto it = kGfx10.rbegin(); it != kGfx10.rend(); ++it)
+        {
+            if (matches(*it))
+                return &*it;
+        }
+        return nullptr;
     }
 
     const std::span<const Entry> entries = LevelEntries(arch);
     if (!entries.empty())
     {
-        const auto it = std::find_if(entries.begin(), entries.end(), matches);
-        if (it != entries.end())
-            return &*it;
+        for (auto it = entries.rbegin(); it != entries.rend(); ++it)
+        {
+            if (matches(*it))
+                return &*it;
+        }
     }
 
     return nullptr;
@@ -371,6 +425,34 @@ std::string_view ToString(Op op) noexcept
         return "s_lshr_b32";
     case Op::S_CselectB32:
         return "s_cselect_b32";
+    case Op::S_NotB32:
+        return "s_not_b32";
+    case Op::S_BrevB32:
+        return "s_brev_b32";
+    case Op::S_Bcnt1I32B32:
+        return "s_bcnt1_i32_b32";
+    case Op::S_AbsI32:
+        return "s_abs_i32";
+    case Op::S_MulI32:
+        return "s_mul_i32";
+    case Op::S_MinI32:
+        return "s_min_i32";
+    case Op::S_MaxI32:
+        return "s_max_i32";
+    case Op::S_MinU32:
+        return "s_min_u32";
+    case Op::S_MaxU32:
+        return "s_max_u32";
+    case Op::S_NandB32:
+        return "s_nand_b32";
+    case Op::S_NorB32:
+        return "s_nor_b32";
+    case Op::S_XnorB32:
+        return "s_xnor_b32";
+    case Op::S_AshrI32:
+        return "s_ashr_i32";
+    case Op::S_MovkI32:
+        return "s_movk_i32";
     case Op::S_CmpEqI32:
         return "s_cmp_eq_i32";
     case Op::S_CmpLgI32:
@@ -431,6 +513,16 @@ std::string_view ToString(Op op) noexcept
         return "v_xor_b32";
     case Op::V_CndmaskB32:
         return "v_cndmask_b32";
+    case Op::V_NotB32:
+        return "v_not_b32";
+    case Op::V_CvtF32I32:
+        return "v_cvt_f32_i32";
+    case Op::V_CvtF32U32:
+        return "v_cvt_f32_u32";
+    case Op::V_CvtI32F32:
+        return "v_cvt_i32_f32";
+    case Op::V_CvtU32F32:
+        return "v_cvt_u32_f32";
     case Op::GlobalStoreB32:
         return "global_store_b32";
     }
@@ -540,15 +632,15 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         encoding = Encoding::SopC;
         opcode = static_cast<std::uint16_t>((word0 >> 16) & 0x7F);
     }
-    else if ((word0 >> 30) == 2)
-    {
-        encoding = Encoding::Sop2;
-        opcode = static_cast<std::uint16_t>((word0 >> 23) & 0x7F);
-    }
     else if ((word0 >> 28) == 0xB)
     {
         encoding = Encoding::SopK;
         opcode = static_cast<std::uint16_t>((word0 >> 23) & 0x1F);
+    }
+    else if ((word0 >> 30) == 2)
+    {
+        encoding = Encoding::Sop2;
+        opcode = static_cast<std::uint16_t>((word0 >> 23) & 0x7F);
     }
     else if (((word0 >> 26) & 0x3F) == 0x35)
     {

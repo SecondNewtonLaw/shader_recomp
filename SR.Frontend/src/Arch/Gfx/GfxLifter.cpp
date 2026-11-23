@@ -552,6 +552,123 @@ private:
         }
     }
 
+    [[nodiscard]] Result<void> LiftUnaryBits(const DecodedInstruction& instruction, IL::UnaryOp subop, bool uniform)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+        const IL::ValueId result = m_builder.UnaryValue(subop, m_module.types.U32(), *source, uniform);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftMinMax(const DecodedInstruction& instruction,
+                                          IL::CompareOp compare,
+                                          bool maximum,
+                                          bool isSigned)
+    {
+        const IL::TypeId type = isSigned ? m_module.types.I32() : m_module.types.U32();
+        const auto left = isSigned ? ReadSigned(instruction.operands[1], instruction.pc)
+                                   : ReadBits(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = isSigned ? ReadSigned(instruction.operands[2], instruction.pc)
+                                    : ReadBits(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        const IL::ValueId condition = m_builder.CompareValue(compare, *left, *right, true);
+        IL::ValueId selected = m_builder.SelectValue(type,
+                                                     condition,
+                                                     *left,
+                                                     *right,
+                                                     true);
+        if (isSigned)
+            selected = Bitcast(m_module.types.U32(), selected);
+        return WriteDest(instruction.operands[0], selected, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftInvertedBinary(const DecodedInstruction& instruction, IL::BinaryOp subop)
+    {
+        const auto left = ReadBits(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadBits(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        const IL::ValueId value = m_builder.Emit(m_module.types.U32(),
+                                                 IL::Op::Binary,
+                                                 static_cast<std::uint16_t>(subop),
+                                                 {*left, *right},
+                                                 {},
+                                                 IL::NoPayload,
+                                                 instruction.pc,
+                                                 static_cast<std::uint16_t>(instruction.op),
+                                                 true);
+        const IL::ValueId inverted = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.U32(), value, true);
+        return WriteDest(instruction.operands[0], inverted, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftArithmeticShift(const DecodedInstruction& instruction)
+    {
+        const auto left = ReadSigned(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadSigned(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+
+        IL::ValueId result = m_builder.Emit(m_module.types.I32(),
+                                            IL::Op::Binary,
+                                            static_cast<std::uint16_t>(IL::BinaryOp::AShr),
+                                            {*left, *right},
+                                            {},
+                                            IL::NoPayload,
+                                            instruction.pc,
+                                            static_cast<std::uint16_t>(instruction.op),
+                                            true);
+        result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftAbs(const DecodedInstruction& instruction)
+    {
+        const auto source = ReadSigned(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        const IL::ValueId zero = m_builder.ConstantI32(0);
+        const IL::ValueId negative = m_builder.CompareValue(IL::CompareOp::ILt, *source, zero, true);
+        const IL::ValueId negated = m_builder.UnaryValue(IL::UnaryOp::Neg, m_module.types.I32(), *source, true);
+        const IL::ValueId selected = m_builder.SelectValue(m_module.types.I32(), negative, negated, *source, true);
+        const IL::ValueId bits = Bitcast(m_module.types.U32(), selected);
+        return WriteDest(instruction.operands[0], bits, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftMovK(const DecodedInstruction& instruction)
+    {
+        const auto immediate = static_cast<std::int16_t>(instruction.operands[1].value & 0xFFFFu);
+        const IL::ValueId value = m_builder.ConstantU32(static_cast<std::uint32_t>(static_cast<std::int32_t>(immediate)));
+        return WriteDest(instruction.operands[0], value, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftVectorConvert(const DecodedInstruction& instruction,
+                                                 IL::ConvertOp subop,
+                                                 IL::TypeId resultType,
+                                                 bool sourceIsFloat,
+                                                 bool sourceSigned = false)
+    {
+        const auto source = sourceIsFloat ? ReadFloat(instruction.operands[1], instruction.pc)
+                                          : sourceSigned ? ReadSigned(instruction.operands[1], instruction.pc)
+                                                         : ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        IL::ValueId result = m_builder.ConvertValue(resultType, subop, *source, false);
+        result = Bitcast(m_module.types.U32(), result);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftOne(const DecodedInstruction& instruction)
     {
         if (instruction.abs != 0 || instruction.neg != 0 || instruction.omod != 0 || instruction.clamp)
@@ -592,6 +709,44 @@ private:
             return LiftBinary(instruction, IL::BinaryOp::LShr, false, true);
         case Op::S_CselectB32:
             return LiftCselect(instruction);
+        case Op::S_NotB32:
+            return LiftUnaryBits(instruction, IL::UnaryOp::Not, true);
+        case Op::S_BrevB32:
+            return LiftUnaryBits(instruction, IL::UnaryOp::BitReverse, true);
+        case Op::S_Bcnt1I32B32:
+            return LiftUnaryBits(instruction, IL::UnaryOp::PopCount, true);
+        case Op::S_AbsI32:
+            return LiftAbs(instruction);
+        case Op::S_MulI32:
+            return LiftBinary(instruction, IL::BinaryOp::IMul, false, true);
+        case Op::S_MinI32:
+            return LiftMinMax(instruction, IL::CompareOp::ILt, false, true);
+        case Op::S_MaxI32:
+            return LiftMinMax(instruction, IL::CompareOp::IGt, true, true);
+        case Op::S_MinU32:
+            return LiftMinMax(instruction, IL::CompareOp::ULt, false, false);
+        case Op::S_MaxU32:
+            return LiftMinMax(instruction, IL::CompareOp::UGt, true, false);
+        case Op::S_NandB32:
+            return LiftInvertedBinary(instruction, IL::BinaryOp::And);
+        case Op::S_NorB32:
+            return LiftInvertedBinary(instruction, IL::BinaryOp::Or);
+        case Op::S_XnorB32:
+            return LiftInvertedBinary(instruction, IL::BinaryOp::Xor);
+        case Op::S_AshrI32:
+            return LiftArithmeticShift(instruction);
+        case Op::S_MovkI32:
+            return LiftMovK(instruction);
+        case Op::V_NotB32:
+            return LiftUnaryBits(instruction, IL::UnaryOp::Not, false);
+        case Op::V_CvtF32I32:
+            return LiftVectorConvert(instruction, IL::ConvertOp::SIToFP, m_module.types.F32(), false, true);
+        case Op::V_CvtF32U32:
+            return LiftVectorConvert(instruction, IL::ConvertOp::UIToFP, m_module.types.F32(), false);
+        case Op::V_CvtI32F32:
+            return LiftVectorConvert(instruction, IL::ConvertOp::FPToSI, m_module.types.I32(), true);
+        case Op::V_CvtU32F32:
+            return LiftVectorConvert(instruction, IL::ConvertOp::FPToUI, m_module.types.U32(), true);
         case Op::S_CmpEqI32:
         case Op::S_CmpLgI32:
         case Op::S_CmpLtI32:

@@ -279,6 +279,84 @@ TEST_CASE("gfx1200 test ABI store lifts and emits", "[gfx][store][test-abi]")
 #endif
 }
 
+TEST_CASE("gfx base ALU batch interprets across generations", "[gfx][alu][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    struct Case
+    {
+        const char* directory;
+        SR::Frontend::Gfx::Arch arch;
+    };
+    const Case cases[] = {
+        {"gfx10", SR::Frontend::Gfx::Arch::Gfx10},
+        {"gfx1200", SR::Frontend::Gfx::Arch::Gfx12},
+    };
+
+    for (const Case& testCase : cases)
+    {
+        INFO(testCase.directory);
+        const std::filesystem::path path =
+            std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory / "alu.hsaco";
+        if (!std::filesystem::exists(path))
+            continue;
+
+        const auto bytes = ReadFile(path);
+        REQUIRE_FALSE(bytes.empty());
+
+        SR::Frontend::MasterReader reader;
+        const auto shader = reader.Read(bytes);
+        REQUIRE(shader.has_value());
+
+        auto module = SR::Frontend::Gfx::Lift(*shader, testCase.arch);
+        if (!module.has_value())
+            INFO(SR::ToString(module.error()));
+        REQUIRE(module.has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        const auto execution = SR::IL::Interpret(*module);
+        if (!execution.has_value())
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+
+        const auto slot = [&](SR::IL::RegisterClass kind, std::uint32_t index) {
+            for (const auto& entry : module->registerSlots)
+            {
+                if (entry.kind == kind && entry.index == index)
+                    return entry.alloca;
+            }
+            return SR::IL::InvalidValue;
+        };
+
+        const auto scalar = [&](std::uint32_t index) {
+            const SR::IL::ValueId alloca = slot(SR::IL::RegisterClass::Sgpr, index);
+            REQUIRE(alloca != SR::IL::InvalidValue);
+            return execution->memory.at(alloca);
+        };
+
+        REQUIRE(scalar(0) == 0x0000FFFFu);
+        REQUIRE(scalar(1) == 0xFFFF0000u);
+        REQUIRE(scalar(2) == 0xFFFF0000u);
+        REQUIRE(scalar(3) == 16u);
+        REQUIRE(scalar(4) == 0xFFFE0001u);
+        REQUIRE(scalar(5) == 0xFFFE0001u);
+        REQUIRE(scalar(6) == 0xFFFE0001u);
+        REQUIRE(scalar(7) == 0xFFFFFFFEu);
+        REQUIRE(scalar(8) == 0xFFFFFE00u);
+        REQUIRE(scalar(9) == 0xFFFFFFFFu);
+
+        const SR::IL::ValueId v1 = slot(SR::IL::RegisterClass::Vgpr, 1);
+        REQUIRE(v1 != SR::IL::InvalidValue);
+        REQUIRE(execution->memory.at(v1) == 0xFFFE0001u);
+
+        REQUIRE(SR::IL::RunPipeline(*module).has_value());
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+        REQUIRE(SR::Backend::Reemit(*module).has_value());
+    }
+#endif
+}
+
 TEST_CASE("gfx1200 inline constants decode", "[gfx][decode]")
 {
     using namespace SR::Frontend::Gfx;
