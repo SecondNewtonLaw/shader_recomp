@@ -1040,6 +1040,21 @@ private:
         if (!condition)
             return std::unexpected(condition.error());
 
+        // The VOP3 compare form takes an explicit SGPR destination and writes
+        // a 32-bit lane mask there instead of VCC.
+        if (instruction.encoding == Encoding::Vop3)
+        {
+            const Operand* destination = FindOperand(instruction, OperandKind::Sdst);
+            if (destination != nullptr)
+            {
+                const IL::ValueId mask =
+                    m_builder.SelectValue(m_module.types.U32(), *condition,
+                                          m_builder.ConstantU32(0xFFFFFFFFu),
+                                          m_builder.ConstantU32(0), true);
+                return WriteDest(*destination, mask, instruction.pc);
+            }
+        }
+
         const auto vcc = WriteVcc(*condition, instruction.pc);
         if (!vcc)
             return vcc;
@@ -1109,6 +1124,21 @@ private:
             if (!right)
                 return std::unexpected(right.error());
             condition = m_builder.CompareValue(compare, *left, *right, false);
+        }
+
+        // The VOP3 compare form takes an explicit SGPR destination and writes
+        // a 32-bit lane mask there instead of VCC.
+        if (instruction.encoding == Encoding::Vop3)
+        {
+            const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
+            if (scalarDestination != nullptr)
+            {
+                const IL::ValueId mask =
+                    m_builder.SelectValue(m_module.types.U32(), condition,
+                                          m_builder.ConstantU32(0xFFFFFFFFu),
+                                          m_builder.ConstantU32(0), true);
+                return WriteDest(*scalarDestination, mask, instruction.pc);
+            }
         }
 
         const auto vcc = WriteVcc(condition, instruction.pc);

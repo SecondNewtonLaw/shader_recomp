@@ -1534,9 +1534,17 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const auto condition = EvaluateCompare(result.state, instruction, *spec);
             if (!condition)
                 return std::unexpected(Error("SR-GFX-ISA-165", "invalid typed compare operands", pc));
-            result.state.vcc = *condition;
-            if (instruction.execMask)
-                result.state.exec = result.state.exec && *condition;
+            const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
+            if (instruction.encoding == Encoding::Vop3 && scalarDestination != nullptr)
+            {
+                result.state.sgpr[scalarDestination->value] = *condition ? 0xFFFFFFFFu : 0u;
+            }
+            else
+            {
+                result.state.vcc = *condition;
+                if (instruction.execMask)
+                    result.state.exec = result.state.exec && *condition;
+            }
             pc += instruction.wordCount * 4;
             continue;
         }
@@ -3471,6 +3479,15 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 }
                 break;
             }
+            }
+            if (instruction.encoding == Encoding::Vop3)
+            {
+                const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
+                if (scalarDestination != nullptr)
+                {
+                    result.state.sgpr[scalarDestination->value] = condition ? 0xFFFFFFFFu : 0u;
+                    break;
+                }
             }
             result.state.vcc = condition;
             if (instruction.execMask)
