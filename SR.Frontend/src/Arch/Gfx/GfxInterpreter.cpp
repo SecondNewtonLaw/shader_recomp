@@ -535,6 +535,276 @@ std::optional<std::uint32_t> BufferIndex(const IsaState& state,
 
 namespace {
 
+#include "GfxMemoryTables.inc"
+
+[[nodiscard]] const Operand* MemoryOperand(const DecodedInstruction& instruction, OperandKind kind)
+{
+    return FindOperand(instruction, kind);
+}
+
+[[nodiscard]] Result<void> ExecuteMemory(IsaState& state, const DecodedInstruction& instruction,
+                                         std::uint32_t pc)
+{
+    const MemOpInfo* info = nullptr;
+    for (const auto& entry : kMemoryOps)
+    {
+        if (entry.first == instruction.op)
+        {
+            info = &entry.second;
+            break;
+        }
+    }
+    if (info == nullptr)
+        return std::unexpected(Error("SR-GFX-ISA-220",
+                                     "unsupported memory instruction: " +
+                                         std::string(ToString(instruction.op)),
+                                     pc));
+
+    switch (info->kind)
+    {
+    case MemKind::Inv:
+    case MemKind::Wb:
+    case MemKind::Wbinv:
+        return {};
+    default:
+        break;
+    }
+
+    const Operand* address = MemoryOperand(instruction, OperandKind::GlobalVaddr);
+    if (address == nullptr)
+        return std::unexpected(Error("SR-GFX-ISA-221", "memory instruction has no address", pc));
+    const Operand* offset = MemoryOperand(instruction, OperandKind::GlobalIoffset);
+    const std::uint32_t byteAddress =
+        static_cast<std::uint32_t>(state.vgpr[address->value] + (offset ? offset->value : 0u));
+    const std::uint32_t index = byteAddress >> 2;
+    const std::uint32_t lane = byteAddress & 3u;
+
+    const auto readDword = [&](std::uint32_t at) {
+        const auto it = state.buffer.find(at);
+        return it == state.buffer.end() ? 0u : it->second;
+    };
+    const auto writeDword = [&](std::uint32_t at, std::uint32_t value) { state.buffer[at] = value; };
+
+    const auto destination = [&]() -> std::uint32_t {
+        const Operand* dst = MemoryOperand(instruction, OperandKind::GlobalVdst);
+        return dst == nullptr ? 0u : dst->value;
+    };
+    const auto sourceBase = [&]() -> std::optional<std::uint32_t> {
+        const Operand* src = MemoryOperand(instruction, OperandKind::GlobalVsrc);
+        if (src == nullptr)
+            return std::nullopt;
+        return src->value;
+    };
+
+    switch (info->kind)
+    {
+    case MemKind::LoadU8:
+    case MemKind::LoadI8:
+    case MemKind::LoadU16:
+    case MemKind::LoadI16:
+    {
+        const std::uint32_t fieldMask = info->bytes == 1 ? 0xFFu : 0xFFFFu;
+        const std::uint32_t field = (readDword(index) >> (lane * 8u)) & fieldMask;
+        std::uint32_t value = field;
+        if (info->kind == MemKind::LoadI8)
+            value = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int8_t>(field)));
+        else if (info->kind == MemKind::LoadI16)
+            value = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(field)));
+        state.vgpr[destination()] = value;
+        return {};
+    }
+    case MemKind::LoadD16U8:
+    case MemKind::LoadD16I8:
+    case MemKind::LoadD16B16:
+    case MemKind::LoadD16HiU8:
+    case MemKind::LoadD16HiI8:
+    case MemKind::LoadD16HiB16:
+    {
+        const bool singleByte = info->kind == MemKind::LoadD16U8 || info->kind == MemKind::LoadD16I8 ||
+                                info->kind == MemKind::LoadD16HiU8 ||
+                                info->kind == MemKind::LoadD16HiI8;
+        const std::uint32_t fieldMask = singleByte ? 0xFFu : 0xFFFFu;
+        const std::uint32_t field = (readDword(index) >> (lane * 8u)) & fieldMask;
+        std::uint32_t value = field;
+        if (info->kind == MemKind::LoadD16I8 || info->kind == MemKind::LoadD16HiI8)
+            value = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int8_t>(field)));
+        const bool high = info->kind == MemKind::LoadD16HiU8 || info->kind == MemKind::LoadD16HiI8 ||
+                          info->kind == MemKind::LoadD16HiB16;
+        const std::uint32_t current = state.vgpr[destination()];
+        state.vgpr[destination()] = high ? ((current & 0xFFFFu) | ((value & fieldMask) << 16))
+                                         : ((current & 0xFFFF0000u) | (value & fieldMask));
+        return {};
+    }
+    case MemKind::StoreB8:
+    case MemKind::StoreB16:
+    case MemKind::StoreD16HiB8:
+    case MemKind::StoreD16HiB16:
+    {
+        const auto source = sourceBase();
+        if (!source)
+            return std::unexpected(Error("SR-GFX-ISA-222", "memory store has no data", pc));
+        const bool singleByte = info->kind == MemKind::StoreB8 || info->kind == MemKind::StoreD16HiB8;
+        const std::uint32_t fieldMask = singleByte ? 0xFFu : 0xFFFFu;
+        const bool highHalf = info->kind == MemKind::StoreD16HiB8 || info->kind == MemKind::StoreD16HiB16;
+        const std::uint32_t data = highHalf ? (state.vgpr[*source] >> 16) : state.vgpr[*source];
+        const std::uint32_t mask = fieldMask << (lane * 8u);
+        writeDword(index, (readDword(index) & ~mask) | ((data << (lane * 8u)) & mask));
+        return {};
+    }
+    default:
+        break;
+    }
+
+    if (info->kind == MemKind::LoadB32 || info->kind == MemKind::LoadB64 ||
+        info->kind == MemKind::LoadB96 || info->kind == MemKind::LoadB128)
+    {
+        const std::uint32_t count = info->bytes / 4;
+        for (std::uint32_t i = 0; i < count; ++i)
+            state.vgpr[destination() + i] = readDword(index + i);
+        return {};
+    }
+    if (info->kind == MemKind::StoreB32 || info->kind == MemKind::StoreB64 ||
+        info->kind == MemKind::StoreB96 || info->kind == MemKind::StoreB128)
+    {
+        const auto source = sourceBase();
+        if (!source)
+            return std::unexpected(Error("SR-GFX-ISA-223", "memory store has no data", pc));
+        const std::uint32_t count = info->bytes / 4;
+        for (std::uint32_t i = 0; i < count; ++i)
+            writeDword(index + i, state.vgpr[*source + i]);
+        return {};
+    }
+
+    const bool wide = info->bytes == 8;
+    const auto readWide = [&](std::uint32_t at) -> std::uint64_t {
+        const std::uint64_t low = readDword(at);
+        return wide ? (low | (static_cast<std::uint64_t>(readDword(at + 1)) << 32)) : low;
+    };
+
+    const std::uint32_t firstIndex = sourceBase().value_or(0u);
+    const std::uint64_t first =
+        wide ? (static_cast<std::uint64_t>(state.vgpr[firstIndex]) |
+                (static_cast<std::uint64_t>(state.vgpr[firstIndex + 1]) << 32))
+             : static_cast<std::uint64_t>(state.vgpr[firstIndex]);
+    const std::uint64_t old = readWide(index);
+    std::uint64_t result = old;
+    std::uint64_t replacement = 0;
+    if (info->kind == MemKind::AtomicCmpswapB32 || info->kind == MemKind::AtomicCmpswapB64)
+    {
+        const std::uint32_t at = firstIndex + (wide ? 2u : 1u);
+        replacement = wide ? (static_cast<std::uint64_t>(state.vgpr[at]) |
+                              (static_cast<std::uint64_t>(state.vgpr[at + 1]) << 32))
+                           : static_cast<std::uint64_t>(state.vgpr[at]);
+    }
+
+    switch (info->kind)
+    {
+    case MemKind::AtomicSwapB32:
+    case MemKind::AtomicSwapB64:
+        result = first;
+        break;
+    case MemKind::AtomicCmpswapB32:
+    case MemKind::AtomicCmpswapB64:
+        result = old == first ? replacement : old;
+        break;
+    case MemKind::AtomicAddU32:
+    case MemKind::AtomicAddU64:
+    case MemKind::AtomicOrderedAddB64:
+        result = old + first;
+        break;
+    case MemKind::AtomicSubU32:
+    case MemKind::AtomicSubU64:
+        result = old - first;
+        break;
+    case MemKind::AtomicSubClampU32:
+        result = old >= first ? 0u : first - old;
+        break;
+    case MemKind::AtomicMinI32:
+    case MemKind::AtomicMinI64:
+        result = wide ? static_cast<std::uint64_t>(std::min(static_cast<std::int64_t>(old),
+                                                            static_cast<std::int64_t>(first)))
+                      : static_cast<std::uint64_t>(std::min(static_cast<std::int32_t>(old),
+                                                            static_cast<std::int32_t>(first)));
+        break;
+    case MemKind::AtomicMaxI32:
+    case MemKind::AtomicMaxI64:
+        result = wide ? static_cast<std::uint64_t>(std::max(static_cast<std::int64_t>(old),
+                                                            static_cast<std::int64_t>(first)))
+                      : static_cast<std::uint64_t>(std::max(static_cast<std::int32_t>(old),
+                                                            static_cast<std::int32_t>(first)));
+        break;
+    case MemKind::AtomicMinU32:
+    case MemKind::AtomicMinU64:
+        result = std::min(old, first);
+        break;
+    case MemKind::AtomicMaxU32:
+    case MemKind::AtomicMaxU64:
+        result = std::max(old, first);
+        break;
+    case MemKind::AtomicAndB32:
+    case MemKind::AtomicAndB64:
+        result = old & first;
+        break;
+    case MemKind::AtomicOrB32:
+    case MemKind::AtomicOrB64:
+        result = old | first;
+        break;
+    case MemKind::AtomicXorB32:
+    case MemKind::AtomicXorB64:
+        result = old ^ first;
+        break;
+    case MemKind::AtomicIncU32:
+    case MemKind::AtomicIncU64:
+        result = old >= first ? 0 : old + 1;
+        break;
+    case MemKind::AtomicDecU32:
+    case MemKind::AtomicDecU64:
+        result = old == 0 ? first : old - 1;
+        break;
+    case MemKind::AtomicCondSubU32:
+        result = old >= first ? old - first : old;
+        break;
+    case MemKind::AtomicMinNumF32:
+        result = static_cast<std::uint32_t>(
+            std::bit_cast<std::uint32_t>(std::fmin(std::bit_cast<float>(static_cast<std::uint32_t>(old)),
+                                                  std::bit_cast<float>(static_cast<std::uint32_t>(first)))));
+        break;
+    case MemKind::AtomicMaxNumF32:
+        result = static_cast<std::uint32_t>(
+            std::bit_cast<std::uint32_t>(std::fmax(std::bit_cast<float>(static_cast<std::uint32_t>(old)),
+                                                  std::bit_cast<float>(static_cast<std::uint32_t>(first)))));
+        break;
+    case MemKind::AtomicAddF32:
+        result = static_cast<std::uint32_t>(
+            std::bit_cast<std::uint32_t>(std::bit_cast<float>(static_cast<std::uint32_t>(old)) +
+                                         std::bit_cast<float>(static_cast<std::uint32_t>(first))));
+        break;
+    default:
+        return std::unexpected(Error("SR-GFX-ISA-224",
+                                     "unsupported memory instruction: " +
+                                         std::string(ToString(instruction.op)),
+                                     pc));
+    }
+
+    writeDword(index, static_cast<std::uint32_t>(result));
+    if (wide)
+        writeDword(index + 1, static_cast<std::uint32_t>(result >> 32));
+    if (wide)
+    {
+        state.vgpr[destination()] = static_cast<std::uint32_t>(old);
+        state.vgpr[destination() + 1] = static_cast<std::uint32_t>(old >> 32);
+    }
+    else
+    {
+        state.vgpr[destination()] = static_cast<std::uint32_t>(old);
+    }
+    return {};
+}
+
+} // namespace
+
+namespace {
+
 [[nodiscard]] std::optional<std::uint32_t> DsOperandValue(const DecodedInstruction& instruction,
                                                            OperandKind kind)
 {
@@ -1086,6 +1356,16 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
 
         bool advance = true;
         bool finished = false;
+
+        if (instruction.encoding == Encoding::Flat || instruction.encoding == Encoding::Global ||
+            instruction.encoding == Encoding::Scratch)
+        {
+            const auto status = ExecuteMemory(result.state, instruction, pc);
+            if (!status)
+                return std::unexpected(status.error());
+            pc += instruction.wordCount * 4;
+            continue;
+        }
 
         if (instruction.encoding == Encoding::Ds)
         {

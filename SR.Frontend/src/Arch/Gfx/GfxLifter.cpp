@@ -3073,6 +3073,456 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    // ---- Flat, global and scratch memory ----
+    //
+    // All three address spaces map onto the test ABI storage buffer: the
+    // shader's byte address is divided by four to index dwords. The encoding
+    // selects the address space, which decides how the base is formed; with no
+    // descriptor model yet the base is the VGPR address plus the immediate
+    // offset for every space.
+
+#include "GfxMemoryTables.inc"
+
+    [[nodiscard]] static const MemOpInfo* MemoryOpInfo(Op op)
+    {
+        for (const auto& entry : kMemoryOps)
+        {
+            if (entry.first == op)
+                return &entry.second;
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] Result<IL::ValueId> MemoryByteAddress(const DecodedInstruction& instruction)
+    {
+        const Operand* address = FindOperand(instruction, OperandKind::GlobalVaddr);
+        if (address == nullptr)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-062", "memory instruction has no address operand", instruction.pc));
+
+        const auto base = ReadVgpr(address->value, instruction.pc);
+        if (!base)
+            return std::unexpected(base.error());
+
+        const Operand* offset = FindOperand(instruction, OperandKind::GlobalIoffset);
+        if (offset == nullptr || offset->value == 0)
+            return *base;
+        return Bin(instruction, IL::BinaryOp::IAdd, *base, m_builder.ConstantU32(offset->value));
+    }
+
+    [[nodiscard]] IL::ValueId BufferDword(const DecodedInstruction& instruction, IL::ValueId index)
+    {
+        const IL::PayloadId payload = m_module.payloads.Add(IL::TestBufferDesc{0, 0});
+        return m_builder.IntrinsicValue(m_module.types.U32(),
+                                        IL::IntrinsicId::TestBufferLoad,
+                                        {index},
+                                        payload,
+                                        instruction.pc,
+                                        true);
+    }
+
+    void BufferPutDword(const DecodedInstruction& instruction, IL::ValueId index, IL::ValueId value)
+    {
+        const IL::PayloadId payload = m_module.payloads.Add(IL::TestBufferDesc{0, 0});
+        m_builder.IntrinsicVoid(IL::IntrinsicId::TestBufferStore, {index, value}, payload, instruction.pc);
+    }
+
+    [[nodiscard]] std::uint32_t MemoryDestination(const DecodedInstruction& instruction) const
+    {
+        const Operand* destination = FindOperand(instruction, OperandKind::GlobalVdst);
+        return destination == nullptr ? 0u : destination->value;
+    }
+
+    void MemoryWriteVgpr(const DecodedInstruction& instruction, std::uint32_t index, IL::ValueId value)
+    {
+        Operand destination;
+        destination.kind = OperandKind::Vgpr;
+        destination.value = index;
+        (void)WriteDest(destination, value, instruction.pc);
+    }
+
+    void MemoryWritePair(const DecodedInstruction& instruction, std::uint32_t index, IL::ValueId value)
+    {
+        const IL::ValueId low =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, value, false);
+        const IL::ValueId high64 =
+            Bin(instruction, IL::BinaryOp::LShr, value, m_builder.ConstantU64(32), m_module.types.U64());
+        const IL::ValueId high =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, high64, false);
+        MemoryWriteVgpr(instruction, index, low);
+        MemoryWriteVgpr(instruction, index + 1, high);
+    }
+
+    [[nodiscard]] IL::ValueId BufferQword(const DecodedInstruction& instruction, IL::ValueId index)
+    {
+        const IL::ValueId low = BufferDword(instruction, index);
+        const IL::ValueId high = BufferDword(instruction, DsDwordAt(instruction, index, 1));
+        const IL::ValueId high64 =
+            m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, high, false);
+        const IL::ValueId shifted =
+            Bin(instruction, IL::BinaryOp::Shl, high64, m_builder.ConstantU64(32), m_module.types.U64());
+        const IL::ValueId low64 =
+            m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, low, false);
+        return Bin(instruction, IL::BinaryOp::Or, low64, shifted, m_module.types.U64());
+    }
+
+    void BufferPutQword(const DecodedInstruction& instruction, IL::ValueId index, IL::ValueId value)
+    {
+        const IL::ValueId low =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, value, false);
+        const IL::ValueId high64 =
+            Bin(instruction, IL::BinaryOp::LShr, value, m_builder.ConstantU64(32), m_module.types.U64());
+        const IL::ValueId high =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, high64, false);
+        BufferPutDword(instruction, index, low);
+        BufferPutDword(instruction, DsDwordAt(instruction, index, 1), high);
+    }
+
+    [[nodiscard]] Result<void> LiftMemoryLoad(const DecodedInstruction& instruction,
+                                              const MemOpInfo& info,
+                                              IL::ValueId index,
+                                              IL::ValueId byteAddress)
+    {
+        const std::uint32_t destination = MemoryDestination(instruction);
+
+        const bool singleByte = info.bytes == 1;
+        const bool singleHalf = info.bytes == 2;
+        if (singleByte || singleHalf)
+        {
+            const std::uint32_t fieldMask = singleByte ? 0xFFu : 0xFFFFu;
+            const IL::ValueId shift = DsLaneShift(instruction, byteAddress, singleByte ? 3u : 2u);
+            const IL::ValueId field =
+                Bin(instruction, IL::BinaryOp::And,
+                    Bin(instruction, IL::BinaryOp::LShr, BufferDword(instruction, index), shift),
+                    m_builder.ConstantU32(fieldMask));
+
+            const bool signedValue = info.kind == MemKind::LoadI8 || info.kind == MemKind::LoadI16 ||
+                                     info.kind == MemKind::LoadD16I8 || info.kind == MemKind::LoadD16HiI8;
+            IL::ValueId value = field;
+            if (signedValue)
+                value = singleByte ? SignExtend8Value(field) : SignExtend16Value(field);
+
+            const bool lowHalf = info.kind == MemKind::LoadD16U8 || info.kind == MemKind::LoadD16I8 ||
+                                 info.kind == MemKind::LoadD16B16;
+            const bool highHalf = info.kind == MemKind::LoadD16HiU8 || info.kind == MemKind::LoadD16HiI8 ||
+                                  info.kind == MemKind::LoadD16HiB16;
+            if (lowHalf || highHalf)
+            {
+                const auto current = ReadVgpr(destination, instruction.pc);
+                if (!current)
+                    return std::unexpected(current.error());
+                const IL::ValueId merged =
+                    highHalf
+                        ? Bin(instruction, IL::BinaryOp::Or,
+                              Bin(instruction, IL::BinaryOp::And, *current,
+                                  m_builder.ConstantU32(0xFFFF)),
+                              Bin(instruction, IL::BinaryOp::Shl,
+                                  Bin(instruction, IL::BinaryOp::And, value,
+                                      m_builder.ConstantU32(fieldMask)),
+                                  m_builder.ConstantU32(16)))
+                        : Bin(instruction, IL::BinaryOp::Or,
+                              Bin(instruction, IL::BinaryOp::And, *current,
+                                  m_builder.ConstantU32(0xFFFF0000)),
+                              Bin(instruction, IL::BinaryOp::And, value,
+                                  m_builder.ConstantU32(fieldMask)));
+                MemoryWriteVgpr(instruction, destination, merged);
+                return {};
+            }
+
+            MemoryWriteVgpr(instruction, destination, value);
+            return {};
+        }
+
+        const std::uint32_t count = info.bytes / 4;
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            MemoryWriteVgpr(instruction, destination + i,
+                            BufferDword(instruction, DsDwordAt(instruction, index, i)));
+        }
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftMemoryStore(const DecodedInstruction& instruction,
+                                               const MemOpInfo& info,
+                                               IL::ValueId index,
+                                               IL::ValueId byteAddress)
+    {
+        const Operand* source = FindOperand(instruction, OperandKind::GlobalVsrc);
+        if (source == nullptr)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-063", "memory store has no data operand", instruction.pc));
+
+        const bool singleByte = info.bytes == 1;
+        const bool singleHalf = info.bytes == 2;
+        if (singleByte || singleHalf)
+        {
+            const std::uint32_t fieldMask = singleByte ? 0xFFu : 0xFFFFu;
+            const IL::ValueId shift = DsLaneShift(instruction, byteAddress, singleByte ? 3u : 2u);
+            const auto data = ReadVgpr(source->value, instruction.pc);
+            if (!data)
+                return std::unexpected(data.error());
+
+            const bool highHalf = info.kind == MemKind::StoreD16HiB8 ||
+                                  info.kind == MemKind::StoreD16HiB16;
+            IL::ValueId value = *data;
+            if (highHalf)
+                value = Bin(instruction, IL::BinaryOp::LShr, value, m_builder.ConstantU32(16));
+            const IL::ValueId field =
+                Bin(instruction, IL::BinaryOp::Shl,
+                    Bin(instruction, IL::BinaryOp::And, value, m_builder.ConstantU32(fieldMask)), shift);
+            const IL::ValueId mask =
+                Bin(instruction, IL::BinaryOp::Shl, m_builder.ConstantU32(fieldMask), shift);
+            const IL::ValueId old = BufferDword(instruction, index);
+            const IL::ValueId cleared =
+                Bin(instruction, IL::BinaryOp::And, old,
+                    m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.U32(), mask, false));
+            BufferPutDword(instruction, index, Bin(instruction, IL::BinaryOp::Or, cleared, field));
+            return {};
+        }
+
+        const std::uint32_t count = info.bytes / 4;
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            const auto value = ReadVgpr(source->value + i, instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+            BufferPutDword(instruction, DsDwordAt(instruction, index, i), *value);
+        }
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftMemoryAtomic(const DecodedInstruction& instruction,
+                                                const MemOpInfo& info,
+                                                IL::ValueId index)
+    {
+        const std::uint32_t destination = MemoryDestination(instruction);
+        const Operand* source = FindOperand(instruction, OperandKind::GlobalVsrc);
+        if (source == nullptr)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-064", "memory atomic has no data operand", instruction.pc));
+
+        const MemKind kind = info.kind;
+        const bool wide = info.bytes == 8;
+        const IL::TypeId uintType = wide ? m_module.types.U64() : m_module.types.U32();
+        const IL::TypeId floatType = wide ? F64Type() : m_module.types.F32();
+
+        // cmpswap keeps the comparison value in the low half of the source
+        // pair and the replacement value in the high half; the destination
+        // receives the value that was in memory.
+        const bool compareSwap = kind == MemKind::AtomicCmpswapB32 ||
+                                 kind == MemKind::AtomicCmpswapB64;
+
+        const auto first = wide ? ReadVgpr64(source->value, instruction.pc)
+                                : ReadVgpr(source->value, instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+
+        IL::ValueId replacement = IL::InvalidValue;
+        if (compareSwap)
+        {
+            const std::uint32_t base = source->value + (wide ? 2u : 1u);
+            const auto value = wide ? ReadVgpr64(base, instruction.pc) : ReadVgpr(base, instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+            replacement = *value;
+        }
+
+        const IL::ValueId old = wide ? BufferQword(instruction, index) : BufferDword(instruction, index);
+        const IL::ValueId zero = wide ? m_builder.ConstantU64(0) : m_builder.ConstantU32(0);
+        const IL::ValueId one = wide ? m_builder.ConstantU64(1) : m_builder.ConstantU32(1);
+
+        IL::ValueId result = old;
+        switch (kind)
+        {
+        case MemKind::AtomicSwapB32:
+        case MemKind::AtomicSwapB64:
+            result = *first;
+            break;
+        case MemKind::AtomicCmpswapB32:
+        case MemKind::AtomicCmpswapB64:
+        {
+            const IL::ValueId equal = m_builder.CompareValue(IL::CompareOp::UEq, old, *first, false);
+            result = m_builder.SelectValue(uintType, equal, replacement, old, false);
+            break;
+        }
+        case MemKind::AtomicAddU32:
+        case MemKind::AtomicAddU64:
+        case MemKind::AtomicOrderedAddB64:
+            result = Bin(instruction, IL::BinaryOp::IAdd, old, *first, uintType);
+            break;
+        case MemKind::AtomicSubU32:
+        case MemKind::AtomicSubU64:
+            result = Bin(instruction, IL::BinaryOp::ISub, old, *first, uintType);
+            break;
+        case MemKind::AtomicSubClampU32:
+        {
+            const IL::ValueId large = m_builder.CompareValue(IL::CompareOp::UGe, old, *first, false);
+            result = m_builder.SelectValue(uintType, large, zero,
+                                           Bin(instruction, IL::BinaryOp::ISub, *first, old, uintType),
+                                           false);
+            break;
+        }
+        case MemKind::AtomicMinI32:
+        case MemKind::AtomicMinI64:
+            result = m_builder.SelectValue(uintType,
+                                           m_builder.CompareValue(IL::CompareOp::ILt, old, *first, false),
+                                           old, *first, false);
+            break;
+        case MemKind::AtomicMaxI32:
+        case MemKind::AtomicMaxI64:
+            result = m_builder.SelectValue(uintType,
+                                           m_builder.CompareValue(IL::CompareOp::IGt, old, *first, false),
+                                           old, *first, false);
+            break;
+        case MemKind::AtomicMinU32:
+        case MemKind::AtomicMinU64:
+            result = m_builder.SelectValue(uintType,
+                                           m_builder.CompareValue(IL::CompareOp::ULt, old, *first, false),
+                                           old, *first, false);
+            break;
+        case MemKind::AtomicMaxU32:
+        case MemKind::AtomicMaxU64:
+            result = m_builder.SelectValue(uintType,
+                                           m_builder.CompareValue(IL::CompareOp::UGt, old, *first, false),
+                                           old, *first, false);
+            break;
+        case MemKind::AtomicAndB32:
+        case MemKind::AtomicAndB64:
+            result = Bin(instruction, IL::BinaryOp::And, old, *first, uintType);
+            break;
+        case MemKind::AtomicOrB32:
+        case MemKind::AtomicOrB64:
+            result = Bin(instruction, IL::BinaryOp::Or, old, *first, uintType);
+            break;
+        case MemKind::AtomicXorB32:
+        case MemKind::AtomicXorB64:
+            result = Bin(instruction, IL::BinaryOp::Xor, old, *first, uintType);
+            break;
+        case MemKind::AtomicIncU32:
+        case MemKind::AtomicIncU64:
+        {
+            const IL::ValueId exceeded = m_builder.CompareValue(IL::CompareOp::UGe, old, *first, false);
+            result = m_builder.SelectValue(uintType, exceeded, zero,
+                                           Bin(instruction, IL::BinaryOp::IAdd, old, one, uintType),
+                                           false);
+            break;
+        }
+        case MemKind::AtomicDecU32:
+        case MemKind::AtomicDecU64:
+        {
+            const IL::ValueId atZero = m_builder.CompareValue(IL::CompareOp::UEq, old, zero, false);
+            result = m_builder.SelectValue(uintType, atZero, *first,
+                                           Bin(instruction, IL::BinaryOp::ISub, old, one, uintType),
+                                           false);
+            break;
+        }
+        case MemKind::AtomicCondSubU32:
+        {
+            const IL::ValueId large = m_builder.CompareValue(IL::CompareOp::UGe, old, *first, false);
+            result = m_builder.SelectValue(uintType, large,
+                                           Bin(instruction, IL::BinaryOp::ISub, old, *first, uintType),
+                                           old, false);
+            break;
+        }
+        case MemKind::AtomicMinNumF32:
+            result = Bin(instruction, IL::BinaryOp::FMin, old, *first, floatType);
+            break;
+        case MemKind::AtomicMaxNumF32:
+            result = Bin(instruction, IL::BinaryOp::FMax, old, *first, floatType);
+            break;
+        case MemKind::AtomicAddF32:
+            result = Bin(instruction, IL::BinaryOp::FAdd, old, *first, floatType);
+            break;
+        default:
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-066", "unsupported memory atomic kind", instruction.pc));
+        }
+
+        if (wide)
+        {
+            BufferPutQword(instruction, index, result);
+            MemoryWritePair(instruction, destination, old);
+        }
+        else
+        {
+            BufferPutDword(instruction, index, result);
+            MemoryWriteVgpr(instruction, destination, old);
+        }
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftFlatMemory(const DecodedInstruction& instruction)
+    {
+        const MemOpInfo* info = MemoryOpInfo(instruction.op);
+        if (info == nullptr)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-067",
+                                             std::string("unsupported memory instruction: ") +
+                                                 std::string(ToString(instruction.op)),
+                                             instruction.pc));
+        }
+
+        switch (info->kind)
+        {
+        case MemKind::Inv:
+        case MemKind::Wb:
+        case MemKind::Wbinv:
+            // Cache maintenance does not change memory contents.
+            return {};
+        case MemKind::LoadAddtidB32:
+        case MemKind::StoreAddtidB32:
+        case MemKind::LoadBlock:
+        case MemKind::StoreBlock:
+        case MemKind::LoadTrB64:
+        case MemKind::LoadTrB128:
+        case MemKind::AtomicPkAddF16:
+        case MemKind::AtomicPkAddBf16:
+            return std::unexpected(LiftError("SR-GFX-LIFT-068",
+                                             std::string("unsupported memory instruction: ") +
+                                                 std::string(ToString(instruction.op)),
+                                             instruction.pc));
+        default:
+            break;
+        }
+
+        const auto byteAddress = MemoryByteAddress(instruction);
+        if (!byteAddress)
+            return std::unexpected(byteAddress.error());
+        const auto index = DsIndexFromBytes(instruction, *byteAddress);
+        if (!index)
+            return std::unexpected(index.error());
+
+        switch (info->kind)
+        {
+        case MemKind::LoadU8:
+        case MemKind::LoadI8:
+        case MemKind::LoadU16:
+        case MemKind::LoadI16:
+        case MemKind::LoadB32:
+        case MemKind::LoadB64:
+        case MemKind::LoadB96:
+        case MemKind::LoadB128:
+        case MemKind::LoadD16U8:
+        case MemKind::LoadD16I8:
+        case MemKind::LoadD16B16:
+        case MemKind::LoadD16HiU8:
+        case MemKind::LoadD16HiI8:
+        case MemKind::LoadD16HiB16:
+            return LiftMemoryLoad(instruction, *info, *index, *byteAddress);
+        case MemKind::StoreB8:
+        case MemKind::StoreB16:
+        case MemKind::StoreB32:
+        case MemKind::StoreB64:
+        case MemKind::StoreB96:
+        case MemKind::StoreB128:
+        case MemKind::StoreD16HiB8:
+        case MemKind::StoreD16HiB16:
+            return LiftMemoryStore(instruction, *info, *index, *byteAddress);
+        default:
+            return LiftMemoryAtomic(instruction, *info, *index);
+        }
+    }
+
     // ---- Data-share (LDS) ----
     //
     // LDS addresses are byte offsets formed from a VGPR plus an immediate. The
@@ -4599,6 +5049,9 @@ private:
 
         if (instruction.encoding == Encoding::Ds)
             return LiftDs(instruction);
+        if (instruction.encoding == Encoding::Flat || instruction.encoding == Encoding::Global ||
+            instruction.encoding == Encoding::Scratch)
+            return LiftFlatMemory(instruction);
 
         switch (instruction.op)
         {

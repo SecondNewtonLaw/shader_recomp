@@ -1189,6 +1189,297 @@ constexpr std::array kGfx12 = {
     Make(Encoding::Ds, 226, Op::DsBvhStackPush8Pop2RtnB64, "ds_bvh_stack_push8_pop2_rtn_b64",
          {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
 
+    // RDNA4 flat instructions.
+    Make(Encoding::Flat, 16, Op::FlatLoadU8, "flat_load_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 17, Op::FlatLoadI8, "flat_load_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 18, Op::FlatLoadU16, "flat_load_u16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 19, Op::FlatLoadI16, "flat_load_i16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 20, Op::FlatLoadB32, "flat_load_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 21, Op::FlatLoadB64, "flat_load_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 22, Op::FlatLoadB96, "flat_load_b96",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 23, Op::FlatLoadB128, "flat_load_b128",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 24, Op::FlatStoreB8, "flat_store_b8",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 25, Op::FlatStoreB16, "flat_store_b16",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 26, Op::FlatStoreB32, "flat_store_b32",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 27, Op::FlatStoreB64, "flat_store_b64",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 28, Op::FlatStoreB96, "flat_store_b96",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 29, Op::FlatStoreB128, "flat_store_b128",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 30, Op::FlatLoadD16U8, "flat_load_d16_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 31, Op::FlatLoadD16I8, "flat_load_d16_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 32, Op::FlatLoadD16B16, "flat_load_d16_b16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 33, Op::FlatLoadD16HiU8, "flat_load_d16_hi_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 34, Op::FlatLoadD16HiI8, "flat_load_d16_hi_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 35, Op::FlatLoadD16HiB16, "flat_load_d16_hi_b16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 36, Op::FlatStoreD16HiB8, "flat_store_d16_hi_b8",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 37, Op::FlatStoreD16HiB16, "flat_store_d16_hi_b16",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 51, Op::FlatAtomicSwapB32, "flat_atomic_swap_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 52, Op::FlatAtomicCmpswapB32, "flat_atomic_cmpswap_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 53, Op::FlatAtomicAddU32, "flat_atomic_add_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 54, Op::FlatAtomicSubU32, "flat_atomic_sub_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 55, Op::FlatAtomicSubClampU32, "flat_atomic_sub_clamp_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 56, Op::FlatAtomicMinI32, "flat_atomic_min_i32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 57, Op::FlatAtomicMinU32, "flat_atomic_min_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 58, Op::FlatAtomicMaxI32, "flat_atomic_max_i32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 59, Op::FlatAtomicMaxU32, "flat_atomic_max_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 60, Op::FlatAtomicAndB32, "flat_atomic_and_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 61, Op::FlatAtomicOrB32, "flat_atomic_or_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 62, Op::FlatAtomicXorB32, "flat_atomic_xor_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 63, Op::FlatAtomicIncU32, "flat_atomic_inc_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 64, Op::FlatAtomicDecU32, "flat_atomic_dec_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 65, Op::FlatAtomicSwapB64, "flat_atomic_swap_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 66, Op::FlatAtomicCmpswapB64, "flat_atomic_cmpswap_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 67, Op::FlatAtomicAddU64, "flat_atomic_add_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 68, Op::FlatAtomicSubU64, "flat_atomic_sub_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 69, Op::FlatAtomicMinI64, "flat_atomic_min_i64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 70, Op::FlatAtomicMinU64, "flat_atomic_min_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 71, Op::FlatAtomicMaxI64, "flat_atomic_max_i64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 72, Op::FlatAtomicMaxU64, "flat_atomic_max_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 73, Op::FlatAtomicAndB64, "flat_atomic_and_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 74, Op::FlatAtomicOrB64, "flat_atomic_or_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 75, Op::FlatAtomicXorB64, "flat_atomic_xor_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 76, Op::FlatAtomicIncU64, "flat_atomic_inc_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 77, Op::FlatAtomicDecU64, "flat_atomic_dec_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 80, Op::FlatAtomicCondSubU32, "flat_atomic_cond_sub_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 81, Op::FlatAtomicMinNumF32, "flat_atomic_min_num_f32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 82, Op::FlatAtomicMaxNumF32, "flat_atomic_max_num_f32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 86, Op::FlatAtomicAddF32, "flat_atomic_add_f32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 89, Op::FlatAtomicPkAddF16, "flat_atomic_pk_add_f16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Flat, 90, Op::FlatAtomicPkAddBf16, "flat_atomic_pk_add_bf16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+
+    // RDNA4 global instructions.
+    Make(Encoding::Global, 16, Op::GlobalLoadU8, "global_load_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 17, Op::GlobalLoadI8, "global_load_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 18, Op::GlobalLoadU16, "global_load_u16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 19, Op::GlobalLoadI16, "global_load_i16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 21, Op::GlobalLoadB64, "global_load_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 22, Op::GlobalLoadB96, "global_load_b96",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 23, Op::GlobalLoadB128, "global_load_b128",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 24, Op::GlobalStoreB8, "global_store_b8",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 25, Op::GlobalStoreB16, "global_store_b16",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 27, Op::GlobalStoreB64, "global_store_b64",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 28, Op::GlobalStoreB96, "global_store_b96",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 29, Op::GlobalStoreB128, "global_store_b128",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 30, Op::GlobalLoadD16U8, "global_load_d16_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 31, Op::GlobalLoadD16I8, "global_load_d16_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 32, Op::GlobalLoadD16B16, "global_load_d16_b16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 33, Op::GlobalLoadD16HiU8, "global_load_d16_hi_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 34, Op::GlobalLoadD16HiI8, "global_load_d16_hi_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 35, Op::GlobalLoadD16HiB16, "global_load_d16_hi_b16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 36, Op::GlobalStoreD16HiB8, "global_store_d16_hi_b8",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 37, Op::GlobalStoreD16HiB16, "global_store_d16_hi_b16",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 40, Op::GlobalLoadAddtidB32, "global_load_addtid_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 41, Op::GlobalStoreAddtidB32, "global_store_addtid_b32",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 43, Op::GlobalInv, "global_inv",
+         {OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 44, Op::GlobalWb, "global_wb",
+         {OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 51, Op::GlobalAtomicSwapB32, "global_atomic_swap_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 52, Op::GlobalAtomicCmpswapB32, "global_atomic_cmpswap_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 53, Op::GlobalAtomicAddU32, "global_atomic_add_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 54, Op::GlobalAtomicSubU32, "global_atomic_sub_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 55, Op::GlobalAtomicSubClampU32, "global_atomic_sub_clamp_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 56, Op::GlobalAtomicMinI32, "global_atomic_min_i32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 57, Op::GlobalAtomicMinU32, "global_atomic_min_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 58, Op::GlobalAtomicMaxI32, "global_atomic_max_i32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 59, Op::GlobalAtomicMaxU32, "global_atomic_max_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 60, Op::GlobalAtomicAndB32, "global_atomic_and_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 61, Op::GlobalAtomicOrB32, "global_atomic_or_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 62, Op::GlobalAtomicXorB32, "global_atomic_xor_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 63, Op::GlobalAtomicIncU32, "global_atomic_inc_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 64, Op::GlobalAtomicDecU32, "global_atomic_dec_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 65, Op::GlobalAtomicSwapB64, "global_atomic_swap_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 66, Op::GlobalAtomicCmpswapB64, "global_atomic_cmpswap_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 67, Op::GlobalAtomicAddU64, "global_atomic_add_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 68, Op::GlobalAtomicSubU64, "global_atomic_sub_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 69, Op::GlobalAtomicMinI64, "global_atomic_min_i64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 70, Op::GlobalAtomicMinU64, "global_atomic_min_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 71, Op::GlobalAtomicMaxI64, "global_atomic_max_i64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 72, Op::GlobalAtomicMaxU64, "global_atomic_max_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 73, Op::GlobalAtomicAndB64, "global_atomic_and_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 74, Op::GlobalAtomicOrB64, "global_atomic_or_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 75, Op::GlobalAtomicXorB64, "global_atomic_xor_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 76, Op::GlobalAtomicIncU64, "global_atomic_inc_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 77, Op::GlobalAtomicDecU64, "global_atomic_dec_u64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 79, Op::GlobalWbinv, "global_wbinv",
+         {OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 80, Op::GlobalAtomicCondSubU32, "global_atomic_cond_sub_u32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 81, Op::GlobalAtomicMinNumF32, "global_atomic_min_num_f32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 82, Op::GlobalAtomicMaxNumF32, "global_atomic_max_num_f32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 83, Op::GlobalLoadBlock, "global_load_block",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 84, Op::GlobalStoreBlock, "global_store_block",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 86, Op::GlobalAtomicAddF32, "global_atomic_add_f32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 87, Op::GlobalLoadTrB128, "global_load_tr_b128",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 88, Op::GlobalLoadTrB64, "global_load_tr_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 89, Op::GlobalAtomicPkAddF16, "global_atomic_pk_add_f16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 90, Op::GlobalAtomicPkAddBf16, "global_atomic_pk_add_bf16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Global, 115, Op::GlobalAtomicOrderedAddB64, "global_atomic_ordered_add_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+
+    // RDNA4 scratch instructions.
+    Make(Encoding::Scratch, 16, Op::ScratchLoadU8, "scratch_load_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 17, Op::ScratchLoadI8, "scratch_load_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 18, Op::ScratchLoadU16, "scratch_load_u16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 19, Op::ScratchLoadI16, "scratch_load_i16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 20, Op::ScratchLoadB32, "scratch_load_b32",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 21, Op::ScratchLoadB64, "scratch_load_b64",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 22, Op::ScratchLoadB96, "scratch_load_b96",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 23, Op::ScratchLoadB128, "scratch_load_b128",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 24, Op::ScratchStoreB8, "scratch_store_b8",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 25, Op::ScratchStoreB16, "scratch_store_b16",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 26, Op::ScratchStoreB32, "scratch_store_b32",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 27, Op::ScratchStoreB64, "scratch_store_b64",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 28, Op::ScratchStoreB96, "scratch_store_b96",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 29, Op::ScratchStoreB128, "scratch_store_b128",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 30, Op::ScratchLoadD16U8, "scratch_load_d16_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 31, Op::ScratchLoadD16I8, "scratch_load_d16_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 32, Op::ScratchLoadD16B16, "scratch_load_d16_b16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 33, Op::ScratchLoadD16HiU8, "scratch_load_d16_hi_u8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 34, Op::ScratchLoadD16HiI8, "scratch_load_d16_hi_i8",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 35, Op::ScratchLoadD16HiB16, "scratch_load_d16_hi_b16",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 36, Op::ScratchStoreD16HiB8, "scratch_store_d16_hi_b8",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 37, Op::ScratchStoreD16HiB16, "scratch_store_d16_hi_b16",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 83, Op::ScratchLoadBlock, "scratch_load_block",
+         {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
+    Make(Encoding::Scratch, 84, Op::ScratchStoreBlock, "scratch_store_block",
+         {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+
+
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -1493,6 +1784,294 @@ std::string_view ToString(Op op) noexcept
         return "s_cselect_b64";
     case Op::DsAddF32:
         return "ds_add_f32";
+    case Op::FlatLoadU8:
+        return "flat_load_u8";
+    case Op::FlatLoadI8:
+        return "flat_load_i8";
+    case Op::FlatLoadU16:
+        return "flat_load_u16";
+    case Op::FlatLoadI16:
+        return "flat_load_i16";
+    case Op::FlatLoadB32:
+        return "flat_load_b32";
+    case Op::FlatLoadB64:
+        return "flat_load_b64";
+    case Op::FlatLoadB96:
+        return "flat_load_b96";
+    case Op::FlatLoadB128:
+        return "flat_load_b128";
+    case Op::FlatStoreB8:
+        return "flat_store_b8";
+    case Op::FlatStoreB16:
+        return "flat_store_b16";
+    case Op::FlatStoreB32:
+        return "flat_store_b32";
+    case Op::FlatStoreB64:
+        return "flat_store_b64";
+    case Op::FlatStoreB96:
+        return "flat_store_b96";
+    case Op::FlatStoreB128:
+        return "flat_store_b128";
+    case Op::FlatLoadD16U8:
+        return "flat_load_d16_u8";
+    case Op::FlatLoadD16I8:
+        return "flat_load_d16_i8";
+    case Op::FlatLoadD16B16:
+        return "flat_load_d16_b16";
+    case Op::FlatLoadD16HiU8:
+        return "flat_load_d16_hi_u8";
+    case Op::FlatLoadD16HiI8:
+        return "flat_load_d16_hi_i8";
+    case Op::FlatLoadD16HiB16:
+        return "flat_load_d16_hi_b16";
+    case Op::FlatStoreD16HiB8:
+        return "flat_store_d16_hi_b8";
+    case Op::FlatStoreD16HiB16:
+        return "flat_store_d16_hi_b16";
+    case Op::FlatAtomicSwapB32:
+        return "flat_atomic_swap_b32";
+    case Op::FlatAtomicCmpswapB32:
+        return "flat_atomic_cmpswap_b32";
+    case Op::FlatAtomicAddU32:
+        return "flat_atomic_add_u32";
+    case Op::FlatAtomicSubU32:
+        return "flat_atomic_sub_u32";
+    case Op::FlatAtomicSubClampU32:
+        return "flat_atomic_sub_clamp_u32";
+    case Op::FlatAtomicMinI32:
+        return "flat_atomic_min_i32";
+    case Op::FlatAtomicMinU32:
+        return "flat_atomic_min_u32";
+    case Op::FlatAtomicMaxI32:
+        return "flat_atomic_max_i32";
+    case Op::FlatAtomicMaxU32:
+        return "flat_atomic_max_u32";
+    case Op::FlatAtomicAndB32:
+        return "flat_atomic_and_b32";
+    case Op::FlatAtomicOrB32:
+        return "flat_atomic_or_b32";
+    case Op::FlatAtomicXorB32:
+        return "flat_atomic_xor_b32";
+    case Op::FlatAtomicIncU32:
+        return "flat_atomic_inc_u32";
+    case Op::FlatAtomicDecU32:
+        return "flat_atomic_dec_u32";
+    case Op::FlatAtomicSwapB64:
+        return "flat_atomic_swap_b64";
+    case Op::FlatAtomicCmpswapB64:
+        return "flat_atomic_cmpswap_b64";
+    case Op::FlatAtomicAddU64:
+        return "flat_atomic_add_u64";
+    case Op::FlatAtomicSubU64:
+        return "flat_atomic_sub_u64";
+    case Op::FlatAtomicMinI64:
+        return "flat_atomic_min_i64";
+    case Op::FlatAtomicMinU64:
+        return "flat_atomic_min_u64";
+    case Op::FlatAtomicMaxI64:
+        return "flat_atomic_max_i64";
+    case Op::FlatAtomicMaxU64:
+        return "flat_atomic_max_u64";
+    case Op::FlatAtomicAndB64:
+        return "flat_atomic_and_b64";
+    case Op::FlatAtomicOrB64:
+        return "flat_atomic_or_b64";
+    case Op::FlatAtomicXorB64:
+        return "flat_atomic_xor_b64";
+    case Op::FlatAtomicIncU64:
+        return "flat_atomic_inc_u64";
+    case Op::FlatAtomicDecU64:
+        return "flat_atomic_dec_u64";
+    case Op::FlatAtomicCondSubU32:
+        return "flat_atomic_cond_sub_u32";
+    case Op::FlatAtomicMinNumF32:
+        return "flat_atomic_min_num_f32";
+    case Op::FlatAtomicMaxNumF32:
+        return "flat_atomic_max_num_f32";
+    case Op::FlatAtomicAddF32:
+        return "flat_atomic_add_f32";
+    case Op::FlatAtomicPkAddF16:
+        return "flat_atomic_pk_add_f16";
+    case Op::FlatAtomicPkAddBf16:
+        return "flat_atomic_pk_add_bf16";
+    case Op::GlobalLoadU8:
+        return "global_load_u8";
+    case Op::GlobalLoadI8:
+        return "global_load_i8";
+    case Op::GlobalLoadU16:
+        return "global_load_u16";
+    case Op::GlobalLoadI16:
+        return "global_load_i16";
+    case Op::GlobalLoadB32:
+        return "global_load_b32";
+    case Op::GlobalLoadB64:
+        return "global_load_b64";
+    case Op::GlobalLoadB96:
+        return "global_load_b96";
+    case Op::GlobalLoadB128:
+        return "global_load_b128";
+    case Op::GlobalStoreB8:
+        return "global_store_b8";
+    case Op::GlobalStoreB16:
+        return "global_store_b16";
+    case Op::GlobalStoreB32:
+        return "global_store_b32";
+    case Op::GlobalStoreB64:
+        return "global_store_b64";
+    case Op::GlobalStoreB96:
+        return "global_store_b96";
+    case Op::GlobalStoreB128:
+        return "global_store_b128";
+    case Op::GlobalLoadD16U8:
+        return "global_load_d16_u8";
+    case Op::GlobalLoadD16I8:
+        return "global_load_d16_i8";
+    case Op::GlobalLoadD16B16:
+        return "global_load_d16_b16";
+    case Op::GlobalLoadD16HiU8:
+        return "global_load_d16_hi_u8";
+    case Op::GlobalLoadD16HiI8:
+        return "global_load_d16_hi_i8";
+    case Op::GlobalLoadD16HiB16:
+        return "global_load_d16_hi_b16";
+    case Op::GlobalStoreD16HiB8:
+        return "global_store_d16_hi_b8";
+    case Op::GlobalStoreD16HiB16:
+        return "global_store_d16_hi_b16";
+    case Op::GlobalLoadAddtidB32:
+        return "global_load_addtid_b32";
+    case Op::GlobalStoreAddtidB32:
+        return "global_store_addtid_b32";
+    case Op::GlobalInv:
+        return "global_inv";
+    case Op::GlobalWb:
+        return "global_wb";
+    case Op::GlobalAtomicSwapB32:
+        return "global_atomic_swap_b32";
+    case Op::GlobalAtomicCmpswapB32:
+        return "global_atomic_cmpswap_b32";
+    case Op::GlobalAtomicAddU32:
+        return "global_atomic_add_u32";
+    case Op::GlobalAtomicSubU32:
+        return "global_atomic_sub_u32";
+    case Op::GlobalAtomicSubClampU32:
+        return "global_atomic_sub_clamp_u32";
+    case Op::GlobalAtomicMinI32:
+        return "global_atomic_min_i32";
+    case Op::GlobalAtomicMinU32:
+        return "global_atomic_min_u32";
+    case Op::GlobalAtomicMaxI32:
+        return "global_atomic_max_i32";
+    case Op::GlobalAtomicMaxU32:
+        return "global_atomic_max_u32";
+    case Op::GlobalAtomicAndB32:
+        return "global_atomic_and_b32";
+    case Op::GlobalAtomicOrB32:
+        return "global_atomic_or_b32";
+    case Op::GlobalAtomicXorB32:
+        return "global_atomic_xor_b32";
+    case Op::GlobalAtomicIncU32:
+        return "global_atomic_inc_u32";
+    case Op::GlobalAtomicDecU32:
+        return "global_atomic_dec_u32";
+    case Op::GlobalAtomicSwapB64:
+        return "global_atomic_swap_b64";
+    case Op::GlobalAtomicCmpswapB64:
+        return "global_atomic_cmpswap_b64";
+    case Op::GlobalAtomicAddU64:
+        return "global_atomic_add_u64";
+    case Op::GlobalAtomicSubU64:
+        return "global_atomic_sub_u64";
+    case Op::GlobalAtomicMinI64:
+        return "global_atomic_min_i64";
+    case Op::GlobalAtomicMinU64:
+        return "global_atomic_min_u64";
+    case Op::GlobalAtomicMaxI64:
+        return "global_atomic_max_i64";
+    case Op::GlobalAtomicMaxU64:
+        return "global_atomic_max_u64";
+    case Op::GlobalAtomicAndB64:
+        return "global_atomic_and_b64";
+    case Op::GlobalAtomicOrB64:
+        return "global_atomic_or_b64";
+    case Op::GlobalAtomicXorB64:
+        return "global_atomic_xor_b64";
+    case Op::GlobalAtomicIncU64:
+        return "global_atomic_inc_u64";
+    case Op::GlobalAtomicDecU64:
+        return "global_atomic_dec_u64";
+    case Op::GlobalWbinv:
+        return "global_wbinv";
+    case Op::GlobalAtomicCondSubU32:
+        return "global_atomic_cond_sub_u32";
+    case Op::GlobalAtomicMinNumF32:
+        return "global_atomic_min_num_f32";
+    case Op::GlobalAtomicMaxNumF32:
+        return "global_atomic_max_num_f32";
+    case Op::GlobalLoadBlock:
+        return "global_load_block";
+    case Op::GlobalStoreBlock:
+        return "global_store_block";
+    case Op::GlobalAtomicAddF32:
+        return "global_atomic_add_f32";
+    case Op::GlobalLoadTrB128:
+        return "global_load_tr_b128";
+    case Op::GlobalLoadTrB64:
+        return "global_load_tr_b64";
+    case Op::GlobalAtomicPkAddF16:
+        return "global_atomic_pk_add_f16";
+    case Op::GlobalAtomicPkAddBf16:
+        return "global_atomic_pk_add_bf16";
+    case Op::GlobalAtomicOrderedAddB64:
+        return "global_atomic_ordered_add_b64";
+    case Op::ScratchLoadU8:
+        return "scratch_load_u8";
+    case Op::ScratchLoadI8:
+        return "scratch_load_i8";
+    case Op::ScratchLoadU16:
+        return "scratch_load_u16";
+    case Op::ScratchLoadI16:
+        return "scratch_load_i16";
+    case Op::ScratchLoadB32:
+        return "scratch_load_b32";
+    case Op::ScratchLoadB64:
+        return "scratch_load_b64";
+    case Op::ScratchLoadB96:
+        return "scratch_load_b96";
+    case Op::ScratchLoadB128:
+        return "scratch_load_b128";
+    case Op::ScratchStoreB8:
+        return "scratch_store_b8";
+    case Op::ScratchStoreB16:
+        return "scratch_store_b16";
+    case Op::ScratchStoreB32:
+        return "scratch_store_b32";
+    case Op::ScratchStoreB64:
+        return "scratch_store_b64";
+    case Op::ScratchStoreB96:
+        return "scratch_store_b96";
+    case Op::ScratchStoreB128:
+        return "scratch_store_b128";
+    case Op::ScratchLoadD16U8:
+        return "scratch_load_d16_u8";
+    case Op::ScratchLoadD16I8:
+        return "scratch_load_d16_i8";
+    case Op::ScratchLoadD16B16:
+        return "scratch_load_d16_b16";
+    case Op::ScratchLoadD16HiU8:
+        return "scratch_load_d16_hi_u8";
+    case Op::ScratchLoadD16HiI8:
+        return "scratch_load_d16_hi_i8";
+    case Op::ScratchLoadD16HiB16:
+        return "scratch_load_d16_hi_b16";
+    case Op::ScratchStoreD16HiB8:
+        return "scratch_store_d16_hi_b8";
+    case Op::ScratchStoreD16HiB16:
+        return "scratch_store_d16_hi_b16";
+    case Op::ScratchLoadBlock:
+        return "scratch_load_block";
+    case Op::ScratchStoreBlock:
+        return "scratch_store_block";
     case Op::DsAddRtnF32:
         return "ds_add_rtn_f32";
     case Op::DsAddRtnU32:
@@ -2375,10 +2954,6 @@ std::string_view ToString(Op op) noexcept
         return "s_load_b32";
     case Op::S_BufferLoadB32:
         return "s_buffer_load_b32";
-    case Op::GlobalLoadB32:
-        return "global_load_b32";
-    case Op::GlobalStoreB32:
-        return "global_store_b32";
     }
 
     return "unknown";
@@ -2430,63 +3005,70 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
     std::uint32_t baseWords = 1;
     std::uint64_t wide = word0;
 
-    // VGLOBAL (RDNA4): 96-bit encoding, three words.
-    if ((word0 >> 24) == 0xEEu)
+    // RDNA4 memory families use 96-bit encodings that differ only in the
+    // leading byte: VFLAT 0xEC, VSCRATCH 0xED and VGLOBAL 0xEE.
+    const std::uint32_t memoryPrefix = word0 >> 24;
+    if (memoryPrefix == 0xECu || memoryPrefix == 0xEDu || memoryPrefix == 0xEEu)
     {
         if (words.size() < 3)
-            return std::unexpected(Error("SR-GFX-006", "truncated VGLOBAL instruction", bytePc));
+            return std::unexpected(Error("SR-GFX-006", "truncated 3-word memory instruction", bytePc));
 
+        const Encoding memoryEncoding = memoryPrefix == 0xECu   ? Encoding::Flat
+                                        : memoryPrefix == 0xEDu ? Encoding::Scratch
+                                                                : Encoding::Global;
         const std::uint32_t word1 = words[1];
         const std::uint32_t word2 = words[2];
-        const std::uint16_t globalOpcode = static_cast<std::uint16_t>((word0 >> 14) & 0xFF);
+        const std::uint16_t memoryOpcode = static_cast<std::uint16_t>((word0 >> 14) & 0xFF);
 
-        const Entry* globalEntry = Lookup(arch, Encoding::Global, globalOpcode);
-        if (globalEntry == nullptr || globalEntry->removed)
+        const Entry* memoryEntry = Lookup(arch, memoryEncoding, memoryOpcode);
+        if (memoryEntry == nullptr || memoryEntry->removed)
         {
             return std::unexpected(Error("SR-GFX-007",
-                                         "unknown global opcode " + std::to_string(globalOpcode) + " for " +
+                                         "unknown " + std::string(ToString(memoryEncoding)) + " opcode " +
+                                             std::to_string(memoryOpcode) + " for " +
                                              std::string(GetArchInfo(arch).name),
                                          bytePc));
         }
 
-        DecodedInstruction global;
-        global.op = globalEntry->op;
-        global.encoding = Encoding::Global;
-        global.arch = arch;
-        global.pc = bytePc;
-        global.word0 = word0;
-        global.word1 = word1;
-        global.wordCount = 3;
+        DecodedInstruction memory;
+        memory.op = memoryEntry->op;
+        memory.opcode = memoryOpcode;
+        memory.encoding = memoryEncoding;
+        memory.arch = arch;
+        memory.pc = bytePc;
+        memory.word0 = word0;
+        memory.word1 = word1;
+        memory.wordCount = 3;
 
-        for (std::uint8_t i = 0; i < globalEntry->operandCount; ++i)
+        for (std::uint8_t i = 0; i < memoryEntry->operandCount; ++i)
         {
             Operand operand;
-            switch (globalEntry->operands[i])
+            switch (memoryEntry->operands[i])
             {
             case OperandKind::GlobalVdst:
-                operand.kind = OperandKind::Vgpr;
+                operand.kind = OperandKind::GlobalVdst;
                 operand.value = word1 & 0xFF; // bits 32..39
                 break;
             case OperandKind::GlobalVaddr:
-                operand.kind = OperandKind::Vgpr;
+                operand.kind = OperandKind::GlobalVaddr;
                 operand.value = word2 & 0xFF; // bits 64..71
                 break;
             case OperandKind::GlobalVsrc:
-                operand.kind = OperandKind::Vgpr;
+                operand.kind = OperandKind::GlobalVsrc;
                 operand.value = (word1 >> 23) & 0xFF; // bits 55..62
                 break;
             case OperandKind::GlobalIoffset:
-                operand.kind = OperandKind::Imm32;
+                operand.kind = OperandKind::GlobalIoffset;
                 operand.value = static_cast<std::uint32_t>(
                     static_cast<std::int32_t>(((word2 >> 8) & 0xFFFFFFu) << 8) >> 8); // bits 72..95
                 break;
             default:
-                return std::unexpected(Error("SR-GFX-008", "unsupported VGLOBAL operand layout", bytePc));
+                return std::unexpected(Error("SR-GFX-008", "unsupported memory operand layout", bytePc));
             }
-            if (global.operandCount < global.operands.size())
-                global.operands[global.operandCount++] = operand;
+            if (memory.operandCount < memory.operands.size())
+                memory.operands[memory.operandCount++] = operand;
         }
-        return global;
+        return memory;
     }
 
     if ((word0 & 0xFF800000u) == 0xBE800000u)
@@ -2592,6 +3174,7 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
 
     DecodedInstruction instruction;
     instruction.op = entry->op;
+    instruction.opcode = opcode;
     instruction.encoding = encoding;
     instruction.arch = arch;
     instruction.pc = bytePc;
@@ -2677,36 +3260,39 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             operand.kind = OperandKind::Imm32;
             operand.value = Extract(wide, 57, 7);
             break;
+        // The flat family keeps its operand roles so the lifter can find
+        // them by kind rather than by position; older encodings use the same
+        // roles as the RDNA4 three-word form.
         case OperandKind::FlatVdst:
-            operand.kind = OperandKind::Vgpr;
+            operand.kind = OperandKind::GlobalVdst;
             operand.value = Extract(wide, 56, 8);
             break;
         case OperandKind::FlatVaddr:
-            operand.kind = OperandKind::Vgpr;
+            operand.kind = OperandKind::GlobalVaddr;
             operand.value = Extract(wide, 32, 8);
             break;
         case OperandKind::FlatData:
-            operand.kind = OperandKind::Vgpr;
+            operand.kind = OperandKind::GlobalVsrc;
             operand.value = Extract(wide, 40, 8);
             break;
         case OperandKind::FlatSaddr:
-            operand.kind = OperandKind::Imm32;
+            operand.kind = OperandKind::Sgpr;
             operand.value = Extract(wide, 48, 7);
             break;
         case OperandKind::FlatOffset12:
-            operand.kind = OperandKind::Imm32;
+            operand.kind = OperandKind::GlobalIoffset;
             operand.value = Extract(wide, 0, 12);
             break;
         case OperandKind::FlatOffset13:
-            operand.kind = OperandKind::Imm32;
+            operand.kind = OperandKind::GlobalIoffset;
             operand.value = Extract(wide, 0, 13);
             break;
         case OperandKind::GlobalVdst:
-            operand.kind = OperandKind::Vgpr;
+            operand.kind = OperandKind::GlobalVdst;
             operand.value = Extract(wide, 32, 8);
             break;
         case OperandKind::GlobalVaddr:
-            operand.kind = OperandKind::Vgpr;
+            operand.kind = OperandKind::GlobalVaddr;
             operand.value = Extract(wide, 64, 8);
             break;
         case OperandKind::GlobalVsrc:

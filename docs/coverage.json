@@ -27,8 +27,8 @@
     },
     "gfx1200": {
       "total": 1264,
-      "decoded": 712,
-      "lifted": 699
+      "decoded": 854,
+      "lifted": 826
     }
   },
   "gfx1200_families": {
@@ -64,8 +64,8 @@
     },
     "GLOBAL": {
       "total": 65,
-      "decoded": 2,
-      "lifted": 2
+      "decoded": 65,
+      "lifted": 54
     },
     "IMAGE": {
       "total": 58,
@@ -74,8 +74,8 @@
     },
     "FLAT": {
       "total": 55,
-      "decoded": 0,
-      "lifted": 0
+      "decoded": 55,
+      "lifted": 53
     },
     "SOPC": {
       "total": 46,
@@ -104,8 +104,8 @@
     },
     "SCRATCH": {
       "total": 24,
-      "decoded": 0,
-      "lifted": 0
+      "decoded": 24,
+      "lifted": 22
     },
     "SOPK": {
       "total": 8,
