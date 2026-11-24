@@ -59,6 +59,8 @@ LIFTED = {
     "S_Bitset0B32", "S_Bitset0B64", "S_Bitset1B32", "S_Bitset1B64",
     "S_LshlB64", "S_LshrB64", "S_AshrI64", "S_BfmB64",
     "S_BfeU64", "S_BfeI64", "S_MulHiI32", "S_MulHiU32",
+    # Classification, exchange and frexp forms.
+"V_CmpClassF16", "V_CmpClassF32", "V_CmpClassF64", "V_SwapB32", "V_SwapB16", "V_SatPkU8I16", "V_Pipeflush", "V_FrexpExpI32F32", "V_FrexpMantF32", "V_FrexpExpI16F16", "V_FrexpMantF16",
     # VOP3-encoded compares.
 "V_CmpEqF16", "V_CmpEqF32", "V_CmpEqF64", "V_CmpEqI16", "V_CmpEqI32", "V_CmpEqI64", "V_CmpEqU16", "V_CmpEqU32", "V_CmpEqU64", "V_CmpGeF16", "V_CmpGeF32", "V_CmpGeF64", "V_CmpGeI16", "V_CmpGeI32", "V_CmpGeI64", "V_CmpGeU16", "V_CmpGeU32", "V_CmpGeU64", "V_CmpGtF16", "V_CmpGtF32", "V_CmpGtF64", "V_CmpGtI16", "V_CmpGtI32", "V_CmpGtI64", "V_CmpGtU16", "V_CmpGtU32", "V_CmpGtU64", "V_CmpLeF16", "V_CmpLeF32", "V_CmpLeF64", "V_CmpLeI16", "V_CmpLeI32", "V_CmpLeI64", "V_CmpLeU16", "V_CmpLeU32", "V_CmpLeU64", "V_CmpLgF16", "V_CmpLgF32", "V_CmpLgF64", "V_CmpLtF16", "V_CmpLtF32", "V_CmpLtF64", "V_CmpLtI16", "V_CmpLtI32", "V_CmpLtI64", "V_CmpLtU16", "V_CmpLtU32", "V_CmpLtU64", "V_CmpNeI16", "V_CmpNeI32", "V_CmpNeI64", "V_CmpNeU16", "V_CmpNeU32", "V_CmpNeU64", "V_CmpNeqF16", "V_CmpNeqF32", "V_CmpNeqF64", "V_CmpNgeF16", "V_CmpNgeF32", "V_CmpNgeF64", "V_CmpNgtF16", "V_CmpNgtF32", "V_CmpNgtF64", "V_CmpNleF16", "V_CmpNleF32", "V_CmpNleF64", "V_CmpNlgF16", "V_CmpNlgF32", "V_CmpNlgF64", "V_CmpNltF16", "V_CmpNltF32", "V_CmpNltF64", "V_CmpOrdF16", "V_CmpOrdF32", "V_CmpOrdF64", "V_CmpUnordF16", "V_CmpUnordF32", "V_CmpUnordF64",
     # Scalar control and immediate forms.

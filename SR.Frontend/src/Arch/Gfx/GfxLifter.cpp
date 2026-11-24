@@ -5469,6 +5469,259 @@ private:
         }
     }
 
+    // Floating-point classification: bit 0 is a signaling NaN, bit 1 quiet
+    // NaN, 2..5 are -inf, -normal, -subnormal, -zero, and 6..9 the positive
+    // mirror. The mask is built from the raw exponent and mantissa fields.
+    [[nodiscard]] Result<IL::ValueId> BuildClassMask(const DecodedInstruction& instruction,
+                                                     IL::ValueId bits,
+                                                     CompareValueKind kind)
+    {
+        const bool wide = kind == CompareValueKind::F64;
+        const std::uint32_t exponentBits =
+            kind == CompareValueKind::F16 ? 5u : (wide ? 11u : 8u);
+        const std::uint32_t mantissaBits =
+            kind == CompareValueKind::F16 ? 10u : (wide ? 52u : 23u);
+        const std::uint32_t exponentMax = (1u << exponentBits) - 1u;
+        const std::uint32_t signShift = exponentBits + mantissaBits;
+
+        const IL::TypeId type = wide ? m_module.types.U64() : m_module.types.U32();
+        const auto constant = [&](std::uint64_t value) {
+            return wide ? m_builder.ConstantU64(value) : m_builder.ConstantU32(static_cast<std::uint32_t>(value));
+        };
+        const auto binary = [&](IL::BinaryOp op, IL::ValueId left, IL::ValueId right) {
+            return Bin(instruction, op, left, right, type);
+        };
+        const auto boolean = [&](IL::BinaryOp op, IL::ValueId left, IL::ValueId right) {
+            return m_builder.Emit(m_module.types.Bool(),
+                                  IL::Op::Binary,
+                                  static_cast<std::uint16_t>(op),
+                                  {left, right},
+                                  {},
+                                  IL::NoPayload,
+                                  instruction.pc,
+                                  static_cast<std::uint16_t>(instruction.op),
+                                  false);
+        };
+        const auto negate = [&](IL::ValueId value) {
+            return m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), value, false);
+        };
+        const auto equal = [&](IL::ValueId left, IL::ValueId right) {
+            return m_builder.CompareValue(IL::CompareOp::UEq, left, right, false);
+        };
+
+        const IL::ValueId sign = binary(IL::BinaryOp::LShr, bits, constant(signShift));
+        const IL::ValueId negative = m_builder.CompareValue(
+            IL::CompareOp::UNe, sign, constant(0), false);
+        const IL::ValueId exponent =
+            binary(IL::BinaryOp::And, binary(IL::BinaryOp::LShr, bits, constant(mantissaBits)),
+                   constant(exponentMax));
+        const IL::ValueId mantissa =
+            binary(IL::BinaryOp::And, bits, constant((std::uint64_t{1} << mantissaBits) - 1));
+        const IL::ValueId mantissaZero = equal(mantissa, constant(0));
+        const IL::ValueId exponentMaxed = equal(exponent, constant(exponentMax));
+        const IL::ValueId exponentZero = equal(exponent, constant(0));
+
+        const IL::ValueId isNaN = boolean(IL::BinaryOp::And, exponentMaxed, negate(mantissaZero));
+        const IL::ValueId isInf = boolean(IL::BinaryOp::And, exponentMaxed, mantissaZero);
+        const IL::ValueId isZero = boolean(IL::BinaryOp::And, exponentZero, mantissaZero);
+        const IL::ValueId isSubnormal =
+            boolean(IL::BinaryOp::And, exponentZero, negate(mantissaZero));
+        const IL::ValueId isNormal = boolean(
+            IL::BinaryOp::And, negate(exponentMaxed), negate(exponentZero));
+
+        const IL::ValueId quietBit = binary(
+            IL::BinaryOp::And,
+            binary(IL::BinaryOp::LShr, mantissa, constant(mantissaBits - 1u)), constant(1));
+        const IL::ValueId quiet = m_builder.CompareValue(
+            IL::CompareOp::UNe, quietBit, constant(0), false);
+        const IL::ValueId signaling = boolean(IL::BinaryOp::And, isNaN, negate(quiet));
+        const IL::ValueId quietNaN = boolean(IL::BinaryOp::And, isNaN, quiet);
+
+        const auto withSign = [&](IL::ValueId value, IL::ValueId isNegative) {
+            return boolean(IL::BinaryOp::And, value, isNegative);
+        };
+
+        const IL::ValueId classes[] = {
+            signaling,
+            quietNaN,
+            withSign(isInf, negative),
+            withSign(isNormal, negative),
+            withSign(isSubnormal, negative),
+            withSign(isZero, negative),
+            withSign(isZero, negate(negative)),
+            withSign(isSubnormal, negate(negative)),
+            withSign(isNormal, negate(negative)),
+            withSign(isInf, negate(negative)),
+        };
+
+        IL::ValueId mask = constant(0);
+        for (std::uint32_t bit = 0; bit < 10; ++bit)
+        {
+            const IL::ValueId selected = m_builder.SelectValue(
+                type, classes[bit], constant(std::uint64_t{1} << bit), mask, false);
+            mask = selected;
+        }
+        return mask;
+    }
+
+    [[nodiscard]] Result<void> LiftClassCompare(const DecodedInstruction& instruction,
+                                                CompareValueKind kind,
+                                                bool execMask)
+    {
+        const std::uint8_t bitsIndex = 1;
+        const std::uint8_t maskIndex = 2;
+
+        IL::ValueId bits = IL::InvalidValue;
+        if (kind == CompareValueKind::F16)
+        {
+            const auto raw = ReadBits(instruction.operands[bitsIndex], instruction.pc);
+            if (!raw)
+                return std::unexpected(raw.error());
+            bits = Bin(instruction, IL::BinaryOp::And, *raw, m_builder.ConstantU32(0xFFFF));
+        }
+        else if (kind == CompareValueKind::F32)
+        {
+            const auto raw = ReadBits(instruction.operands[bitsIndex], instruction.pc);
+            if (!raw)
+                return std::unexpected(raw.error());
+            bits = *raw;
+        }
+        else
+        {
+            if (instruction.operands[bitsIndex].kind != OperandKind::Vgpr &&
+                instruction.operands[bitsIndex].kind != OperandKind::Vsrc)
+                return std::unexpected(
+                    LiftError("SR-GFX-LIFT-075", "f64 class source is not a VGPR pair", instruction.pc));
+            const auto raw = ReadVgpr64(instruction.operands[bitsIndex].value, instruction.pc);
+            if (!raw)
+                return std::unexpected(raw.error());
+            bits = *raw;
+        }
+
+        const auto classMask = BuildClassMask(instruction, bits, kind);
+        if (!classMask)
+            return std::unexpected(classMask.error());
+
+        const auto wanted = ReadBits(instruction.operands[maskIndex], instruction.pc);
+        if (!wanted)
+            return std::unexpected(wanted.error());
+
+        const IL::TypeId type = kind == CompareValueKind::F64 ? m_module.types.U64()
+                                                              : m_module.types.U32();
+        const IL::ValueId matched =
+            Bin(instruction, IL::BinaryOp::And, *classMask, *wanted, type);
+        const IL::ValueId condition = m_builder.CompareValue(
+            IL::CompareOp::UNe, matched,
+            kind == CompareValueKind::F64 ? m_builder.ConstantU64(0) : m_builder.ConstantU32(0),
+            false);
+
+        if (instruction.encoding == Encoding::Vop3)
+        {
+            const Operand* destination = FindOperand(instruction, OperandKind::Sdst);
+            if (destination != nullptr)
+            {
+                const IL::ValueId mask =
+                    m_builder.SelectValue(m_module.types.U32(), condition,
+                                          m_builder.ConstantU32(0xFFFFFFFFu),
+                                          m_builder.ConstantU32(0), true);
+                return WriteDest(*destination, mask, instruction.pc);
+            }
+        }
+
+        const auto vcc = WriteVcc(condition, instruction.pc);
+        if (!vcc)
+            return vcc;
+        if (execMask)
+        {
+            const auto exec = ReadExec(instruction.pc);
+            if (!exec)
+                return std::unexpected(exec.error());
+            const IL::ValueId updated = m_builder.Emit(m_module.types.Bool(),
+                                                       IL::Op::Binary,
+                                                       static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                       {*exec, condition},
+                                                       {},
+                                                       IL::NoPayload,
+                                                       instruction.pc,
+                                                       static_cast<std::uint16_t>(instruction.op),
+                                                       false);
+            return WriteExec(updated, instruction.pc);
+        }
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftSwap(const DecodedInstruction& instruction)
+    {
+        const Operand source = instruction.operands[1];
+        if (source.kind != OperandKind::Vgpr && source.kind != OperandKind::Vsrc)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-076", "swap source is not a vector register", instruction.pc));
+        const std::uint32_t destination = instruction.operands[0].value;
+
+        const auto destinationValue = ReadVgpr(destination, instruction.pc);
+        if (!destinationValue)
+            return std::unexpected(destinationValue.error());
+        const auto sourceValue = ReadVgpr(source.value, instruction.pc);
+        if (!sourceValue)
+            return std::unexpected(sourceValue.error());
+
+        IL::ValueId newDestination = *sourceValue;
+        IL::ValueId newSource = *destinationValue;
+        if (instruction.op == Op::V_SwapB16)
+        {
+            const IL::ValueId lowMask = m_builder.ConstantU32(0xFFFF);
+            const IL::ValueId highMask = m_builder.ConstantU32(0xFFFF0000);
+            newDestination = Bin(instruction, IL::BinaryOp::Or,
+                                 Bin(instruction, IL::BinaryOp::And, *destinationValue, highMask),
+                                 Bin(instruction, IL::BinaryOp::And, *sourceValue, lowMask));
+            newSource = Bin(instruction, IL::BinaryOp::Or,
+                            Bin(instruction, IL::BinaryOp::And, *sourceValue, highMask),
+                            Bin(instruction, IL::BinaryOp::And, *destinationValue, lowMask));
+        }
+
+        Operand destinationOperand;
+        destinationOperand.kind = OperandKind::Vgpr;
+        destinationOperand.value = destination;
+        const auto first = WriteDest(destinationOperand, newDestination, instruction.pc);
+        if (!first)
+            return first;
+        Operand sourceOperand;
+        sourceOperand.kind = OperandKind::Vgpr;
+        sourceOperand.value = source.value;
+        return WriteDest(sourceOperand, newSource, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftSatPkU8(const DecodedInstruction& instruction)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        const auto saturate = [&](std::uint32_t shift) {
+            const IL::ValueId lane =
+                shift == 0 ? Bin(instruction, IL::BinaryOp::And, *source, m_builder.ConstantU32(0xFFFF))
+                           : Bin(instruction, IL::BinaryOp::LShr, *source, m_builder.ConstantU32(shift));
+            const IL::ValueId signedLane = SignExtend16Value(
+                Bin(instruction, IL::BinaryOp::And, lane, m_builder.ConstantU32(0xFFFF)));
+            const IL::ValueId clamped = m_builder.SelectValue(
+                m_module.types.U32(),
+                m_builder.CompareValue(IL::CompareOp::IGt, Bitcast(m_module.types.I32(), signedLane),
+                                       m_builder.ConstantI32(255), false),
+                m_builder.ConstantU32(255),
+                m_builder.SelectValue(
+                    m_module.types.U32(),
+                    m_builder.CompareValue(IL::CompareOp::ILt, Bitcast(m_module.types.I32(), signedLane),
+                                           m_builder.ConstantI32(0), false),
+                    m_builder.ConstantU32(0), signedLane, false),
+                false);
+            return shift == 0 ? clamped
+                              : Bin(instruction, IL::BinaryOp::Shl, clamped, m_builder.ConstantU32(8));
+        };
+
+        const IL::ValueId packed = Bin(instruction, IL::BinaryOp::Or, saturate(0), saturate(16));
+        return WriteDest(instruction.operands[0], packed, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -6781,6 +7034,19 @@ private:
         case Op::S_CodeEnd:
         case Op::S_EndpgmSaved:
             return LiftScalarControl(instruction);
+        case Op::V_CmpClassF16:
+            return LiftClassCompare(instruction, CompareValueKind::F16, false);
+        case Op::V_CmpClassF32:
+            return LiftClassCompare(instruction, CompareValueKind::F32, false);
+        case Op::V_CmpClassF64:
+            return LiftClassCompare(instruction, CompareValueKind::F64, false);
+        case Op::V_SwapB32:
+        case Op::V_SwapB16:
+            return LiftSwap(instruction);
+        case Op::V_SatPkU8I16:
+            return LiftSatPkU8(instruction);
+        case Op::V_Pipeflush:
+            return {};
         case Op::S_CmovkI32:
         case Op::S_AddkCoI32:
             return LiftScalarImmediate(instruction);

@@ -757,6 +757,9 @@ constexpr std::array kGfx10 = {
     Make(Encoding::SopC, 15, Op::S_Bitcmp1B64, "s_bitcmp1_b64", {OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::SopC, 16, Op::S_CmpEqU64, "s_cmp_eq_u64", {OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::SopC, 17, Op::S_CmpLgU64, "s_cmp_lg_u64", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::VopC, 125, Op::V_CmpClassF16, "v_cmp_class_f16", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::VopC, 126, Op::V_CmpClassF32, "v_cmp_class_f32", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::VopC, 127, Op::V_CmpClassF64, "v_cmp_class_f64", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -2204,6 +2207,26 @@ constexpr std::array kGfx12 = {
          {OperandKind::Vcc, OperandKind::Src, OperandKind::Src}, true),
     Make(Encoding::Vop3, 222, Op::V_CmpGeU64, "v_cmpx_ge_u64",
          {OperandKind::Vcc, OperandKind::Src, OperandKind::Src}, true),
+    Make(Encoding::Vop3, 125, Op::V_CmpClassF16, "v_cmp_class_f16",
+         {OperandKind::Vop3Sdst, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 126, Op::V_CmpClassF32, "v_cmp_class_f32",
+         {OperandKind::Vop3Sdst, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 127, Op::V_CmpClassF64, "v_cmp_class_f64",
+         {OperandKind::Vop3Sdst, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 253, Op::V_CmpClassF16, "v_cmpx_class_f16",
+         {OperandKind::Vcc, OperandKind::Src, OperandKind::Src}, true),
+    Make(Encoding::Vop3, 254, Op::V_CmpClassF32, "v_cmpx_class_f32",
+         {OperandKind::Vcc, OperandKind::Src, OperandKind::Src}, true),
+    Make(Encoding::Vop3, 255, Op::V_CmpClassF64, "v_cmpx_class_f64",
+         {OperandKind::Vcc, OperandKind::Src, OperandKind::Src}, true),
+    Make(Encoding::Vop1, 101, Op::V_SwapB32, "v_swap_b32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 102, Op::V_SwapB16, "v_swap_b16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 98, Op::V_SatPkU8I16, "v_sat_pk_u8_i16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 27, Op::V_Pipeflush, "v_pipeflush", {}),
+    Make(Encoding::Vop1, 63, Op::V_FrexpExpI32F32, "v_frexp_exp_i32_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 64, Op::V_FrexpMantF32, "v_frexp_mant_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 90, Op::V_FrexpExpI16F16, "v_frexp_exp_i16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 89, Op::V_FrexpMantF16, "v_frexp_mant_f16", {OperandKind::Vgpr, OperandKind::Src}),
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -4056,6 +4079,28 @@ std::string_view ToString(Op op) noexcept
         return "v_cmp_f_u32";
     case Op::V_CmpTrueU32:
         return "v_cmp_t_u32";
+    case Op::V_CmpClassF16:
+        return "v_cmp_class_f16";
+    case Op::V_CmpClassF32:
+        return "v_cmp_class_f32";
+    case Op::V_CmpClassF64:
+        return "v_cmp_class_f64";
+    case Op::V_SwapB32:
+        return "v_swap_b32";
+    case Op::V_SwapB16:
+        return "v_swap_b16";
+    case Op::V_SatPkU8I16:
+        return "v_sat_pk_u8_i16";
+    case Op::V_Pipeflush:
+        return "v_pipeflush";
+    case Op::V_FrexpExpI32F32:
+        return "v_frexp_exp_i32_f32";
+    case Op::V_FrexpMantF32:
+        return "v_frexp_mant_f32";
+    case Op::V_FrexpExpI16F16:
+        return "v_frexp_exp_i16_f16";
+    case Op::V_FrexpMantF16:
+        return "v_frexp_mant_f16";
     case Op::V_CmpFalseF16:
         return "v_cmp_f_f16";
     case Op::V_CmpLtF16:

@@ -990,6 +990,18 @@ enum class Op : std::uint16_t
     S_GetregB32,
     S_SetregB32,
     S_CallB64,
+    // Classification, exchange and frexp forms.
+    V_CmpClassF16,
+    V_CmpClassF32,
+    V_CmpClassF64,
+    V_SwapB32,
+    V_SwapB16,
+    V_SatPkU8I16,
+    V_Pipeflush,
+    V_FrexpExpI32F32,
+    V_FrexpMantF32,
+    V_FrexpExpI16F16,
+    V_FrexpMantF16,
 };
 
 [[nodiscard]] std::string_view ToString(Op op) noexcept;

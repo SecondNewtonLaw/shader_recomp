@@ -1480,6 +1480,38 @@ namespace {
     }
 }
 
+[[nodiscard]] std::uint32_t ClassMaskOf(std::uint64_t bits, std::uint32_t exponentBits,
+                                         std::uint32_t mantissaBits) noexcept
+{
+    const std::uint64_t exponentMax = (std::uint64_t{1} << exponentBits) - 1;
+    const std::uint64_t mantissaMask = (std::uint64_t{1} << mantissaBits) - 1;
+    const std::uint32_t signShift = exponentBits + mantissaBits;
+    const bool negative = ((bits >> signShift) & 1u) != 0;
+    const std::uint64_t exponent = (bits >> mantissaBits) & exponentMax;
+    const std::uint64_t mantissa = bits & mantissaMask;
+    const bool nan = exponent == exponentMax && mantissa != 0;
+    const bool quiet = ((mantissa >> (mantissaBits - 1)) & 1u) != 0;
+    const bool inf = exponent == exponentMax && mantissa == 0;
+    const bool zero = exponent == 0 && mantissa == 0;
+    const bool subnormal = exponent == 0 && mantissa != 0;
+    const bool normal = exponent != 0 && exponent != exponentMax;
+
+    std::uint32_t mask = 0;
+    if (nan && !quiet)
+        mask |= 1u << 0;
+    if (nan && quiet)
+        mask |= 1u << 1;
+    if (inf)
+        mask |= negative ? (1u << 2) : (1u << 9);
+    if (normal)
+        mask |= negative ? (1u << 3) : (1u << 8);
+    if (subnormal)
+        mask |= negative ? (1u << 4) : (1u << 7);
+    if (zero)
+        mask |= negative ? (1u << 5) : (1u << 6);
+    return mask;
+}
+
 Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                                   Arch arch,
                                   IsaState state,
@@ -4084,6 +4116,88 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 return std::unexpected(Error("SR-GFX-ISA-281", "invalid addk destination", pc));
             break;
         }
+        case Op::V_CmpClassF16:
+        case Op::V_CmpClassF32:
+        case Op::V_CmpClassF64:
+        {
+            const auto wantedBits = source(2);
+            if (!wantedBits)
+                return std::unexpected(Error("SR-GFX-ISA-282", "invalid class mask", pc));
+            std::uint32_t classes = 0;
+            if (instruction.op == Op::V_CmpClassF64)
+            {
+                const auto pair = ReadVgprPair(result.state, instruction.operands[1]);
+                if (!pair)
+                    return std::unexpected(Error("SR-GFX-ISA-283", "invalid class operand", pc));
+                classes = ClassMaskOf(*pair, 11, 52);
+            }
+            else
+            {
+                const auto raw = source(1);
+                if (!raw)
+                    return std::unexpected(Error("SR-GFX-ISA-284", "invalid class operand", pc));
+                classes = instruction.op == Op::V_CmpClassF16
+                              ? ClassMaskOf(*raw & 0xFFFFu, 5, 10)
+                              : ClassMaskOf(*raw, 8, 23);
+            }
+            const bool condition = (classes & *wantedBits) != 0;
+            if (instruction.encoding == Encoding::Vop3)
+            {
+                const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
+                if (scalarDestination != nullptr)
+                {
+                    result.state.sgpr[scalarDestination->value] = condition ? 0xFFFFFFFFu : 0u;
+                    break;
+                }
+            }
+            result.state.vcc = condition;
+            if (instruction.execMask)
+                result.state.exec = result.state.exec && condition;
+            break;
+        }
+        case Op::V_SwapB32:
+        case Op::V_SwapB16:
+        {
+            if (instruction.operandCount < 2 ||
+                (instruction.operands[1].kind != OperandKind::Vgpr &&
+                 instruction.operands[1].kind != OperandKind::Vsrc))
+                return std::unexpected(Error("SR-GFX-ISA-285", "invalid swap source", pc));
+            const Operand* sourceOperand = &instruction.operands[1];
+            std::uint32_t& destinationValue = result.state.vgpr[instruction.operands[0].value];
+            std::uint32_t& sourceValue = result.state.vgpr[sourceOperand->value];
+            if (instruction.op == Op::V_SwapB16)
+            {
+                const std::uint32_t destinationLow = destinationValue & 0xFFFFu;
+                const std::uint32_t sourceLow = sourceValue & 0xFFFFu;
+                destinationValue = (destinationValue & 0xFFFF0000u) | sourceLow;
+                sourceValue = (sourceValue & 0xFFFF0000u) | destinationLow;
+            }
+            else
+            {
+                std::swap(destinationValue, sourceValue);
+            }
+            break;
+        }
+        case Op::V_SatPkU8I16:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-286", "invalid sat_pk operand", pc));
+            const auto saturate = [](std::int32_t value) -> std::uint32_t {
+                if (value < 0)
+                    return 0;
+                if (value > 255)
+                    return 255;
+                return static_cast<std::uint32_t>(value);
+            };
+            const std::uint32_t low = saturate(static_cast<std::int16_t>(*source_ & 0xFFFFu));
+            const std::uint32_t high = saturate(static_cast<std::int16_t>(*source_ >> 16));
+            if (!write((high << 8) | low))
+                return std::unexpected(Error("SR-GFX-ISA-287", "invalid sat_pk destination", pc));
+            break;
+        }
+        case Op::V_Pipeflush:
+            break;
         case Op::Invalid:
             return std::unexpected(Error("SR-GFX-ISA-074", "invalid instruction", pc));
         default:
