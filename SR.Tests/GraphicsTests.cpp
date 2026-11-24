@@ -706,6 +706,53 @@ TEST_CASE("buffer loads move runs of dwords and narrow elements", "[gfx][buffers
 #endif
 }
 
+TEST_CASE("gfx10 decodes the scalar shift-add and pack forms", "[gfx][scalar]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("scalarnew.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("scalar fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    std::string liftError;
+    if (!module)
+        liftError = SR::ToString(module.error());
+    INFO(liftError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    std::string executionError;
+    if (!execution)
+        executionError = SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    // s_lshl4_add_u32 dst, src0, src1 is (src0 << 4) + src1 = (1 << 4) + 3,
+    // and s_pack_ll_b32_b16 keeps the low half of each source.
+    REQUIRE(execution->buffer.at(0) == 19u);
+    REQUIRE(execution->buffer.at(1) == 0x00030001u);
+
+    const auto emission = SR::Backend::Reemit(*module);
+    std::string emissionError;
+    if (!emission)
+        emissionError = SR::ToString(emission.error());
+    INFO(emissionError);
+    REQUIRE(emission.has_value());
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

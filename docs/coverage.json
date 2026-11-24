@@ -2,38 +2,38 @@
   "generations": {
     "gfx10": {
       "total": 1149,
-      "decoded": 751,
-      "lifted": 713,
+      "decoded": 840,
+      "lifted": 802,
       "liftedIsUpperBound": true
     },
     "gfx1013": {
       "total": 1153,
-      "decoded": 751,
-      "lifted": 713,
+      "decoded": 840,
+      "lifted": 802,
       "liftedIsUpperBound": true
     },
     "gfx1030": {
       "total": 1153,
-      "decoded": 751,
-      "lifted": 713,
+      "decoded": 840,
+      "lifted": 802,
       "liftedIsUpperBound": true
     },
     "gfx1100": {
       "total": 1148,
-      "decoded": 871,
-      "lifted": 800,
+      "decoded": 937,
+      "lifted": 866,
       "liftedIsUpperBound": true
     },
     "gfx1150": {
       "total": 1208,
-      "decoded": 871,
-      "lifted": 800,
+      "decoded": 937,
+      "lifted": 866,
       "liftedIsUpperBound": true
     },
     "gfx1200": {
       "total": 1264,
-      "decoded": 1509,
-      "lifted": 1211,
+      "decoded": 1553,
+      "lifted": 1255,
       "liftedIsUpperBound": true
     }
   },
@@ -45,23 +45,23 @@
     },
     "VOP3": {
       "total": 326,
-      "decoded": 429,
-      "lifted": 404
+      "decoded": 464,
+      "lifted": 439
     },
     "VOP1": {
       "total": 81,
-      "decoded": 80,
-      "lifted": 80
+      "decoded": 81,
+      "lifted": 81
     },
     "SOP1": {
       "total": 65,
-      "decoded": 84,
-      "lifted": 55
+      "decoded": 89,
+      "lifted": 60
     },
     "SOP2": {
       "total": 51,
-      "decoded": 72,
-      "lifted": 72
+      "decoded": 73,
+      "lifted": 73
     },
     "VOP2": {
       "total": 43,
@@ -80,8 +80,8 @@
     },
     "SOPC": {
       "total": 18,
-      "decoded": 46,
-      "lifted": 46
+      "decoded": 48,
+      "lifted": 48
     },
     "SMEM": {
       "total": 14,
