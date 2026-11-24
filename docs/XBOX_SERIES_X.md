@@ -166,7 +166,7 @@ optimisation, not the contract.
 | ISA decode | gfx10 base table; gfx1013 and gfx103 inherit it with **no delta**; RDNA3/4 have their own tables | real RDNA2 delta, and the four encodings the decoder does not know: `VINTRP` (3 opcodes), `EXP`, `MIMG` (103), `MTBUF` (16) |
 | ISA lift | ALU, compare, conversion, branch, scalar, buffer/global/flat/scratch memory, `v_interp_p1/p2/mov`, `exp`, wave ballots, 92.7% of gfx1200 entries | image ops (`MIMG`), typed buffers (`MTBUF`), descriptor-driven loads |
 | Stages | `GLCompute`, `Vertex` and `Fragment` with IO variables, interpolation decorations and exports; multi-block functions still use the dispatcher fallback when the CFG is not reducible | geometry and NGG mesh |
-| Waves | thread ids as `LocalInvocationId`, compare masks as `OpGroupNonUniformBallot` (wave32 or wave64 masks), one-lane interpreter model | per-lane EXEC predication of stores, readlane/shuffle, quad ops |
+| Waves | thread ids as `LocalInvocationId`, compare masks as `OpGroupNonUniformBallot` (wave32 or wave64 masks), `v_readfirstlane` as `OpGroupNonUniformBroadcastFirst`, one-lane interpreter model | per-lane EXEC predication of stores, `v_readlane`/`v_writelane`, `ds_swizzle`, quad ops |
 | Resources | one test buffer at set 0 binding 0 (`--test-abi`) | T#/V#/S# decode, SRT/heap access, push constants |
 | Verification | `tests/sweep.ps1`: 66 fixtures translated, driver-accepted and ISA-probed in parallel; VS/PS pair rasterised by `SR.VkDraw`; console container executed | title shader pack sweep |
 
@@ -248,8 +248,14 @@ resource model, and its shape is the one to copy:
 For this project the same layering applies with a smaller host: decode the
 descriptor from user data (or a literal `s_load`), specialize what is constant,
 and bind what is not as one SSBO/image array; the test ABI already gives set 0
-binding 0. The step that is missing is the SGPR user-data model: `s0..s31` are
-undefined today, so no `s_load`-driven descriptor can be produced.
+binding 0.
+
+User data is seeded today as constants (`LiftOptions::userData`, `--user-data`),
+which is the specialization half: the console's root constants and a descriptor
+whose base the host tells us in advance. The next step is the other half, a push
+constant block the harness fills with the device address it actually bound, so a
+fixture can hand a real V# to a `buffer_load_dword` and the module reads guest
+memory through a buffer device address.
 
 ## 7. Open questions that need real bytes
 
