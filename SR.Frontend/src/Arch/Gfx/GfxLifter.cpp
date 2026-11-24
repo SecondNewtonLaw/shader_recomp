@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "SR/Common/IL/Builder.hpp"
+#include "SR/Frontend/Arch/Gfx/GfxBufferFormat.hpp"
 
 namespace SR::Frontend::Gfx {
 namespace {
@@ -3354,19 +3355,43 @@ private:
                                                          ? 3
                                                          : 4;
 
-        // 32-bit elements: data format 4 with the uint/sint/float number formats.
-        // AnyPS5's GcnBufferFormats table maps these to wide 32-bit formats with
-        // no conversion beyond the bit pattern.
-        const bool raw32 = instruction.bufferDataFormat == 4 &&
-                           (instruction.bufferNumberFormat == 4 || instruction.bufferNumberFormat == 5 ||
-                            instruction.bufferNumberFormat == 7);
-        if (!raw32)
+        // The instruction carries (data, number); the measured table names the
+        // layout, and a pair it does not name is refused rather than guessed.
+        const std::uint32_t unified =
+            UnifiedBufferFormat(instruction.bufferDataFormat, instruction.bufferNumberFormat);
+        const auto format = BufferFormatOf(instruction.bufferDataFormat, instruction.bufferNumberFormat);
+        if (!format)
         {
             return std::unexpected(LiftError("SR-GFX-LIFT-094",
-                                             std::string("typed buffer format is not converted yet: data=") +
-                                                 std::to_string(instruction.bufferDataFormat) + " number=" +
-                                                 std::to_string(instruction.bufferNumberFormat),
+                                             "typed buffer format " + std::to_string(unified) +
+                                                 " (data " + std::to_string(instruction.bufferDataFormat) +
+                                                 ", number " + std::to_string(instruction.bufferNumberFormat) +
+                                                 ") names no layout in this backend",
                                              instruction.pc));
+        }
+        if (format->components < components)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-094",
+                                             "typed buffer format " + std::to_string(unified) + " has " +
+                                                 std::to_string(format->components) + " components, the "
+                                                 "instruction reads " + std::to_string(components),
+                                             instruction.pc));
+        }
+        // A store writes the components back in the format's own layout: only
+        // the formats whose components are 32 bits wide need no conversion.
+        if (isStore)
+        {
+            for (std::uint32_t i = 0; i < format->components; ++i)
+            {
+                if (format->bits[i] != 32u)
+                {
+                    return std::unexpected(LiftError("SR-GFX-LIFT-094",
+                                                     "typed buffer store of format " +
+                                                         std::to_string(unified) +
+                                                         " is not converted yet",
+                                                     instruction.pc));
+                }
+            }
         }
 
         if (instruction.operandCount < 3)
@@ -3466,13 +3491,18 @@ private:
         const Operand& data = instruction.operands[0];
         for (std::uint32_t component = 0; component < components; ++component)
         {
+            const std::uint32_t bitOffset = format->bitOffsets[component];
+            const std::uint32_t width = format->bits[component];
+            const std::uint32_t dwordIndex = bitOffset / 32u;
+            const std::uint32_t shift = bitOffset % 32u;
+
             IL::ValueId element = address;
-            if (component != 0)
+            if (dwordIndex != 0)
             {
                 element = m_builder.Emit(m_module.types.U64(),
                                          IL::Op::Binary,
                                          static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
-                                         {address, m_builder.ConstantU64(4ull * component)},
+                                         {address, m_builder.ConstantU64(4ull * dwordIndex)},
                                          {},
                                          IL::NoPayload,
                                          instruction.pc,
@@ -3491,21 +3521,116 @@ private:
                 m_builder.IntrinsicVoid(IL::IntrinsicId::DeviceStore, {element, *value}, IL::NoPayload,
                                         instruction.pc);
                 ApplyGuard(instruction.pc, guard);
+                continue;
             }
-            else
-            {
-                const IL::ValueId value = m_builder.IntrinsicValue(m_module.types.U32(),
-                                                                   IL::IntrinsicId::DeviceLoad,
-                                                                   {element},
-                                                                   IL::NoPayload,
-                                                                   instruction.pc,
-                                                                   false);
-                if (const auto written = WriteDest(slot, value, instruction.pc); !written)
-                    return written;
-            }
+
+            const IL::ValueId raw = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                             IL::IntrinsicId::DeviceLoad,
+                                                             {element},
+                                                             IL::NoPayload,
+                                                             instruction.pc,
+                                                             false);
+            IL::ValueId shifted = raw;
+            if (shift != 0)
+                shifted = Bin(instruction, IL::BinaryOp::LShr, raw, m_builder.ConstantU32(shift));
+            IL::ValueId bits = shifted;
+            if (width < 32u)
+                bits = Bin(instruction, IL::BinaryOp::And, shifted, m_builder.ConstantU32((1u << width) - 1u));
+
+            const auto converted = ConvertBufferComponent(instruction, *format, bits, width);
+            if (!converted)
+                return std::unexpected(converted.error());
+            if (const auto written = WriteDest(slot, *converted, instruction.pc); !written)
+                return written;
         }
 
         return {};
+    }
+
+    // One format component's bits become the value the destination register
+    // holds: the integer itself for the integer classes, the f32 bit pattern
+    // for the float classes and their normalised forms.
+    [[nodiscard]] Result<IL::ValueId> ConvertBufferComponent(const DecodedInstruction& instruction,
+                                                             const BufferFormatInfo& format,
+                                                             IL::ValueId bits,
+                                                             std::uint32_t width)
+    {
+        const IL::TypeId u32 = m_module.types.U32();
+        const IL::TypeId f32 = m_module.types.F32();
+        const std::uint32_t signShift = 32u - width;
+
+        const auto signExtend = [&]() -> IL::ValueId {
+            if (width >= 32u)
+                return bits;
+            const IL::ValueId lifted =
+                Bin(instruction, IL::BinaryOp::Shl, bits, m_builder.ConstantU32(signShift));
+            return Bin(instruction, IL::BinaryOp::AShr, lifted, m_builder.ConstantU32(signShift));
+        };
+        const auto asBits = [&](IL::ValueId value) -> IL::ValueId {
+            return m_builder.Emit(u32,
+                                  IL::Op::Bitcast,
+                                  {},
+                                  {value},
+                                  {},
+                                  IL::NoPayload,
+                                  instruction.pc,
+                                  static_cast<std::uint16_t>(instruction.op));
+        };
+
+        switch (format.numeric)
+        {
+        case BufferFormatClass::UInt:
+            return bits;
+        case BufferFormatClass::SInt:
+            return signExtend();
+        case BufferFormatClass::Float:
+        {
+            if (width == 32u)
+                return bits;
+            if (width != 16u)
+                return std::unexpected(LiftError("SR-GFX-LIFT-094",
+                                                 "float buffer component of " + std::to_string(width) +
+                                                     " bits is not modelled",
+                                                 instruction.pc));
+            const IL::TypeId u16 = m_module.types.Int(16, false);
+            const IL::TypeId f16 = m_module.types.Float(IL::FloatFormat::F16);
+            const IL::ValueId narrowed = m_builder.ConvertValue(u16, IL::ConvertOp::Trunc, bits, false);
+            const IL::ValueId half =
+                m_builder.Emit(f16, IL::Op::Bitcast, {}, {narrowed}, {}, IL::NoPayload, instruction.pc,
+                               static_cast<std::uint16_t>(instruction.op));
+            return asBits(m_builder.ConvertValue(f32, IL::ConvertOp::FPExt, half, false));
+        }
+        case BufferFormatClass::UNorm:
+        case BufferFormatClass::UScaled:
+        case BufferFormatClass::SNorm:
+        case BufferFormatClass::SScaled:
+        {
+            const bool signedValue = format.numeric == BufferFormatClass::SNorm ||
+                                     format.numeric == BufferFormatClass::SScaled;
+            const bool normalised = format.numeric == BufferFormatClass::UNorm ||
+                                    format.numeric == BufferFormatClass::SNorm;
+            IL::ValueId value = m_builder.ConvertValue(f32,
+                                                       signedValue ? IL::ConvertOp::SIToFP
+                                                                   : IL::ConvertOp::UIToFP,
+                                                       signedValue ? signExtend() : bits,
+                                                       false);
+            if (normalised)
+            {
+                const float scale = signedValue
+                                        ? 1.0f / static_cast<float>((1u << (width - 1u)) - 1u)
+                                        : 1.0f / static_cast<float>((1u << width) - 1u);
+                value = Bin(instruction, IL::BinaryOp::FMul, value, m_builder.ConstantF32(scale), f32);
+                if (signedValue)
+                {
+                    value = Bin(instruction, IL::BinaryOp::FMax, value, m_builder.ConstantF32(-1.0f), f32);
+                    value = Bin(instruction, IL::BinaryOp::FMin, value, m_builder.ConstantF32(1.0f), f32);
+                }
+            }
+            return asBits(value);
+        }
+        }
+        return std::unexpected(
+            LiftError("SR-GFX-LIFT-094", "buffer component class is not modelled", instruction.pc));
     }
 
     // An image access: the T# in the scalar registers names the surface, the

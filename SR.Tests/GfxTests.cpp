@@ -14,6 +14,7 @@
 #include "SR/Common/IL/Interpreter.hpp"
 #include "SR/Common/IL/Passes.hpp"
 #include "SR/Common/IL/Verifier.hpp"
+#include "SR/Frontend/Arch/Gfx/GfxBufferFormat.hpp"
 #include "SR/Frontend/Arch/Gfx/GfxIsa.hpp"
 #include "SR/Frontend/Arch/Gfx/GfxInterpreter.hpp"
 #include "SR/Frontend/Arch/Gfx/GfxLifter.hpp"
@@ -2464,4 +2465,35 @@ TEST_CASE("gfx1030 MTBUF format fields and offset decode to their bits", "[gfx][
     REQUIRE(typed->bufferDataFormat == 4u);
     REQUIRE(typed->bufferNumberFormat == 7u);
     REQUIRE(((typed->bufferNumberFormat << 4u) | typed->bufferDataFormat) == 116u);
+}
+
+TEST_CASE("gfx1030 buffer format layouts come from the measured table", "[gfx][decode][format]")
+{
+    using namespace SR::Frontend::Gfx;
+
+    // Measured one pair at a time: (6, 1) is BUF_FMT_32_FLOAT, (0, 4) is
+    // 32_32_FLOAT, (0, 0) and (0, 5) are not named formats.
+    const auto float32 = BufferFormatOf(6, 1);
+    REQUIRE(float32.has_value());
+    REQUIRE(float32->numeric == BufferFormatClass::Float);
+    REQUIRE(float32->components == 1u);
+    REQUIRE(float32->elementBytes == 4u);
+    REQUIRE(float32->bits[0] == 32u);
+
+    const auto float32x2 = BufferFormatOf(0, 4);
+    REQUIRE(float32x2.has_value());
+    REQUIRE(float32x2->numeric == BufferFormatClass::Float);
+    REQUIRE(float32x2->components == 2u);
+    REQUIRE(float32x2->elementBytes == 8u);
+    REQUIRE(float32x2->bitOffsets[1] == 32u);
+
+    const auto float16 = BufferFormatOf(13, 0);
+    REQUIRE(float16.has_value());
+    REQUIRE(float16->numeric == BufferFormatClass::Float);
+    REQUIRE(float16->bits[0] == 16u);
+    REQUIRE(float16->elementBytes == 2u);
+
+    // The pair the old corpus word used is not a format the toolchain names.
+    REQUIRE_FALSE(BufferFormatOf(4, 5).has_value());
+    REQUIRE_FALSE(BufferFormatOf(0, 5).has_value());
 }

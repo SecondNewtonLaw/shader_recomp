@@ -13,16 +13,16 @@ tbufferxyzw:
   v_mov_b32 v3, 3.0
   v_mov_b32 v4, 4.0
   ; tbuffer_store_format_xyzw v[1:4], v0, s[0:3], 0 offen offset:0
-  .long 0xEBA70000
+  .long 0xEA6F0000
   .long 0x80000100
   ; tbuffer_load_format_xyzw v[5:8], v0, s[0:3], 0 offen offset:0
-  .long 0xEBA30000
+  .long 0xEA6B0000
   .long 0x80000500
   ; tbuffer_store_format_xyzw v[1:4], v0, s[0:3], 0 offen offset:8
-  .long 0xEBA70008
+  .long 0xEA6F0008
   .long 0x80000100
   ; tbuffer_load_format_xyzw v[9:12], v0, s[0:3], 0 offen offset:8
-  .long 0xEBA30008
+  .long 0xEA6B0008
   .long 0x80000900
   v_mov_b32 v13, 16
   global_store_dword v13, v5, s[0:1]

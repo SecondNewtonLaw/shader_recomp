@@ -225,6 +225,7 @@ if (WIN32)
 endif ()
 
 sr_add_library(SR.Frontend
+        SR.Frontend/src/Arch/Gfx/GfxBufferFormat.cpp
         SR.Frontend/src/Arch/Gfx/GfxIsa.cpp
         SR.Frontend/src/Arch/Gfx/GfxInterpreter.cpp
         SR.Frontend/src/Arch/Gfx/GfxLifter.cpp

@@ -944,6 +944,56 @@ TEST_CASE("narrow buffer stores merge into their dword", "[gfx][buffers]")
 #endif
 }
 
+TEST_CASE("a typed buffer load converts its format", "[gfx][mtbuf]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    // The typed buffer format table is measured from the toolchain; this
+    // fixture loads an 8-bit unsigned component and a 16-bit float and checks
+    // the conversions the shader performs.
+    const auto bytes = ReadFile(Fixture("tbufferfmt.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("typed buffer format fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData.assign(4, 0u);
+    options.userDataFromPush = true;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    std::string liftError;
+    if (!module)
+        liftError = SR::ToString(module.error());
+    INFO(liftError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    std::string executionError;
+    if (!execution)
+        executionError = SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    // 0x80 read as 8-bit unsigned is 128, and the half 0x3C00 is 1.0f.
+    REQUIRE(execution->buffer.at(2) == 128u);
+    REQUIRE(execution->buffer.at(3) == 0x3F800000u);
+
+    for (const auto& [address, value] : execution->device)
+    {
+        INFO("device address " << address);
+        REQUIRE(address + 4u <= 8u);
+    }
+#endif
+}
+
 TEST_CASE("typed buffer xyzw round trips through the immediate offset", "[gfx][buffers]")
 {
 #if !defined(SR_CORPUS_ROOT)
@@ -1416,8 +1466,9 @@ TEST_CASE("a typed buffer access lifts for a 32-bit format", "[gfx][mtbuf][descr
     SUCCEED("SR_CORPUS_ROOT is not defined");
 #else
     // Take the descriptor fixture's code object and replace its MUBUF load with
-    // a hand-encoded TBUFFER load: opcode 0, data format 4 (32-bit), number
-    // format 7 (float), vaddr v0, vdata v1, srsrc s0.
+    // a hand-encoded TBUFFER load: opcode 0, data format 6 with number format 1
+    // (BUF_FMT_32_FLOAT, measured from llvm-objdump for gfx1030), vaddr v0,
+    // vdata v1, srsrc s0.
     auto bytes = ReadFile(Fixture("descriptor.hsaco"));
     if (bytes.empty())
     {
@@ -1430,11 +1481,11 @@ TEST_CASE("a typed buffer access lifts for a 32-bit format", "[gfx][mtbuf][descr
     shader->stage = SR::IL::Stage::Compute;
     REQUIRE(shader->rawBytecode.size() >= 12);
 
-    // TBUFFER_LOAD_FORMAT_X: ENC_MTBUF with opcode 0, data format 4 (32-bit),
-    // number format 7 (float); the fields sit at bits 19 and 23 of the first
-    // dword, so the opcode only owns bits 16..18.
+    // TBUFFER_LOAD_FORMAT_X: ENC_MTBUF with opcode 0, data format 6 and number
+    // format 1; the fields sit at bits 19 and 23 of the first dword, so the
+    // opcode only owns bits 16..18.
     const std::array<std::uint32_t, 2> typed = {
-        0xE8000000u | (4u << 19) | (7u << 23), // opcode, data format, number format
+        0xE8000000u | (6u << 19) | (1u << 23), // opcode, data format, number format
         0x80000000u | (1u << 8)               // soffset 0, vdata v1, vaddr v0
     };
     std::memcpy(shader->rawBytecode.data() + 4, typed.data(), sizeof(typed));
@@ -1461,9 +1512,10 @@ TEST_CASE("a typed buffer access lifts for a 32-bit format", "[gfx][mtbuf][descr
     REQUIRE(SR::IL::RunPipeline(*module).has_value());
     REQUIRE(SR::Backend::Reemit(*module).has_value());
 
-    // A converting format (8-bit UNORM) is refused with the two field values.
+    // A pair the disassembler does not name is refused rather than guessed at;
+    // (data 0, number 5) is printed as the bare code 80.
     std::array<std::uint32_t, 2> unsupported = typed;
-    unsupported[0] = 0xE8000000u | (1u << 19); // data format 1, number format 0
+    unsupported[0] = 0xE8000000u | (5u << 23); // data format 0, number format 5
     std::memcpy(shader->rawBytecode.data() + 4, unsupported.data(), sizeof(unsupported));
 
     const auto refused = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
