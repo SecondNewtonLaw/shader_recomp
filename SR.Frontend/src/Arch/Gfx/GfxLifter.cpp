@@ -3641,7 +3641,13 @@ private:
             access.component = 0;
             access.dimensions = 2;
             access.sampled = false;
-            access.format = 1; // R32ui: an atomic needs an integer image
+            if (m_options.imageFormat == 0)
+                return std::unexpected(LiftError("SR-GFX-LIFT-068",
+                                                 "an image atomic needs the surface format "
+                                                 "(--image-format r32ui); the descriptor format is "
+                                                 "not decoded yet",
+                                                 instruction.pc));
+            access.format = m_options.imageFormat;
             access.atomic = true;
             access.atomicKind = *atomicKind;
             const IL::PayloadId payload = m_module.payloads.Add(access);

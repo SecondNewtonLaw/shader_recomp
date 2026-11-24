@@ -167,7 +167,7 @@ optimisation, not the contract.
 | ISA lift | ALU, compare, conversion, branch, scalar, buffer/global/flat/scratch memory, `v_interp_p1/p2/mov`, `exp` (including `exp prim`), wave ballots, image load/store/sample through T#/S#, typed buffers for raw 32-bit formats | converting typed-buffer formats, NGG, matrices |
 | Stages | `GLCompute`, `Vertex`, `Fragment` and legacy `Geometry` with IO variables, interpolation decorations, exports and vertex emission; multi-block functions still use the dispatcher fallback when the CFG is not reducible | NGG mesh, tessellation |
 | Waves | thread ids as `LocalInvocationId`, compare masks as `OpGroupNonUniformBallot` (wave32 or wave64 masks), `v_readfirstlane` as `OpGroupNonUniformBroadcastFirst`, one-lane interpreter model | per-lane EXEC predication of stores, `v_readlane`/`v_writelane`, `ds_swizzle`, quad ops |
-| Resources | one test buffer at set 0 binding 0 (`--test-abi`); T#/S# resolved to image and sampler bindings; image load/store/sample, size query, gather4 and the integer atomics | T#/V#/S# decode, SRT/heap access, push constants, `get_lod` (needs a derivative group) |
+| Resources | one test buffer at set 0 binding 0 (`--test-abi`); T#/S# resolved to image and sampler bindings; image load/store/sample, size query, gather4 and the integer atomics (format stated by the pipeline, compile-verified only) | T#/V#/S# decode, SRT/heap access, push constants, `get_lod` (needs a derivative group), descriptor formats |
 | Verification | `tests/sweep.ps1`: 85 fixtures translated, driver-accepted and ISA-probed in parallel, none refused; VS/PS and VS/GS/PS pipelines rasterised by `SR.VkDraw`; console container executed; coverage regenerated per generation | title shader pack sweep |
 
 ## 6. Roadmap

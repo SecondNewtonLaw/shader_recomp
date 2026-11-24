@@ -39,6 +39,10 @@ struct LiftOptions
     // four-component register per vertex; the count sizes the staging area and
     // the slot stride, so it is required for that path.
     std::uint32_t geometryOutputRegisters = 0;
+    // SPIR-V image format of the surfaces an atomic writes (33 = R32ui, 0 =
+    // unknown). The descriptor format is not decoded yet, so the pipeline
+    // state has to state it; an atomic without one is refused.
+    std::uint8_t imageFormat = 0;
 };
 
 // Lifts a code object into COMMON_SHADER. Control flow and effects are

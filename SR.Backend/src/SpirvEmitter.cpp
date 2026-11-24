@@ -1180,6 +1180,7 @@ private:
         std::uint32_t samplerType = 0;
         std::uint32_t samplerPointerType = 0;
         std::uint32_t texelPointerType = 0;
+        std::uint8_t format = 0;
         bool sampled = false;
         // An image the shader atomically updates is declared R32ui so the
         // texel pointer has an integer pointee.
@@ -1211,7 +1212,8 @@ private:
             image.binding = access.binding;
             image.samplerBinding = access.samplerBinding;
             image.sampled = access.sampled;
-            image.atomicImage = access.format != 0;
+            image.atomicImage = access.atomic;
+            image.format = access.format;
             image.variable = NewId();
             if (access.sampled)
                 image.samplerVariable = NewId();
@@ -1323,10 +1325,14 @@ private:
             }
             else if (image.atomicImage)
             {
-                // An atomic needs an integer image: R32ui, so the texel
-                // pointer's pointee is a u32.
+                // An atomic needs an integer image, and the format is stated by
+                // the module rather than guessed: binding a view of another
+                // format is undefined and faults drivers.
+                if (image.format == 0)
+                    return std::unexpected(EmitError("SR-SPV-106",
+                                                     "an atomic image needs a declared format"));
                 Op(OpTypeImage, {image.imageType, *u32, 1 /* 2D */, 0 /* depth */, 0 /* arrayed */, 0 /* ms */,
-                                 2 /* sampled */, 33 /* R32ui */});
+                                 2 /* sampled */, image.format});
                 image.texelPointerType = NewId();
                 Op(OpTypePointer, {image.texelPointerType, 11 /* Image */, *u32});
             }

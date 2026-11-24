@@ -359,8 +359,13 @@ in the export path.
 
 Image atomics lower to `OpImageTexelPointer` plus the matching `OpAtomic*`
 with device scope and relaxed semantics; the surface is declared R32ui so the
-texel pointer has an integer pointee. A surface may not be both atomically
-updated and read as a float image.
+texel pointer has an integer pointee. The format is not decoded from the
+descriptor yet, so the module has to state it (`--image-format r32ui`); an
+atomic without one is a diagnostic. That matters at run time: a module that
+declares R32ui must be bound to an R32_UINT view, and binding it to a float
+view is undefined and faulted the AMD driver when it was tried. The test
+harness binds an RGBA32F image, so the atomic fixture is translated and
+compiled by the driver there, never executed.
 
 `image.query-lod` (MIMG `image_get_lod`) is refused: an implicit level needs a
 derivative group, and the Vulkan 1.3 profile this backend targets enables no

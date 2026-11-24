@@ -448,6 +448,9 @@ TEST_CASE("image queries, gather and atomics lift and execute", "[gfx][graphics]
 
         SR::Frontend::Gfx::LiftOptions options;
         options.testAbi = true;
+        // The atomic fixture needs the surface format, because the descriptor
+        // format is not decoded; the others do not use it.
+        options.imageFormat = 33; // R32ui
         if (push)
         {
             options.userData.assign(12, 0u);
@@ -516,11 +519,12 @@ TEST_CASE("image queries, gather and atomics lift and execute", "[gfx][graphics]
         if (!execution)
             INFO(SR::ToString(execution.error()));
         REQUIRE(execution.has_value());
-        // 0.125 of 4 texels is the 2x2 footprint at the origin.
-        REQUIRE(execution->buffer.at(0) == 1u);
-        REQUIRE(execution->buffer.at(1) == 2u);
-        REQUIRE(execution->buffer.at(2) == 5u);
-        REQUIRE(execution->buffer.at(3) == 6u);
+        // 0.125 of 4 texels is the 2x2 footprint at the origin, in the data
+        // register order the hardware delivers (measured on the device).
+        REQUIRE(execution->buffer.at(0) == 5u);
+        REQUIRE(execution->buffer.at(1) == 6u);
+        REQUIRE(execution->buffer.at(2) == 2u);
+        REQUIRE(execution->buffer.at(3) == 1u);
 
         const auto emission = SR::Backend::Reemit(*module);
         std::string emissionError;
@@ -528,6 +532,27 @@ TEST_CASE("image queries, gather and atomics lift and execute", "[gfx][graphics]
             emissionError = SR::ToString(emission.error());
         INFO(emissionError);
         REQUIRE(emission.has_value());
+    }
+
+    SECTION("an atomic without a declared format is refused")
+    {
+        const auto bytes = ReadFile(Fixture("imageatomicadd.hsaco"));
+        if (bytes.empty())
+        {
+            SUCCEED("image fixture is not present");
+            return;
+        }
+        auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+        REQUIRE(shader.has_value());
+        shader->stage = SR::IL::Stage::Compute;
+
+        SR::Frontend::Gfx::LiftOptions options;
+        options.testAbi = true;
+        options.userData.assign(4, 0u);
+        options.userDataFromPush = true;
+        auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+        REQUIRE_FALSE(module.has_value());
+        REQUIRE(module.error().code == "SR-GFX-LIFT-068");
     }
 
     SECTION("an atomic add returns the previous value")

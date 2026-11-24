@@ -788,11 +788,14 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                         const auto it = options.images.find(key);
                         return it == options.images.end() ? 0 : it->second[channel];
                     };
+                    // The data register order is the one the hardware delivers,
+                    // measured on the RX 9060 XT: the two texels of the upper
+                    // row first, then the lower row right to left.
                     const std::array<std::uint32_t, 4> gathered = {
-                        texel(baseX, baseY),
-                        texel(baseX + 1, baseY),
                         texel(baseX, baseY + 1),
                         texel(baseX + 1, baseY + 1),
+                        texel(baseX + 1, baseY),
+                        texel(baseX, baseY),
                     };
                     values[resultId()] = gathered[image->component & 3];
                     break;

@@ -1,6 +1,7 @@
 ; Image atomic fixture: add one to texel (0,0) through the T# in s0..s3 and
-; store the previous value. The texel pointer is R32ui, so the surface has to
-; be an integer view; the driver probe checks that the module compiles.
+; store the previous value. The module declares the surface R32ui (the format
+; arrives with --image-format), so it may only be bound to an R32_UINT view:
+; this fixture is translated and compiled by the driver, never executed.
 .text
 .globl imageatomicadd
 imageatomicadd:
