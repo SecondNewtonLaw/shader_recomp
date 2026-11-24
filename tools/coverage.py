@@ -59,6 +59,8 @@ LIFTED = {
     "S_Bitset0B32", "S_Bitset0B64", "S_Bitset1B32", "S_Bitset1B64",
     "S_LshlB64", "S_LshrB64", "S_AshrI64", "S_BfmB64",
     "S_BfeU64", "S_BfeI64", "S_MulHiI32", "S_MulHiU32",
+    # VOP3 mask, byte pack, SAD16 and 64-bit shifts.
+"V_CndmaskB16", "V_CvtPkU8F32", "V_SadU16", "V_LshrrevB64", "V_AshrrevI64",
     # 8-bit float conversions and dots.
 "V_CvtF32Fp8", "V_CvtF32Bf8", "V_CvtPkF32Fp8", "V_CvtPkF32Bf8", "V_Dot4F32Fp8Fp8", "V_Dot4F32Bf8Bf8", "V_Dot4F32Fp8Bf8", "V_Dot4F32Bf8Fp8",
     # VOP3P dot products and mixed FMA.

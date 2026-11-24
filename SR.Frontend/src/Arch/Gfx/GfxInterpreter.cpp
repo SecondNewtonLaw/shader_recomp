@@ -3562,11 +3562,27 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             break;
         }
         case Op::V_CndmaskB32:
+        case Op::V_CndmaskB16:
         {
             const auto left = source(1);
             const auto right = source(2);
-            if (!left || !right || !write(result.state.vcc ? *left : *right))
+            if (!left || !right)
                 return std::unexpected(Error("SR-GFX-ISA-070", "invalid cndmask operands", pc));
+            bool condition = result.state.vcc;
+            if (instruction.encoding == Encoding::Vop3 && instruction.operandCount >= 4)
+            {
+                const auto mask = source(3);
+                if (!mask)
+                    return std::unexpected(Error("SR-GFX-ISA-071", "invalid cndmask mask", pc));
+                condition = (*mask & 1u) != 0;
+            }
+            const std::uint32_t resultValue =
+                instruction.op == Op::V_CndmaskB16
+                    ? ((condition ? (*left & 0xFFFFu) : (*right & 0xFFFFu)) |
+                       (condition ? (*left & 0xFFFF0000u) : (*right & 0xFFFF0000u)))
+                    : (condition ? *left : *right);
+            if (!write(resultValue))
+                return std::unexpected(Error("SR-GFX-ISA-072", "invalid cndmask destination", pc));
             break;
         }
         case Op::V_BfeU32:
@@ -4887,6 +4903,58 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             }
             if (!write(AsBits(sum)))
                 return std::unexpected(Error("SR-GFX-ISA-353", "invalid fp8 dot destination", pc));
+            break;
+        }
+        case Op::V_CvtPkU8F32:
+        {
+            const auto value = source(1);
+            const auto select = source(2);
+            const auto base = source(3);
+            if (!value || !select || !base)
+                return std::unexpected(Error("SR-GFX-ISA-360", "invalid byte pack operands", pc));
+            const std::uint32_t byte = RoundToIntegerIsa(AsFloat(*value), 0, 255);
+            const std::uint32_t shift = (*select & 3u) * 8u;
+            const std::uint32_t mask = 0xFFu << shift;
+            if (!write((*base & ~mask) | (byte << shift)))
+                return std::unexpected(Error("SR-GFX-ISA-361", "invalid byte pack destination", pc));
+            break;
+        }
+        case Op::V_SadU16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto addend = source(3);
+            if (!first || !second || !addend)
+                return std::unexpected(Error("SR-GFX-ISA-362", "invalid sad_u16 operands", pc));
+            std::uint32_t sum = 0;
+            for (std::uint32_t i = 0; i < 2; ++i)
+            {
+                const std::uint32_t a = (*first >> (16 * i)) & 0xFFFFu;
+                const std::uint32_t b = (*second >> (16 * i)) & 0xFFFFu;
+                sum += a > b ? a - b : b - a;
+            }
+            if (!write(sum + *addend))
+                return std::unexpected(Error("SR-GFX-ISA-363", "invalid sad_u16 destination", pc));
+            break;
+        }
+        case Op::V_LshrrevB64:
+        case Op::V_AshrrevI64:
+        {
+            if (instruction.operands[1].kind != OperandKind::Vgpr ||
+                instruction.operands[2].kind != OperandKind::Vgpr)
+                return std::unexpected(Error("SR-GFX-ISA-364", "invalid 64-bit shift operands", pc));
+            const std::uint32_t count = result.state.vgpr[instruction.operands[1].value];
+            const std::uint32_t lowIndex = instruction.operands[2].value;
+            const std::uint64_t value = static_cast<std::uint64_t>(result.state.vgpr[lowIndex]) |
+                                        (static_cast<std::uint64_t>(result.state.vgpr[lowIndex + 1])
+                                         << 32);
+            const std::uint64_t shifted =
+                instruction.op == Op::V_AshrrevI64
+                    ? static_cast<std::uint64_t>(static_cast<std::int64_t>(value) >> (count & 63u))
+                    : (value >> (count & 63u));
+            const std::uint32_t destination = instruction.operands[0].value;
+            result.state.vgpr[destination] = static_cast<std::uint32_t>(shifted);
+            result.state.vgpr[destination + 1] = static_cast<std::uint32_t>(shifted >> 32);
             break;
         }
         case Op::Invalid:

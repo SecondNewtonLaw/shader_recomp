@@ -2382,6 +2382,18 @@ constexpr std::array kGfx12 = {
     Make(Encoding::Vop1, 109, Op::V_CvtF32Bf8, "v_cvt_f32_bf8", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop1, 110, Op::V_CvtPkF32Fp8, "v_cvt_pk_f32_fp8", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Vop1, 111, Op::V_CvtPkF32Bf8, "v_cvt_pk_f32_bf8", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 257, Op::V_CndmaskB32, "v_cndmask_b32",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 605, Op::V_CndmaskB16, "v_cndmask_b16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 550, Op::V_CvtPkU8F32, "v_cvt_pk_u8_f32",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 548, Op::V_SadU16, "v_sad_u16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 829, Op::V_LshrrevB64, "v_lshrrev_b64",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 830, Op::V_AshrrevI64, "v_ashrrev_i64",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept

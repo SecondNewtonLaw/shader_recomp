@@ -6940,6 +6940,138 @@ private:
                          instruction.pc);
     }
 
+    // VOP3 cndmask takes the mask as an explicit operand; only the first bit
+    // matters for the single-invocation model.
+    [[nodiscard]] Result<void> LiftVop3Cndmask(const DecodedInstruction& instruction, bool half)
+    {
+        const auto mask = ReadBits(instruction.operands[3], instruction.pc);
+        if (!mask)
+            return std::unexpected(mask.error());
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+
+        const IL::ValueId condition = m_builder.CompareValue(
+            IL::CompareOp::UNe,
+            Bin(instruction, IL::BinaryOp::And, *mask, m_builder.ConstantU32(1)),
+            m_builder.ConstantU32(0), false);
+
+        if (!half)
+        {
+            const IL::ValueId selected =
+                m_builder.SelectValue(m_module.types.U32(), condition, *first, *second, false);
+            return WriteDest(instruction.operands[0], selected, instruction.pc);
+        }
+        const IL::ValueId low =
+            m_builder.SelectValue(m_module.types.U32(), condition,
+                                  Bin(instruction, IL::BinaryOp::And, *first,
+                                      m_builder.ConstantU32(0xFFFF)),
+                                  Bin(instruction, IL::BinaryOp::And, *second,
+                                      m_builder.ConstantU32(0xFFFF)),
+                                  false);
+        const IL::ValueId high =
+            m_builder.SelectValue(m_module.types.U32(), condition,
+                                  Bin(instruction, IL::BinaryOp::And, *first,
+                                      m_builder.ConstantU32(0xFFFF0000)),
+                                  Bin(instruction, IL::BinaryOp::And, *second,
+                                      m_builder.ConstantU32(0xFFFF0000)),
+                                  false);
+        return WriteDest(instruction.operands[0],
+                         Bin(instruction, IL::BinaryOp::Or, low, high), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftCvtPkU8F32(const DecodedInstruction& instruction)
+    {
+        const auto value = ReadFloatSource(instruction, 1);
+        if (!value)
+            return std::unexpected(value.error());
+        const auto select = ReadBits(instruction.operands[2], instruction.pc);
+        if (!select)
+            return std::unexpected(select.error());
+        const auto base = ReadBits(instruction.operands[3], instruction.pc);
+        if (!base)
+            return std::unexpected(base.error());
+
+        const IL::ValueId rounded = RoundToInteger(instruction, *value, 0, 255);
+        const IL::ValueId shift = Bin(
+            instruction, IL::BinaryOp::Shl,
+            Bin(instruction, IL::BinaryOp::And, *select, m_builder.ConstantU32(3)),
+            m_builder.ConstantU32(3));
+        const IL::ValueId mask =
+            Bin(instruction, IL::BinaryOp::Shl, m_builder.ConstantU32(0xFF), shift);
+        const IL::ValueId cleared =
+            Bin(instruction, IL::BinaryOp::And, *base,
+                m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.U32(), mask, false));
+        const IL::ValueId field =
+            Bin(instruction, IL::BinaryOp::Shl,
+                Bin(instruction, IL::BinaryOp::And, rounded, m_builder.ConstantU32(0xFF)), shift);
+        return WriteDest(instruction.operands[0],
+                         Bin(instruction, IL::BinaryOp::Or, cleared, field), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftSadU16(const DecodedInstruction& instruction)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto addend = ReadBits(instruction.operands[3], instruction.pc);
+        if (!addend)
+            return std::unexpected(addend.error());
+
+        IL::ValueId sum = m_builder.ConstantU32(0);
+        for (std::uint32_t i = 0; i < 2; ++i)
+        {
+            const IL::ValueId shift = m_builder.ConstantU32(16 * i);
+            const auto halfAt = [&](IL::ValueId value) {
+                return Bin(instruction, IL::BinaryOp::And,
+                           Bin(instruction, IL::BinaryOp::LShr, value, shift),
+                           m_builder.ConstantU32(0xFFFF));
+            };
+            const IL::ValueId a = halfAt(*first);
+            const IL::ValueId b = halfAt(*second);
+            const IL::ValueId difference = m_builder.SelectValue(
+                m_module.types.U32(),
+                m_builder.CompareValue(IL::CompareOp::UGe, a, b, false),
+                Bin(instruction, IL::BinaryOp::ISub, a, b),
+                Bin(instruction, IL::BinaryOp::ISub, b, a), false);
+            sum = Bin(instruction, IL::BinaryOp::IAdd, sum, difference);
+        }
+        return WriteDest(instruction.operands[0],
+                         Bin(instruction, IL::BinaryOp::IAdd, sum, *addend), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftShift64Vector(const DecodedInstruction& instruction,
+                                                bool arithmetic)
+    {
+        if (instruction.operands[1].kind != OperandKind::Vgpr ||
+            instruction.operands[2].kind != OperandKind::Vgpr)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-081", "64-bit shift needs vector register pairs",
+                          instruction.pc));
+        const auto count = ReadVgpr(instruction.operands[1].value, instruction.pc);
+        if (!count)
+            return std::unexpected(count.error());
+        const auto value = ReadVgpr64(instruction.operands[2].value, instruction.pc);
+        if (!value)
+            return std::unexpected(value.error());
+
+        const IL::ValueId shift = m_builder.ConvertValue(
+            m_module.types.U64(), IL::ConvertOp::ZExt, MaskShiftCount(*count, 63, false), false);
+        const IL::TypeId type = arithmetic ? m_module.types.I64() : m_module.types.U64();
+        const IL::ValueId shifted = m_builder.Emit(
+            type, IL::Op::Binary,
+            static_cast<std::uint16_t>(arithmetic ? IL::BinaryOp::AShr : IL::BinaryOp::LShr),
+            {arithmetic ? Bitcast(m_module.types.I64(), *value) : *value, shift}, {}, IL::NoPayload,
+            instruction.pc, static_cast<std::uint16_t>(instruction.op), false);
+        return WriteVgpr64(instruction.operands[0], shifted, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -7629,6 +7761,8 @@ private:
         case Op::V_CmpNltF32:
             return LiftVectorCompare(instruction, IL::CompareOp::FUnordGe, VectorPredicate::Compare, true, false);
         case Op::V_CndmaskB32:
+            if (instruction.encoding == Encoding::Vop3 && instruction.operandCount >= 4)
+                return LiftVop3Cndmask(instruction, false);
             return LiftCndmask(instruction);
         case Op::V_Nop:
             return {};
@@ -8467,6 +8601,20 @@ private:
             return LiftDot4Fp8(instruction, false, false);
         case Op::V_Dot4F32Bf8Bf8:
             return LiftDot4Fp8(instruction, true, true);
+        case Op::V_CndmaskB16:
+            return LiftVop3Cndmask(instruction, true);
+        case Op::V_CvtPkU8F32:
+            return LiftCvtPkU8F32(instruction);
+        case Op::V_SadU16:
+            return LiftSadU16(instruction);
+        case Op::V_LshrrevB64:
+            return LiftShift64Vector(instruction, false);
+        case Op::V_AshrrevI64:
+            return LiftShift64Vector(instruction, true);
+        case Op::V_DivFixupF16:
+            return std::unexpected(LiftError("SR-GFX-LIFT-082", "unsupported wide divide fixup", instruction.pc));
+        case Op::V_DivFmasF64:
+            return std::unexpected(LiftError("SR-GFX-LIFT-082", "unsupported wide divide fixup", instruction.pc));
         case Op::S_CmovkI32:
         case Op::S_AddkCoI32:
             return LiftScalarImmediate(instruction);
