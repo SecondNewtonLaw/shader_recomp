@@ -3,10 +3,12 @@
 // from SR.Backend, the driver compiles it to ISA, and the pixels say whether
 // the stage contract (positions, interpolation, export) holds on real hardware.
 //
-// usage: SR.VkDraw <vertex.spv> <fragment.spv> [--isa] [--size N] [--clear RRGGBB]
+// usage: SR.VkDraw <vertex.spv> <fragment.spv> [--gs <geometry.spv>] [--isa] [--size N]
+//                  [--clear RRGGBB]
 
 #include <array>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -16,6 +18,8 @@
 #include <vector>
 
 #include <vulkan/vulkan.h>
+
+#include "SR/Common/Assertions.hpp"
 
 namespace {
 
@@ -109,8 +113,12 @@ Device CreateDevice(VkInstance instance, bool wantShaderInfo)
             queueInfo.queueCount = 1;
             queueInfo.pQueuePriorities = &priority;
 
+            VkPhysicalDeviceFeatures features{};
+            features.geometryShader = VK_TRUE;
+
             VkDeviceCreateInfo deviceInfo{};
             deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+            deviceInfo.pEnabledFeatures = &features;
             deviceInfo.queueCreateInfoCount = 1;
             deviceInfo.pQueueCreateInfos = &queueInfo;
             deviceInfo.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
@@ -193,6 +201,10 @@ VkShaderModule CreateModule(VkDevice device, const std::vector<std::uint32_t>& w
 
 int main(int argc, char** argv)
 {
+    // A driver fault must not swallow the progress already reported.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    SR::InstallAssertionHandler("SR.VkDraw");
+
     if (argc < 3)
     {
         std::cerr << "usage: SR.VkDraw <vertex.spv> <fragment.spv> [--isa] [--size N] [--clear RRGGBB]\n";
@@ -210,11 +222,21 @@ int main(int argc, char** argv)
     std::uint32_t size = 64;
     std::uint32_t clear = 0x00000000u; // RRGGBB
     bool isa = false;
+    std::vector<std::uint32_t> geometryWords;
     for (int i = 3; i < argc; ++i)
     {
         const std::string_view argument = argv[i];
         if (argument == "--isa")
             isa = true;
+        else if (argument == "--gs" && i + 1 < argc)
+        {
+            geometryWords = ReadSpirv(argv[++i]);
+            if (geometryWords.empty())
+            {
+                std::cerr << "cannot read the geometry module\n";
+                return 1;
+            }
+        }
         else if (argument == "--size" && i + 1 < argc)
             size = static_cast<std::uint32_t>(std::stoul(argv[++i]));
         else if (argument == "--clear" && i + 1 < argc)
@@ -335,10 +357,17 @@ int main(int argc, char** argv)
 
     VkShaderModule vertexModule = CreateModule(device.logical, vertexWords, argv[1]);
     VkShaderModule fragmentModule = CreateModule(device.logical, fragmentWords, argv[2]);
+    VkShaderModule geometryModule = VK_NULL_HANDLE;
+    if (!geometryWords.empty())
+    {
+        geometryModule = CreateModule(device.logical, geometryWords, "geometry");
+        if (geometryModule == VK_NULL_HANDLE)
+            return 1;
+    }
     if (vertexModule == VK_NULL_HANDLE || fragmentModule == VK_NULL_HANDLE)
         return 1;
 
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+    std::array<VkPipelineShaderStageCreateInfo, 3> stages{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
     stages[0].module = vertexModule;
@@ -347,6 +376,15 @@ int main(int argc, char** argv)
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
     stages[1].module = fragmentModule;
     stages[1].pName = "main";
+    std::uint32_t stageCount = 2;
+    if (geometryModule != VK_NULL_HANDLE)
+    {
+        stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[2].stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+        stages[2].module = geometryModule;
+        stages[2].pName = "main";
+        stageCount = 3;
+    }
 
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -394,7 +432,7 @@ int main(int argc, char** argv)
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
+    pipelineInfo.stageCount = stageCount;
     pipelineInfo.pStages = stages.data();
     pipelineInfo.pVertexInputState = &vertexInput;
     pipelineInfo.pInputAssemblyState = &assembly;
@@ -542,6 +580,8 @@ int main(int argc, char** argv)
     if (isa && device.shaderInfo)
     {
         PrintIsa(device.logical, pipeline, VK_SHADER_STAGE_VERTEX_BIT, "vertex");
+        if (geometryModule != VK_NULL_HANDLE)
+            PrintIsa(device.logical, pipeline, VK_SHADER_STAGE_GEOMETRY_BIT, "geometry");
         PrintIsa(device.logical, pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, "fragment");
     }
 
@@ -553,6 +593,8 @@ int main(int argc, char** argv)
     vkDestroyPipeline(device.logical, pipeline, nullptr);
     vkDestroyPipelineLayout(device.logical, layout, nullptr);
     vkDestroyShaderModule(device.logical, vertexModule, nullptr);
+    if (geometryModule != VK_NULL_HANDLE)
+        vkDestroyShaderModule(device.logical, geometryModule, nullptr);
     vkDestroyShaderModule(device.logical, fragmentModule, nullptr);
     vkDestroyFramebuffer(device.logical, framebuffer, nullptr);
     vkDestroyRenderPass(device.logical, renderPass, nullptr);

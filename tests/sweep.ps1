@@ -72,8 +72,9 @@ foreach ($case in $cases) {
     Get-ChildItem $directory -Filter *.hsaco | Sort-Object Name | ForEach-Object {
         $name = $_.BaseName
         $stage = "compute"
-        if ($name -eq "triangle") { $stage = "vertex" }
+        if ($name -eq "triangle" -or $name -eq "empty") { $stage = "vertex" }
         if ($name -eq "solid") { $stage = "fragment" }
+        if ($name -eq "geometry") { $stage = "geometry" }
 
         $jobs += [pscustomobject]@{
             Target = "$($case.Directory)/$name"
@@ -168,6 +169,23 @@ if ((Test-Path $vertex) -and (Test-Path $fragment) -and (Test-Path $draw)) {
     $results += [pscustomobject]@{
         Target = "gfx1030/triangle+solid"
         Stage = "vs+ps"
+        Spirv = "yes"
+        DriverIsa = "via draw"
+        Note = if ($rendered) { "$($rendered.Matches[0].Value); $($centre.Matches[0].Value)" } else { "draw failed" }
+    }
+}
+
+# The geometry path draws as well: an empty vertex stage, the geometry fixture
+# and the fragment stage, so the emitted triangle has to rasterise.
+$geometry = Join-Path $work "gfx1030-geometry.spv"
+$emptyVertex = Join-Path $work "gfx1030-empty.spv"
+if ((Test-Path $geometry) -and (Test-Path $emptyVertex) -and (Test-Path $fragment) -and (Test-Path $draw)) {
+    $drawOutput = & $draw $emptyVertex $fragment --gs $geometry 2>&1
+    $rendered = $drawOutput | Select-String -Pattern "pixels written: (\d+)"
+    $centre = $drawOutput | Select-String -Pattern "centre rgba: (.*)"
+    $results += [pscustomobject]@{
+        Target = "gfx1030/empty+geometry+solid"
+        Stage = "vs+gs+ps"
         Spirv = "yes"
         DriverIsa = "via draw"
         Note = if ($rendered) { "$($rendered.Matches[0].Value); $($centre.Matches[0].Value)" } else { "draw failed" }
