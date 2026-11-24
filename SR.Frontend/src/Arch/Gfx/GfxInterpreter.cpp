@@ -574,8 +574,15 @@ namespace {
     if (address == nullptr)
         return std::unexpected(Error("SR-GFX-ISA-221", "memory instruction has no address", pc));
     const Operand* offset = MemoryOperand(instruction, OperandKind::GlobalIoffset);
+    std::uint32_t byteBase = state.vgpr[address->value];
+    if (instruction.bufferOffen)
+    {
+        const Operand* soffset = MemoryOperand(instruction, OperandKind::Sgpr);
+        if (soffset != nullptr)
+            byteBase = static_cast<std::uint32_t>(byteBase + state.sgpr[soffset->value]);
+    }
     const std::uint32_t byteAddress =
-        static_cast<std::uint32_t>(state.vgpr[address->value] + (offset ? offset->value : 0u));
+        static_cast<std::uint32_t>(byteBase + (offset ? offset->value : 0u));
     const std::uint32_t index = byteAddress >> 2;
     const std::uint32_t lane = byteAddress & 3u;
 
@@ -1358,7 +1365,7 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
         bool finished = false;
 
         if (instruction.encoding == Encoding::Flat || instruction.encoding == Encoding::Global ||
-            instruction.encoding == Encoding::Scratch)
+            instruction.encoding == Encoding::Scratch || instruction.encoding == Encoding::Buffer)
         {
             const auto status = ExecuteMemory(result.state, instruction, pc);
             if (!status)

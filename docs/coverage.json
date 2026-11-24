@@ -27,8 +27,8 @@
     },
     "gfx1200": {
       "total": 1264,
-      "decoded": 854,
-      "lifted": 826
+      "decoded": 943,
+      "lifted": 879
     }
   },
   "gfx1200_families": {
@@ -49,8 +49,8 @@
     },
     "BUFFER": {
       "total": 89,
-      "decoded": 0,
-      "lifted": 0
+      "decoded": 89,
+      "lifted": 53
     },
     "SOP1": {
       "total": 84,

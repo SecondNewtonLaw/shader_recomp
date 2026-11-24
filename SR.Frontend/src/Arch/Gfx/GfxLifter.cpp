@@ -3104,10 +3104,23 @@ private:
         if (!base)
             return std::unexpected(base.error());
 
+        IL::ValueId byteAddress = *base;
+        if (instruction.bufferOffen)
+        {
+            const Operand* soffset = FindOperand(instruction, OperandKind::Sgpr);
+            if (soffset != nullptr)
+            {
+                const auto value = ReadSgpr(soffset->value, instruction.pc);
+                if (!value)
+                    return std::unexpected(value.error());
+                byteAddress = Bin(instruction, IL::BinaryOp::IAdd, byteAddress, *value);
+            }
+        }
+
         const Operand* offset = FindOperand(instruction, OperandKind::GlobalIoffset);
         if (offset == nullptr || offset->value == 0)
-            return *base;
-        return Bin(instruction, IL::BinaryOp::IAdd, *base, m_builder.ConstantU32(offset->value));
+            return byteAddress;
+        return Bin(instruction, IL::BinaryOp::IAdd, byteAddress, m_builder.ConstantU32(offset->value));
     }
 
     [[nodiscard]] IL::ValueId BufferDword(const DecodedInstruction& instruction, IL::ValueId index)
@@ -5050,7 +5063,7 @@ private:
         if (instruction.encoding == Encoding::Ds)
             return LiftDs(instruction);
         if (instruction.encoding == Encoding::Flat || instruction.encoding == Encoding::Global ||
-            instruction.encoding == Encoding::Scratch)
+            instruction.encoding == Encoding::Scratch || instruction.encoding == Encoding::Buffer)
             return LiftFlatMemory(instruction);
 
         switch (instruction.op)

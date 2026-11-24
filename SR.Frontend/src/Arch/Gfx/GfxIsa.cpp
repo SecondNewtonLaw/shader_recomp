@@ -15,7 +15,7 @@ struct Entry
     Op op;
     std::string_view mnemonic;
     std::uint8_t operandCount;
-    std::array<OperandKind, 4> operands;
+    std::array<OperandKind, 6> operands;
     bool removed;
     bool execMask = false;
 };
@@ -1480,6 +1480,185 @@ constexpr std::array kGfx12 = {
          {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
 
 
+    Make(Encoding::Buffer, 0, Op::BufferLoadFormatX, "buffer_load_format_x",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 1, Op::BufferLoadFormatXy, "buffer_load_format_xy",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 2, Op::BufferLoadFormatXyz, "buffer_load_format_xyz",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 3, Op::BufferLoadFormatXyzw, "buffer_load_format_xyzw",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 4, Op::BufferStoreFormatX, "buffer_store_format_x",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 5, Op::BufferStoreFormatXy, "buffer_store_format_xy",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 6, Op::BufferStoreFormatXyz, "buffer_store_format_xyz",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 7, Op::BufferStoreFormatXyzw, "buffer_store_format_xyzw",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 8, Op::BufferLoadD16FormatX, "buffer_load_d16_format_x",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 9, Op::BufferLoadD16FormatXy, "buffer_load_d16_format_xy",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 10, Op::BufferLoadD16FormatXyz, "buffer_load_d16_format_xyz",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 11, Op::BufferLoadD16FormatXyzw, "buffer_load_d16_format_xyzw",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 12, Op::BufferStoreD16FormatX, "buffer_store_d16_format_x",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 13, Op::BufferStoreD16FormatXy, "buffer_store_d16_format_xy",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 14, Op::BufferStoreD16FormatXyz, "buffer_store_d16_format_xyz",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 15, Op::BufferStoreD16FormatXyzw, "buffer_store_d16_format_xyzw",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 16, Op::BufferLoadU8, "buffer_load_u8",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 17, Op::BufferLoadI8, "buffer_load_i8",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 18, Op::BufferLoadU16, "buffer_load_u16",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 19, Op::BufferLoadI16, "buffer_load_i16",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 20, Op::BufferLoadB32, "buffer_load_b32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 21, Op::BufferLoadB64, "buffer_load_b64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 22, Op::BufferLoadB96, "buffer_load_b96",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 23, Op::BufferLoadB128, "buffer_load_b128",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 24, Op::BufferStoreB8, "buffer_store_b8",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 25, Op::BufferStoreB16, "buffer_store_b16",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 26, Op::BufferStoreB32, "buffer_store_b32",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 27, Op::BufferStoreB64, "buffer_store_b64",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 28, Op::BufferStoreB96, "buffer_store_b96",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 29, Op::BufferStoreB128, "buffer_store_b128",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 30, Op::BufferLoadD16U8, "buffer_load_d16_u8",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 31, Op::BufferLoadD16I8, "buffer_load_d16_i8",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 32, Op::BufferLoadD16B16, "buffer_load_d16_b16",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 33, Op::BufferLoadD16HiU8, "buffer_load_d16_hi_u8",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 34, Op::BufferLoadD16HiI8, "buffer_load_d16_hi_i8",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 35, Op::BufferLoadD16HiB16, "buffer_load_d16_hi_b16",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 36, Op::BufferStoreD16HiB8, "buffer_store_d16_hi_b8",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 37, Op::BufferStoreD16HiB16, "buffer_store_d16_hi_b16",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 38, Op::BufferLoadD16HiFormatX, "buffer_load_d16_hi_format_x",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 39, Op::BufferStoreD16HiFormatX, "buffer_store_d16_hi_format_x",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 51, Op::BufferAtomicSwapB32, "buffer_atomic_swap_b32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 52, Op::BufferAtomicCmpswapB32, "buffer_atomic_cmpswap_b32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 53, Op::BufferAtomicAddU32, "buffer_atomic_add_u32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 54, Op::BufferAtomicSubU32, "buffer_atomic_sub_u32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 55, Op::BufferAtomicSubClampU32, "buffer_atomic_sub_clamp_u32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 56, Op::BufferAtomicMinI32, "buffer_atomic_min_i32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 57, Op::BufferAtomicMinU32, "buffer_atomic_min_u32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 58, Op::BufferAtomicMaxI32, "buffer_atomic_max_i32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 59, Op::BufferAtomicMaxU32, "buffer_atomic_max_u32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 60, Op::BufferAtomicAndB32, "buffer_atomic_and_b32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 61, Op::BufferAtomicOrB32, "buffer_atomic_or_b32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 62, Op::BufferAtomicXorB32, "buffer_atomic_xor_b32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 63, Op::BufferAtomicIncU32, "buffer_atomic_inc_u32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 64, Op::BufferAtomicDecU32, "buffer_atomic_dec_u32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 65, Op::BufferAtomicSwapB64, "buffer_atomic_swap_b64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 66, Op::BufferAtomicCmpswapB64, "buffer_atomic_cmpswap_b64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 67, Op::BufferAtomicAddU64, "buffer_atomic_add_u64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 68, Op::BufferAtomicSubU64, "buffer_atomic_sub_u64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 69, Op::BufferAtomicMinI64, "buffer_atomic_min_i64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 70, Op::BufferAtomicMinU64, "buffer_atomic_min_u64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 71, Op::BufferAtomicMaxI64, "buffer_atomic_max_i64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 72, Op::BufferAtomicMaxU64, "buffer_atomic_max_u64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 73, Op::BufferAtomicAndB64, "buffer_atomic_and_b64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 74, Op::BufferAtomicOrB64, "buffer_atomic_or_b64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 75, Op::BufferAtomicXorB64, "buffer_atomic_xor_b64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 76, Op::BufferAtomicIncU64, "buffer_atomic_inc_u64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 77, Op::BufferAtomicDecU64, "buffer_atomic_dec_u64",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 80, Op::BufferAtomicCondSubU32, "buffer_atomic_cond_sub_u32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 81, Op::BufferAtomicMinNumF32, "buffer_atomic_min_num_f32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 82, Op::BufferAtomicMaxNumF32, "buffer_atomic_max_num_f32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 86, Op::BufferAtomicAddF32, "buffer_atomic_add_f32",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 89, Op::BufferAtomicPkAddF16, "buffer_atomic_pk_add_f16",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 90, Op::BufferAtomicPkAddBf16, "buffer_atomic_pk_add_bf16",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 128, Op::TbufferLoadFormatX, "tbuffer_load_format_x",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 129, Op::TbufferLoadFormatXy, "tbuffer_load_format_xy",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 130, Op::TbufferLoadFormatXyz, "tbuffer_load_format_xyz",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 131, Op::TbufferLoadFormatXyzw, "tbuffer_load_format_xyzw",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 132, Op::TbufferStoreFormatX, "tbuffer_store_format_x",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 133, Op::TbufferStoreFormatXy, "tbuffer_store_format_xy",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 134, Op::TbufferStoreFormatXyz, "tbuffer_store_format_xyz",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 135, Op::TbufferStoreFormatXyzw, "tbuffer_store_format_xyzw",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 136, Op::TbufferLoadD16FormatX, "tbuffer_load_d16_format_x",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 137, Op::TbufferLoadD16FormatXy, "tbuffer_load_d16_format_xy",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 138, Op::TbufferLoadD16FormatXyz, "tbuffer_load_d16_format_xyz",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 139, Op::TbufferLoadD16FormatXyzw, "tbuffer_load_d16_format_xyzw",
+         {OperandKind::BufferVdst, OperandKind::BufferVaddr, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 140, Op::TbufferStoreD16FormatX, "tbuffer_store_d16_format_x",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 141, Op::TbufferStoreD16FormatXy, "tbuffer_store_d16_format_xy",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 142, Op::TbufferStoreD16FormatXyz, "tbuffer_store_d16_format_xyz",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+    Make(Encoding::Buffer, 143, Op::TbufferStoreD16FormatXyzw, "tbuffer_store_d16_format_xyzw",
+         {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
+
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -1786,6 +1965,184 @@ std::string_view ToString(Op op) noexcept
         return "ds_add_f32";
     case Op::FlatLoadU8:
         return "flat_load_u8";
+    case Op::BufferLoadFormatX:
+        return "buffer_load_format_x";
+    case Op::BufferLoadFormatXy:
+        return "buffer_load_format_xy";
+    case Op::BufferLoadFormatXyz:
+        return "buffer_load_format_xyz";
+    case Op::BufferLoadFormatXyzw:
+        return "buffer_load_format_xyzw";
+    case Op::BufferStoreFormatX:
+        return "buffer_store_format_x";
+    case Op::BufferStoreFormatXy:
+        return "buffer_store_format_xy";
+    case Op::BufferStoreFormatXyz:
+        return "buffer_store_format_xyz";
+    case Op::BufferStoreFormatXyzw:
+        return "buffer_store_format_xyzw";
+    case Op::BufferLoadD16FormatX:
+        return "buffer_load_d16_format_x";
+    case Op::BufferLoadD16FormatXy:
+        return "buffer_load_d16_format_xy";
+    case Op::BufferLoadD16FormatXyz:
+        return "buffer_load_d16_format_xyz";
+    case Op::BufferLoadD16FormatXyzw:
+        return "buffer_load_d16_format_xyzw";
+    case Op::BufferStoreD16FormatX:
+        return "buffer_store_d16_format_x";
+    case Op::BufferStoreD16FormatXy:
+        return "buffer_store_d16_format_xy";
+    case Op::BufferStoreD16FormatXyz:
+        return "buffer_store_d16_format_xyz";
+    case Op::BufferStoreD16FormatXyzw:
+        return "buffer_store_d16_format_xyzw";
+    case Op::BufferLoadU8:
+        return "buffer_load_u8";
+    case Op::BufferLoadI8:
+        return "buffer_load_i8";
+    case Op::BufferLoadU16:
+        return "buffer_load_u16";
+    case Op::BufferLoadI16:
+        return "buffer_load_i16";
+    case Op::BufferLoadB32:
+        return "buffer_load_b32";
+    case Op::BufferLoadB64:
+        return "buffer_load_b64";
+    case Op::BufferLoadB96:
+        return "buffer_load_b96";
+    case Op::BufferLoadB128:
+        return "buffer_load_b128";
+    case Op::BufferStoreB8:
+        return "buffer_store_b8";
+    case Op::BufferStoreB16:
+        return "buffer_store_b16";
+    case Op::BufferStoreB32:
+        return "buffer_store_b32";
+    case Op::BufferStoreB64:
+        return "buffer_store_b64";
+    case Op::BufferStoreB96:
+        return "buffer_store_b96";
+    case Op::BufferStoreB128:
+        return "buffer_store_b128";
+    case Op::BufferLoadD16U8:
+        return "buffer_load_d16_u8";
+    case Op::BufferLoadD16I8:
+        return "buffer_load_d16_i8";
+    case Op::BufferLoadD16B16:
+        return "buffer_load_d16_b16";
+    case Op::BufferLoadD16HiU8:
+        return "buffer_load_d16_hi_u8";
+    case Op::BufferLoadD16HiI8:
+        return "buffer_load_d16_hi_i8";
+    case Op::BufferLoadD16HiB16:
+        return "buffer_load_d16_hi_b16";
+    case Op::BufferStoreD16HiB8:
+        return "buffer_store_d16_hi_b8";
+    case Op::BufferStoreD16HiB16:
+        return "buffer_store_d16_hi_b16";
+    case Op::BufferLoadD16HiFormatX:
+        return "buffer_load_d16_hi_format_x";
+    case Op::BufferStoreD16HiFormatX:
+        return "buffer_store_d16_hi_format_x";
+    case Op::BufferAtomicSwapB32:
+        return "buffer_atomic_swap_b32";
+    case Op::BufferAtomicCmpswapB32:
+        return "buffer_atomic_cmpswap_b32";
+    case Op::BufferAtomicAddU32:
+        return "buffer_atomic_add_u32";
+    case Op::BufferAtomicSubU32:
+        return "buffer_atomic_sub_u32";
+    case Op::BufferAtomicSubClampU32:
+        return "buffer_atomic_sub_clamp_u32";
+    case Op::BufferAtomicMinI32:
+        return "buffer_atomic_min_i32";
+    case Op::BufferAtomicMinU32:
+        return "buffer_atomic_min_u32";
+    case Op::BufferAtomicMaxI32:
+        return "buffer_atomic_max_i32";
+    case Op::BufferAtomicMaxU32:
+        return "buffer_atomic_max_u32";
+    case Op::BufferAtomicAndB32:
+        return "buffer_atomic_and_b32";
+    case Op::BufferAtomicOrB32:
+        return "buffer_atomic_or_b32";
+    case Op::BufferAtomicXorB32:
+        return "buffer_atomic_xor_b32";
+    case Op::BufferAtomicIncU32:
+        return "buffer_atomic_inc_u32";
+    case Op::BufferAtomicDecU32:
+        return "buffer_atomic_dec_u32";
+    case Op::BufferAtomicSwapB64:
+        return "buffer_atomic_swap_b64";
+    case Op::BufferAtomicCmpswapB64:
+        return "buffer_atomic_cmpswap_b64";
+    case Op::BufferAtomicAddU64:
+        return "buffer_atomic_add_u64";
+    case Op::BufferAtomicSubU64:
+        return "buffer_atomic_sub_u64";
+    case Op::BufferAtomicMinI64:
+        return "buffer_atomic_min_i64";
+    case Op::BufferAtomicMinU64:
+        return "buffer_atomic_min_u64";
+    case Op::BufferAtomicMaxI64:
+        return "buffer_atomic_max_i64";
+    case Op::BufferAtomicMaxU64:
+        return "buffer_atomic_max_u64";
+    case Op::BufferAtomicAndB64:
+        return "buffer_atomic_and_b64";
+    case Op::BufferAtomicOrB64:
+        return "buffer_atomic_or_b64";
+    case Op::BufferAtomicXorB64:
+        return "buffer_atomic_xor_b64";
+    case Op::BufferAtomicIncU64:
+        return "buffer_atomic_inc_u64";
+    case Op::BufferAtomicDecU64:
+        return "buffer_atomic_dec_u64";
+    case Op::BufferAtomicCondSubU32:
+        return "buffer_atomic_cond_sub_u32";
+    case Op::BufferAtomicMinNumF32:
+        return "buffer_atomic_min_num_f32";
+    case Op::BufferAtomicMaxNumF32:
+        return "buffer_atomic_max_num_f32";
+    case Op::BufferAtomicAddF32:
+        return "buffer_atomic_add_f32";
+    case Op::BufferAtomicPkAddF16:
+        return "buffer_atomic_pk_add_f16";
+    case Op::BufferAtomicPkAddBf16:
+        return "buffer_atomic_pk_add_bf16";
+    case Op::TbufferLoadFormatX:
+        return "tbuffer_load_format_x";
+    case Op::TbufferLoadFormatXy:
+        return "tbuffer_load_format_xy";
+    case Op::TbufferLoadFormatXyz:
+        return "tbuffer_load_format_xyz";
+    case Op::TbufferLoadFormatXyzw:
+        return "tbuffer_load_format_xyzw";
+    case Op::TbufferStoreFormatX:
+        return "tbuffer_store_format_x";
+    case Op::TbufferStoreFormatXy:
+        return "tbuffer_store_format_xy";
+    case Op::TbufferStoreFormatXyz:
+        return "tbuffer_store_format_xyz";
+    case Op::TbufferStoreFormatXyzw:
+        return "tbuffer_store_format_xyzw";
+    case Op::TbufferLoadD16FormatX:
+        return "tbuffer_load_d16_format_x";
+    case Op::TbufferLoadD16FormatXy:
+        return "tbuffer_load_d16_format_xy";
+    case Op::TbufferLoadD16FormatXyz:
+        return "tbuffer_load_d16_format_xyz";
+    case Op::TbufferLoadD16FormatXyzw:
+        return "tbuffer_load_d16_format_xyzw";
+    case Op::TbufferStoreD16FormatX:
+        return "tbuffer_store_d16_format_x";
+    case Op::TbufferStoreD16FormatXy:
+        return "tbuffer_store_d16_format_xy";
+    case Op::TbufferStoreD16FormatXyz:
+        return "tbuffer_store_d16_format_xyz";
+    case Op::TbufferStoreD16FormatXyzw:
+        return "tbuffer_store_d16_format_xyzw";
     case Op::FlatLoadI8:
         return "flat_load_i8";
     case Op::FlatLoadU16:
@@ -3005,6 +3362,74 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
     std::uint32_t baseWords = 1;
     std::uint64_t wide = word0;
 
+    // VBUFFER (RDNA4): 96-bit encoding, six-bit prefix in bits 26..31.
+    if (((word0 >> 26) & 0x3F) == 0x31u)
+    {
+        if (words.size() < 3)
+            return std::unexpected(Error("SR-GFX-013", "truncated VBUFFER instruction", bytePc));
+
+        const std::uint32_t word1 = words[1];
+        const std::uint32_t word2 = words[2];
+        const std::uint16_t bufferOpcode = static_cast<std::uint16_t>((word0 >> 14) & 0xFF);
+
+        const Entry* bufferEntry = Lookup(arch, Encoding::Buffer, bufferOpcode);
+        if (bufferEntry == nullptr || bufferEntry->removed)
+        {
+            return std::unexpected(Error("SR-GFX-014",
+                                         "unknown buffer opcode " + std::to_string(bufferOpcode) +
+                                             " for " + std::string(GetArchInfo(arch).name),
+                                         bytePc));
+        }
+
+        DecodedInstruction buffer;
+        buffer.op = bufferEntry->op;
+        buffer.opcode = bufferOpcode;
+        buffer.encoding = Encoding::Buffer;
+        buffer.arch = arch;
+        buffer.pc = bytePc;
+        buffer.word0 = word0;
+        buffer.word1 = word1;
+        buffer.wordCount = 3;
+        buffer.bufferOffen = ((word1 >> 30) & 0x1) != 0;
+        buffer.bufferIdxen = ((word1 >> 31) & 0x1) != 0;
+        buffer.bufferTfe = ((word0 >> 22) & 0x1) != 0;
+        buffer.bufferFormat = static_cast<std::uint8_t>((word1 >> 23) & 0x7F);
+
+        for (std::uint8_t i = 0; i < bufferEntry->operandCount; ++i)
+        {
+            Operand operand;
+            switch (bufferEntry->operands[i])
+            {
+            case OperandKind::BufferVdst:
+                operand.kind = OperandKind::GlobalVdst;
+                operand.value = word1 & 0xFF; // bits 32..39
+                break;
+            case OperandKind::BufferVsrc:
+                operand.kind = OperandKind::GlobalVsrc;
+                operand.value = word1 & 0xFF; // bits 32..39
+                break;
+            case OperandKind::BufferVaddr:
+                operand.kind = OperandKind::GlobalVaddr;
+                operand.value = word2 & 0xFF; // bits 64..71
+                break;
+            case OperandKind::BufferSoffset:
+                operand.kind = OperandKind::Sgpr;
+                operand.value = word0 & 0x7F; // bits 0..6
+                break;
+            case OperandKind::BufferIoffset:
+                operand.kind = OperandKind::GlobalIoffset;
+                operand.value = static_cast<std::uint32_t>(
+                    static_cast<std::int32_t>(((word2 >> 8) & 0xFFFFFFu) << 8) >> 8);
+                break;
+            default:
+                return std::unexpected(Error("SR-GFX-015", "unsupported buffer operand layout", bytePc));
+            }
+            if (buffer.operandCount < buffer.operands.size())
+                buffer.operands[buffer.operandCount++] = operand;
+        }
+        return buffer;
+    }
+
     // RDNA4 memory families use 96-bit encodings that differ only in the
     // leading byte: VFLAT 0xEC, VSCRATCH 0xED and VGLOBAL 0xEE.
     const std::uint32_t memoryPrefix = word0 >> 24;
@@ -3311,6 +3736,12 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         case OperandKind::Vop3Sdst:
             operand.kind = OperandKind::Sdst;
             operand.value = Extract(wide, 0, 7);
+            break;
+        case OperandKind::BufferVdst:
+        case OperandKind::BufferVaddr:
+        case OperandKind::BufferVsrc:
+        case OperandKind::BufferSoffset:
+        case OperandKind::BufferIoffset:
             break;
         case OperandKind::DsAddr:
             operand.value = Extract(wide, 32, 8);

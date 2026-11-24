@@ -699,6 +699,97 @@ enum class Op : std::uint16_t
     ScratchLoadBlock,
     ScratchStoreBlock,
 
+    // Buffer (MUBUF) family.
+    BufferLoadFormatX,
+    BufferLoadFormatXy,
+    BufferLoadFormatXyz,
+    BufferLoadFormatXyzw,
+    BufferStoreFormatX,
+    BufferStoreFormatXy,
+    BufferStoreFormatXyz,
+    BufferStoreFormatXyzw,
+    BufferLoadD16FormatX,
+    BufferLoadD16FormatXy,
+    BufferLoadD16FormatXyz,
+    BufferLoadD16FormatXyzw,
+    BufferStoreD16FormatX,
+    BufferStoreD16FormatXy,
+    BufferStoreD16FormatXyz,
+    BufferStoreD16FormatXyzw,
+    BufferLoadU8,
+    BufferLoadI8,
+    BufferLoadU16,
+    BufferLoadI16,
+    BufferLoadB32,
+    BufferLoadB64,
+    BufferLoadB96,
+    BufferLoadB128,
+    BufferStoreB8,
+    BufferStoreB16,
+    BufferStoreB32,
+    BufferStoreB64,
+    BufferStoreB96,
+    BufferStoreB128,
+    BufferLoadD16U8,
+    BufferLoadD16I8,
+    BufferLoadD16B16,
+    BufferLoadD16HiU8,
+    BufferLoadD16HiI8,
+    BufferLoadD16HiB16,
+    BufferStoreD16HiB8,
+    BufferStoreD16HiB16,
+    BufferLoadD16HiFormatX,
+    BufferStoreD16HiFormatX,
+    BufferAtomicSwapB32,
+    BufferAtomicCmpswapB32,
+    BufferAtomicAddU32,
+    BufferAtomicSubU32,
+    BufferAtomicSubClampU32,
+    BufferAtomicMinI32,
+    BufferAtomicMinU32,
+    BufferAtomicMaxI32,
+    BufferAtomicMaxU32,
+    BufferAtomicAndB32,
+    BufferAtomicOrB32,
+    BufferAtomicXorB32,
+    BufferAtomicIncU32,
+    BufferAtomicDecU32,
+    BufferAtomicSwapB64,
+    BufferAtomicCmpswapB64,
+    BufferAtomicAddU64,
+    BufferAtomicSubU64,
+    BufferAtomicMinI64,
+    BufferAtomicMinU64,
+    BufferAtomicMaxI64,
+    BufferAtomicMaxU64,
+    BufferAtomicAndB64,
+    BufferAtomicOrB64,
+    BufferAtomicXorB64,
+    BufferAtomicIncU64,
+    BufferAtomicDecU64,
+    BufferAtomicCondSubU32,
+    BufferAtomicMinNumF32,
+    BufferAtomicMaxNumF32,
+    BufferAtomicAddF32,
+    BufferAtomicPkAddF16,
+    BufferAtomicPkAddBf16,
+    TbufferLoadFormatX,
+    TbufferLoadFormatXy,
+    TbufferLoadFormatXyz,
+    TbufferLoadFormatXyzw,
+    TbufferStoreFormatX,
+    TbufferStoreFormatXy,
+    TbufferStoreFormatXyz,
+    TbufferStoreFormatXyzw,
+    TbufferLoadD16FormatX,
+    TbufferLoadD16FormatXy,
+    TbufferLoadD16FormatXyz,
+    TbufferLoadD16FormatXyzw,
+    TbufferStoreD16FormatX,
+    TbufferStoreD16FormatXy,
+    TbufferStoreD16FormatXyz,
+    TbufferStoreD16FormatXyzw,
+
 };
 
 [[nodiscard]] std::string_view ToString(Op op) noexcept;
@@ -742,6 +833,11 @@ enum class OperandKind : std::uint8_t
     DsData0,  // DS DATA0: VGPR data source or load destination
     DsData1,  // DS DATA1: second VGPR operand for the 2-address forms
     DsDest,   // DS VDST: VGPR destination of the _RTN forms
+    BufferVdst,
+    BufferVaddr,
+    BufferVsrc,
+    BufferSoffset,
+    BufferIoffset,
 };
 
 struct Operand
@@ -775,8 +871,12 @@ struct DecodedInstruction
     std::uint32_t dsOffset0 = 0; // DS immediate byte offset
     std::uint32_t dsOffset1 = 0; // DS second immediate offset for the 2-address forms
     bool dsGds = false;
+    bool bufferOffen = false;
+    bool bufferIdxen = false;
+    bool bufferTfe = false;
+    std::uint8_t bufferFormat = 0;
 
-    std::array<Operand, 4> operands{};
+    std::array<Operand, 6> operands{};
     std::uint8_t operandCount = 0;
 };
 
