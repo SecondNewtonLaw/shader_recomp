@@ -3865,6 +3865,14 @@ private:
         case Op::BufferLoadU16:
             shape.elementBytes = 2;
             break;
+        case Op::BufferStoreB8:
+            shape.elementBytes = 1;
+            shape.store = true;
+            break;
+        case Op::BufferStoreB16:
+            shape.elementBytes = 2;
+            shape.store = true;
+            break;
         case Op::BufferLoadI16:
             shape.elementBytes = 2;
             shape.sign = true;
@@ -3976,8 +3984,20 @@ private:
                              instruction.pc,
                              static_cast<std::uint16_t>(instruction.op),
                              false);
+        if (instruction.bufferOffset != 0)
+        {
+            sum = m_builder.Emit(m_module.types.U64(),
+                                 IL::Op::Binary,
+                                 static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                 {sum, m_builder.ConstantU64(instruction.bufferOffset)},
+                                 {},
+                                 IL::NoPayload,
+                                 instruction.pc,
+                                 static_cast<std::uint16_t>(instruction.op),
+                                 false);
+        }
 
-        if (shape.store)
+        if (shape.store && shape.dwords != 0)
         {
             const auto first = ReadBits(instruction.operands[0], instruction.pc);
             if (!first)
@@ -4003,6 +4023,50 @@ private:
                 m_builder.IntrinsicVoid(IL::IntrinsicId::DeviceStore, {address, value}, IL::NoPayload,
                                         instruction.pc);
             }
+            ApplyGuard(instruction.pc, guard);
+            return {};
+        }
+
+        if (shape.elementBytes != 0 && shape.store)
+        {
+            // A narrow store merges the element into the dword that holds it.
+            const IL::ValueId aligned = Bin(instruction,
+                                            IL::BinaryOp::And,
+                                            sum,
+                                            m_builder.ConstantU64(~static_cast<std::uint64_t>(3u)),
+                                            m_module.types.U64());
+            const IL::ValueId offset = Bin(instruction,
+                                           IL::BinaryOp::And,
+                                           sum,
+                                           m_builder.ConstantU64(3u),
+                                           m_module.types.U64());
+            const IL::ValueId offset32 =
+                m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, offset, false);
+            const IL::ValueId shift =
+                Bin(instruction, IL::BinaryOp::Shl, offset32, m_builder.ConstantU32(3));
+            const IL::ValueId elementMask =
+                m_builder.ConstantU32(shape.elementBytes == 1 ? 0xFFu : 0xFFFFu);
+
+            const auto source = ReadBits(instruction.operands[0], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId bits = Bin(instruction, IL::BinaryOp::And, *source, elementMask);
+            const IL::ValueId shifted = Bin(instruction, IL::BinaryOp::Shl, bits, shift);
+            const IL::ValueId keepMask = Bin(instruction, IL::BinaryOp::Shl, elementMask, shift);
+            const IL::ValueId inverted =
+                Bin(instruction, IL::BinaryOp::Xor, keepMask, m_builder.ConstantU32(0xFFFFFFFFu));
+            const IL::ValueId old = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                             IL::IntrinsicId::DeviceLoad,
+                                                             {aligned},
+                                                             IL::NoPayload,
+                                                             instruction.pc,
+                                                             false);
+            const IL::ValueId kept = Bin(instruction, IL::BinaryOp::And, old, inverted);
+            const IL::ValueId merged = Bin(instruction, IL::BinaryOp::Or, kept, shifted);
+
+            const IL::ValueId guard = CurrentGuard(instruction.pc);
+            m_builder.IntrinsicVoid(IL::IntrinsicId::DeviceStore, {aligned, merged}, IL::NoPayload,
+                                    instruction.pc);
             ApplyGuard(instruction.pc, guard);
             return {};
         }

@@ -63,6 +63,7 @@ foreach ($case in $cases) {
         "imagestore" = @("--test-abi", "--user-data-push", "8")
         "tbuffer"    = @("--test-abi", "--user-data-push", "4")
         "bufferwide" = @("--test-abi", "--user-data-push", "4")
+        "buffernarrow" = @("--test-abi", "--user-data-push", "4")
         "image"      = @("--test-abi", "--user-data-push", "12")
         "geometry_staged" = @("--gs-output-registers", "2")
         "scalarnew" = @("--test-abi")

@@ -886,6 +886,64 @@ TEST_CASE("LDS compare-and-store writes only on a match", "[gfx][lds]")
 #endif
 }
 
+TEST_CASE("narrow buffer stores merge into their dword", "[gfx][buffers]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("buffernarrow.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("buffer fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData.assign(4, 0u);
+    options.userDataFromPush = true;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    std::string liftError;
+    if (!module)
+        liftError = SR::ToString(module.error());
+    INFO(liftError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    // The buffer is byte addressed at 0..7: the seed is 0x11223344, the byte
+    // store puts 0xAA at +1, the short store puts 0xBBCC at +2, and 0x55667788
+    // goes to +4 through the immediate offset alone.
+    REQUIRE(module->testAbi);
+    const auto execution = SR::IL::Interpret(*module);
+    std::string executionError;
+    if (!execution)
+        executionError = SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    // Every device access must stay inside the eight bytes the fixture writes.
+    for (const auto& [address, value] : execution->device)
+    {
+        INFO("device address " << address << " value " << value);
+        REQUIRE(address < 8u);
+    }
+
+    REQUIRE(execution->buffer.at(2) == 0xBBCCAA44u);
+    REQUIRE(execution->buffer.at(3) == 0x55667788u);
+
+    const auto emission = SR::Backend::Reemit(*module);
+    std::string emissionError;
+    if (!emission)
+        emissionError = SR::ToString(emission.error());
+    INFO(emissionError);
+    REQUIRE(emission.has_value());
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

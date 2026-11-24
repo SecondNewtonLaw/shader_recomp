@@ -1289,6 +1289,9 @@ struct DecodedInstruction
     bool dsGds = false;
     bool bufferOffen = false;
     bool bufferIdxen = false;
+    // MUBUF/MTBUF: the immediate byte offset is word0 bits 0..11 (measured from
+    // llvm-mc output: offset:4 changes only those bits).
+    std::uint32_t bufferOffset = 0;
     bool bufferTfe = false;
     std::uint8_t bufferFormat = 0;
 

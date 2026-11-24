@@ -2386,3 +2386,39 @@ TEST_CASE("gfx1200 fixture lifts and emits validated SPIR-V", "[gfx][lift]")
     REQUIRE(emission->words[0] == 0x07230203u);
 #endif
 }
+
+TEST_CASE("gfx1030 MUBUF operands and offset decode to their fields", "[gfx][decode][mubuf]")
+{
+    using namespace SR::Frontend::Gfx;
+
+    // llvm-mc gfx1030 output for
+    //   buffer_store_dword v1, v0, s[0:3], 0 offen offset:0/4
+    //   buffer_store_byte  v3, v0, s[0:3], 0 offen offset:1
+    const std::array<std::uint32_t, 2> store0 = {0xE0701000u, 0x80000100u};
+    const std::array<std::uint32_t, 2> store4 = {0xE0701004u, 0x80000100u};
+    const std::array<std::uint32_t, 2> storeByte = {0xE0601001u, 0x80000300u};
+
+    const auto first = Decode(store0, Arch::Gfx103, 0);
+    REQUIRE(first.has_value());
+    REQUIRE(first->op == Op::BufferStoreB32);
+    REQUIRE(first->bufferOffset == 0u);
+
+    // The table's operand order is vdata, vaddr, soffset; the decoder rewrites
+    // the kinds to Vgpr/Ssrc once the field is extracted.
+    REQUIRE(first->operandCount >= 2);
+    // The instruction is `vdata=v1, vaddr=v0`.
+    REQUIRE(first->operands[0].value == 1u);
+    REQUIRE(first->operands[1].value == 0u);
+
+    const auto shifted = Decode(store4, Arch::Gfx103, 0);
+    REQUIRE(shifted.has_value());
+    REQUIRE(shifted->op == Op::BufferStoreB32);
+    REQUIRE(shifted->bufferOffset == 4u);
+
+    const auto byte = Decode(storeByte, Arch::Gfx103, 0);
+    REQUIRE(byte.has_value());
+    REQUIRE(byte->op == Op::BufferStoreB8);
+    REQUIRE(byte->bufferOffset == 1u);
+    REQUIRE(byte->operands[0].value == 3u);
+    REQUIRE(byte->operands[1].value == 0u);
+}

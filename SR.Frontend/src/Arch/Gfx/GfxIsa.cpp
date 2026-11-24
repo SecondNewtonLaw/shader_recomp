@@ -5503,7 +5503,9 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             break;
         case OperandKind::MubufVaddr:
             operand.kind = OperandKind::Vgpr;
-            operand.value = Extract(wide, 0, 8);
+            // VADDR is the low byte of the second dword. The low bits of the
+            // first dword are the immediate offset, not an address register.
+            operand.value = Extract(wide, 32, 8);
             break;
         case OperandKind::MubufSoffset:
             operand.kind = OperandKind::Ssrc;
@@ -5588,6 +5590,7 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         instruction.bufferOffen = Extract(word0, 12, 1) != 0;
         instruction.bufferIdxen = Extract(word0, 13, 1) != 0;
         instruction.bufferGlc = Extract(word0, 14, 1) != 0;
+        instruction.bufferOffset = Extract(word0, 0, 12);
         instruction.bufferSrsrc = Extract(wide, 48, 5) * 4;
         if (encoding == Encoding::Mtbuf)
         {
