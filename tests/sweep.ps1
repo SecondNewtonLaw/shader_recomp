@@ -67,12 +67,14 @@ foreach ($case in $cases) {
         "geometry_staged" = @("--gs-output-registers", "2")
         "imageresinfo" = @("--test-abi", "--user-data-push", "4")
         "imagegather4" = @("--test-abi", "--user-data-push", "12")
+        "imagemip" = @("--test-abi", "--user-data-push", "12")
+        "imageloadmip" = @("--test-abi", "--user-data-push", "4")
         "imageatomicadd" = @("--test-abi", "--user-data-push", "4", "--image-format", "r32ui")
     }
 
     # Fixtures whose translation is expected to be refused today: they are
     # reported, not counted as failures.
-    $expectedRefusal = @()
+    $expectedRefusal = @("imageloadmip")
 
     Get-ChildItem $directory -Filter *.hsaco | Sort-Object Name | ForEach-Object {
         $name = $_.BaseName

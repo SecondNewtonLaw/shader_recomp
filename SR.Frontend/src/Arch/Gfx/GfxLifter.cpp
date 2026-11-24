@@ -3536,8 +3536,20 @@ private:
             }
         }();
 
-        if (instruction.op != Op::ImageLoad && instruction.op != Op::ImageStore &&
-            instruction.op != Op::ImageSample && instruction.op != Op::ImageGetResinfo &&
+        if (instruction.op == Op::ImageLoadMip)
+        {
+            // A storage image read cannot name a level: the view selects it and
+            // OpImageRead has no Lod operand. The binding model gives each image
+            // one level, so the level is not something this path can honour.
+            return std::unexpected(LiftError("SR-GFX-LIFT-069",
+                                             "image_load_mip cannot select a level from a storage image "
+                                             "binding; the view names the level",
+                                             instruction.pc));
+        }
+
+        if (instruction.op != Op::ImageLoad &&
+            instruction.op != Op::ImageStore && instruction.op != Op::ImageSample &&
+            instruction.op != Op::ImageSampleL && instruction.op != Op::ImageGetResinfo &&
             instruction.op != Op::ImageGetLod && instruction.op != Op::ImageGather4 && !atomicKind)
         {
             return std::unexpected(LiftError("SR-GFX-LIFT-090",
@@ -3583,7 +3595,8 @@ private:
 
         // resinfo and atomics use the surface directly; gather4 goes through
         // the sampler.
-        const bool sampled = instruction.op == Op::ImageSample || instruction.op == Op::ImageGather4;
+        const bool sampled = instruction.op == Op::ImageSample || instruction.op == Op::ImageSampleL ||
+                             instruction.op == Op::ImageGather4;
         std::uint32_t binding = 0;
         for (std::size_t i = 0; i < m_imageBindings.size(); ++i)
         {
@@ -3706,12 +3719,24 @@ private:
             access.channel = static_cast<std::uint8_t>(gatherChannel);
             const IL::PayloadId payload = m_module.payloads.Add(access);
 
-            if (instruction.op == Op::ImageLoad || instruction.op == Op::ImageSample)
+            if (instruction.op == Op::ImageLoad ||
+                instruction.op == Op::ImageSample || instruction.op == Op::ImageSampleL)
             {
+                std::vector<IL::ValueId> coordinates{*x, *y};
+                if (instruction.op == Op::ImageSampleL)
+                {
+                    // The level is the third address dword.
+                    Operand level = *vaddrOperand;
+                    level.value += 2;
+                    const auto levelValue = ReadBits(level, instruction.pc);
+                    if (!levelValue)
+                        return std::unexpected(levelValue.error());
+                    coordinates.push_back(*levelValue);
+                }
                 const IL::ValueId value = m_builder.IntrinsicValue(
                     m_module.types.U32(),
                     sampled ? IL::IntrinsicId::ImageSample : IL::IntrinsicId::ImageLoad,
-                                                                   {*x, *y},
+                                                                   coordinates,
                                                                    payload,
                                                                    instruction.pc,
                                                                    false);

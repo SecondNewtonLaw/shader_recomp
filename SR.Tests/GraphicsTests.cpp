@@ -534,6 +534,68 @@ TEST_CASE("image queries, gather and atomics lift and execute", "[gfx][graphics]
         REQUIRE(emission.has_value());
     }
 
+    SECTION("an explicit level sample reads the level it names")
+    {
+        auto module = lift("imagemip.hsaco", true);
+        if (!module)
+        {
+            SUCCEED("image fixture is not present");
+            return;
+        }
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        SR::IL::ExecutionOptions options;
+        options.imageExtents[8] = {4, 4};
+        for (std::uint32_t x = 0; x < 4; ++x)
+        {
+            const std::uint64_t key = (8ull << 40) | x;
+            const std::uint32_t base = 1 + x;
+            options.images[key] = {base, base + 1, base + 2, base + 3};
+        }
+
+        const auto execution = SR::IL::Interpret(*module, options);
+        std::string executionError;
+        if (!execution)
+            executionError = SR::ToString(execution.error());
+        INFO(executionError);
+        REQUIRE(execution.has_value());
+        // Level zero of the bound surface is texel (0,0). The test ABI's image
+        // contents are raw dwords, so the texel is 1, 2, 3, 4 here; the device
+        // holds the same dwords as floats.
+        REQUIRE(execution->buffer.at(0) == 1u);
+        REQUIRE(execution->buffer.at(1) == 2u);
+        REQUIRE(execution->buffer.at(2) == 3u);
+        REQUIRE(execution->buffer.at(3) == 4u);
+
+        const auto emission = SR::Backend::Reemit(*module);
+        std::string emissionError;
+        if (!emission)
+            emissionError = SR::ToString(emission.error());
+        INFO(emissionError);
+        REQUIRE(emission.has_value());
+    }
+
+    SECTION("a mip load on a storage image is refused with its reason")
+    {
+        const auto bytes = ReadFile(Fixture("imageloadmip.hsaco"));
+        if (bytes.empty())
+        {
+            SUCCEED("image fixture is not present");
+            return;
+        }
+        auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+        REQUIRE(shader.has_value());
+        shader->stage = SR::IL::Stage::Compute;
+
+        SR::Frontend::Gfx::LiftOptions options;
+        options.testAbi = true;
+        options.userData.assign(4, 0u);
+        options.userDataFromPush = true;
+        auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+        REQUIRE_FALSE(module.has_value());
+        REQUIRE(module.error().code == "SR-GFX-LIFT-069");
+    }
+
     SECTION("an atomic without a declared format is refused")
     {
         const auto bytes = ReadFile(Fixture("imageatomicadd.hsaco"));

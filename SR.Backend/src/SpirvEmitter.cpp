@@ -2951,9 +2951,20 @@ private:
                 const std::uint32_t sampledObject = NewId();
                 Op(OpSampledImage, {image->sampledImageType, sampledObject, imageObject, samplerObject});
 
+                std::uint32_t levelId = m_imageZeroLod;
+                if (instruction.operands.size() == 3)
+                {
+                    const auto level = ValueId(function, instruction.operands[2]);
+                    if (!level)
+                        return std::unexpected(
+                            EmitError("SR-SPV-107", "invalid explicit level", instruction.sourcePc));
+                    levelId = NewId();
+                    Op(OpBitcast, {m_imageVec4Element, levelId, *level});
+                }
+
                 const std::uint32_t texel = NewId();
                 Op(OpImageSampleExplicitLod, {m_imageVec4, texel, sampledObject, floatCoordinate,
-                                              2 /* Lod */, m_imageZeroLod});
+                                              2 /* Lod */, levelId});
 
                 const std::uint32_t component = NewId();
                 Op(OpCompositeExtract, {m_imageVec4Element, component, texel,

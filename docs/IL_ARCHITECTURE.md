@@ -369,8 +369,11 @@ compiled by the driver there, never executed.
 
 `image.query-lod` (MIMG `image_get_lod`) is refused: an implicit level needs a
 derivative group, and the Vulkan 1.3 profile this backend targets enables no
-compute derivative-group capability. The diagnostic says so and names the
-instruction.
+compute derivative-group capability. `image_load_mip` is refused for the same
+kind of reason: `OpImageRead` has no Lod operand, so a storage image cannot
+name a level and the bound view selects it. An explicit-level sample
+(`image_sample_l`) does carry the level through `OpImageSampleExplicitLod`.
+Both diagnostics name the instruction.
 
 ## 8. Memory and resources
 

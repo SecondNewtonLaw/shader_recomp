@@ -74,9 +74,11 @@ constexpr std::array<IntrinsicSpec, static_cast<std::size_t>(IntrinsicId::Count)
     Make(IntrinsicId::UserData, "user-data", 0, 0, 1, 1, Effect::None),
     Make(IntrinsicId::DeviceLoad, "device.load", 1, 1, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::DeviceStore, "device.store", 2, 2, 0, 0, Effect::WriteMemory),
-    Make(IntrinsicId::ImageLoad, "image.load", 2, 2, 1, 1, Effect::ReadMemory),
+    // The optional third operand is the level for a mip load or an explicit
+    // level sample.
+    Make(IntrinsicId::ImageLoad, "image.load", 2, 3, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::ImageStore, "image.store", 6, 6, 0, 0, Effect::WriteMemory),
-    Make(IntrinsicId::ImageSample, "image.sample", 2, 2, 1, 1, Effect::ReadMemory),
+    Make(IntrinsicId::ImageSample, "image.sample", 2, 3, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::ImageQuerySize, "image.query-size", 0, 0, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::ImageQueryLod, "image.query-lod", 2, 2, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::ImageGather, "image.gather", 2, 2, 1, 1, Effect::ReadMemory),
