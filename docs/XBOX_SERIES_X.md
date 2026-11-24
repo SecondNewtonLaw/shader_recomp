@@ -234,8 +234,8 @@ Each phase ends with something executable, not with a table entry.
    compiler and draws the graphics pipelines: 86 of 86, none refused, in about
    two seconds. `tools/coverage.py` derives the lifted set from
    `GfxLifter.cpp` instead of a hand-maintained list, and reports the decoded
-   count beside it: gfx10 lifts 713 of its 751 decoded opcodes (of 1149 in the
-   XML), gfx1030 713 of 751 (of 1153), gfx1200 1211 of 1509 decoded (the
+   count beside it: gfx10 lifts 802 of its 840 decoded opcodes (of 1149 in the
+   XML), gfx1030 802 of 840 (of 1153), gfx1200 1255 of 1553 decoded (the
    decoded count exceeds the XML total because table entries include aliases
    and VOPC compare forms). The numbers say the lifter covers 95% of what the
    tables decode; the gap is decoding, not lifting. A case can still refuse
