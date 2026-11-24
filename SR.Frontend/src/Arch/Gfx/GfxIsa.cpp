@@ -631,10 +631,10 @@ constexpr std::array kGfx10 = {
          {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
     Make(Encoding::Ds, 60, Op::DsLoadU16, "ds_read_u16",
          {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
-    Make(Encoding::Ds, 61, Op::DsConsume, "ds_consume",
-         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
-    Make(Encoding::Ds, 62, Op::DsAppend, "ds_append",
-         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    // The counter forms carry only the destination: the immediate offset is
+    // the counter's address, there is no address register.
+    Make(Encoding::Ds, 61, Op::DsConsume, "ds_consume", {OperandKind::DsDest}),
+    Make(Encoding::Ds, 62, Op::DsAppend, "ds_append", {OperandKind::DsDest}),
     Make(Encoding::Ds, 63, Op::DsOrderedCount, "ds_ordered_count",
          {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
     Make(Encoding::Ds, 64, Op::DsAddU64, "ds_add_u64",

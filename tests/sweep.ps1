@@ -66,6 +66,7 @@ foreach ($case in $cases) {
         "image"      = @("--test-abi", "--user-data-push", "12")
         "geometry_staged" = @("--gs-output-registers", "2")
         "scalarnew" = @("--test-abi")
+        "dscounter" = @("--test-abi")
         "imageresinfo" = @("--test-abi", "--user-data-push", "4")
         "imagegather4" = @("--test-abi", "--user-data-push", "12")
         "imagemip" = @("--test-abi", "--user-data-push", "12")

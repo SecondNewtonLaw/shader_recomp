@@ -5273,6 +5273,26 @@ private:
         SubClamp,
     };
 
+    // ds_append / ds_consume: return the counter and step it. The plain forms
+    // wrap through zero; the bounded forms take their bound from M0.
+    [[nodiscard]] Result<void> LiftDsCounter(const DecodedInstruction& instruction, bool increment)
+    {
+        if (instruction.dsOffset0 % 4 != 0)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-070", "counter address is not dword aligned", instruction.pc));
+        const IL::ValueId index = m_builder.ConstantU32(instruction.dsOffset0 / 4);
+
+        const IL::ValueId old = DsDword(instruction, index);
+        const IL::ValueId next = Bin(instruction,
+                                     increment ? IL::BinaryOp::IAdd : IL::BinaryOp::ISub,
+                                     old,
+                                     m_builder.ConstantU32(1));
+        const IL::ValueId guard = CurrentGuard(instruction.pc);
+        m_builder.IntrinsicVoid(IL::IntrinsicId::LocalStore, {index, next}, IL::NoPayload, instruction.pc);
+        ApplyGuard(instruction.pc, guard);
+        return DsWriteDest(instruction, old);
+    }
+
     [[nodiscard]] Result<void> LiftDsAtomic(const DecodedInstruction& instruction,
                                             DsAtomicKind kind,
                                             bool wide,
@@ -5615,6 +5635,10 @@ private:
         case Op::DsStoreB16D16Hi:
             return LiftDsByteAccess(instruction);
 
+        case Op::DsAppend:
+            return LiftDsCounter(instruction, true);
+        case Op::DsConsume:
+            return LiftDsCounter(instruction, false);
         case Op::DsAddU32:
             return LiftDsAtomic(instruction, DsAtomicKind::Add, false, false);
         case Op::DsAddRtnU32:
