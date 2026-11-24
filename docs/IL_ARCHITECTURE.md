@@ -275,7 +275,9 @@ Built-in intrinsic families:
 | `Quad` | `QuadMode` | quad broadcast/swap/vote |
 | `TextureSample` | `SampleDesc` | sample/load/gather/query |
 | `TextureStore` | `SampleDesc` | image/surface stores |
-| `ImageAtomic` | `AtomicOp` | image atomics |
+| `ImageQuerySize` / `ImageQueryLod` | `ImageAccessDesc` | surface size and level |
+| `ImageGather` | `ImageAccessDesc` | gather4: `channel` gathers, `component` picks the texel |
+| `ImageAtomic` | `ImageAccessDesc` | image atomics; `atomicKind` names the operation |
 | `Mma` | `MmaDesc` | matrix multiply-accumulate |
 | `TensorLoad` / `TensorStore` | `TensorDesc` | tensor memory movement |
 | `RayQuery` | `RayQueryDesc` | BVH/ray traversal |
@@ -354,6 +356,16 @@ primitive; `s_endpgm` flushes whichever of the two is still open. That is the
 legacy export path. NGG (`s_sendmsg GS_ALLOC_REQ`) is still a diagnostic:
 its vertex data lives in an allocated ring that the wave reads with `ds_*`, not
 in the export path.
+
+Image atomics lower to `OpImageTexelPointer` plus the matching `OpAtomic*`
+with device scope and relaxed semantics; the surface is declared R32ui so the
+texel pointer has an integer pointee. A surface may not be both atomically
+updated and read as a float image.
+
+`image.query-lod` (MIMG `image_get_lod`) is refused: an implicit level needs a
+derivative group, and the Vulkan 1.3 profile this backend targets enables no
+compute derivative-group capability. The diagnostic says so and names the
+instruction.
 
 ## 8. Memory and resources
 
