@@ -320,6 +320,70 @@ constexpr std::array kGfx10 = {
     Make(Encoding::VopC, 197, Op::V_CmpNeU32, "v_cmp_ne_u32", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::VopC, 198, Op::V_CmpGeU32, "v_cmp_ge_u32", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
 
+    Make(Encoding::Vop1, 10, Op::V_CvtF16F32, "v_cvt_f16_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 11, Op::V_CvtF32F16, "v_cvt_f32_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 80, Op::V_CvtF16U16, "v_cvt_f16_u16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 81, Op::V_CvtF16I16, "v_cvt_f16_i16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 82, Op::V_CvtU16F16, "v_cvt_u16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 83, Op::V_CvtI16F16, "v_cvt_i16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 84, Op::V_RcpF16, "v_rcp_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 85, Op::V_SqrtF16, "v_sqrt_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 86, Op::V_RsqF16, "v_rsq_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 87, Op::V_LogF16, "v_log_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 88, Op::V_ExpF16, "v_exp_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 91, Op::V_FloorF16, "v_floor_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 92, Op::V_CeilF16, "v_ceil_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 93, Op::V_TruncF16, "v_trunc_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 94, Op::V_RndneF16, "v_rndne_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 95, Op::V_FractF16, "v_fract_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 96, Op::V_SinF16, "v_sin_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 97, Op::V_CosF16, "v_cos_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 99, Op::V_CvtNormI16F16, "v_cvt_norm_i16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 100, Op::V_CvtNormU16F16, "v_cvt_norm_u16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+
+    Make(Encoding::Vop2, 50, Op::V_AddF16, "v_add_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 51, Op::V_SubF16, "v_sub_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 52, Op::V_SubrevF16, "v_subrev_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 53, Op::V_MulF16, "v_mul_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 54, Op::V_FmacF16, "v_fmac_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 57, Op::V_MaxF16, "v_max_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 58, Op::V_MinF16, "v_min_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 59, Op::V_LdexpF16, "v_ldexp_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+
+    Make(Encoding::Vop3, 306, Op::V_AddF16, "v_add_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 307, Op::V_SubF16, "v_sub_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 308, Op::V_SubrevF16, "v_subrev_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 309, Op::V_MulF16, "v_mul_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 310, Op::V_FmacF16, "v_fmac_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 313, Op::V_MaxF16, "v_max_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 314, Op::V_MinF16, "v_min_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 315, Op::V_LdexpF16, "v_ldexp_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 394, Op::V_CvtF16F32, "v_cvt_f16_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 395, Op::V_CvtF32F16, "v_cvt_f32_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 464, Op::V_CvtF16U16, "v_cvt_f16_u16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 465, Op::V_CvtF16I16, "v_cvt_f16_i16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 466, Op::V_CvtU16F16, "v_cvt_u16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 467, Op::V_CvtI16F16, "v_cvt_i16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 468, Op::V_RcpF16, "v_rcp_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 469, Op::V_SqrtF16, "v_sqrt_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 470, Op::V_RsqF16, "v_rsq_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 471, Op::V_LogF16, "v_log_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 472, Op::V_ExpF16, "v_exp_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 475, Op::V_FloorF16, "v_floor_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 476, Op::V_CeilF16, "v_ceil_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 477, Op::V_TruncF16, "v_trunc_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 478, Op::V_RndneF16, "v_rndne_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 479, Op::V_FractF16, "v_fract_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 480, Op::V_SinF16, "v_sin_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 481, Op::V_CosF16, "v_cos_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 483, Op::V_CvtNormI16F16, "v_cvt_norm_i16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 484, Op::V_CvtNormU16F16, "v_cvt_norm_u16_f16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 843, Op::V_FmaF16, "v_fma_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 849, Op::V_Min3F16, "v_min3_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 852, Op::V_Max3F16, "v_max3_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Smem, 0, Op::S_LoadB32, "s_load_dword",
          {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
     Make(Encoding::Smem, 8, Op::S_BufferLoadB32, "s_buffer_load_dword",
@@ -445,6 +509,8 @@ constexpr std::array kGfx11 = {
     Remove(Encoding::VopC, 198),
 
     Make(Encoding::Sop1, 0, Op::S_MovB32, "s_mov_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Vop1, 28, Op::V_MovB16, "v_mov_b16", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 105, Op::V_NotB16, "v_not_b16", {OperandKind::Vgpr, OperandKind::Src}),
     Make(Encoding::Sop1, 1, Op::S_MovB64, "s_mov_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
     Make(Encoding::Sop1, 31, Op::S_NotB64, "s_not_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
 
@@ -533,6 +599,12 @@ constexpr std::array kGfx11 = {
     Make(Encoding::Vop2, 34, Op::V_SubrevCoCiU32, "v_subrev_co_ci_u32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop3, 263, Op::V_MulDx9ZeroF32, "v_mul_dx9_zero_f32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 828, Op::V_LshlrevB64, "v_lshlrev_b64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 584, Op::V_FmaF16, "v_fma_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 585, Op::V_Min3F16, "v_min3_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 588, Op::V_Max3F16, "v_max3_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 597, Op::V_Add3U32, "v_add3_u32",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 583, Op::V_AddLshlU32, "v_add_lshl_u32",
@@ -612,11 +684,20 @@ constexpr std::array kGfx12 = {
     Remove(Encoding::Flat, 28),
     Remove(Encoding::Vop2, 15),
     Remove(Encoding::Vop2, 16),
+    Remove(Encoding::Vop2, 57),
+    Remove(Encoding::Vop2, 58),
+    Make(Encoding::Vop2, 48, Op::V_MinF16, "v_min_num_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 49, Op::V_MaxF16, "v_max_num_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Remove(Encoding::Vop3, 313),
+    Remove(Encoding::Vop3, 314),
     Remove(Encoding::Vop3, 271),
     Remove(Encoding::Vop3, 272),
     Remove(Encoding::Vop3, 537),
     Remove(Encoding::Vop3, 540),
     Remove(Encoding::Vop3, 828),
+    Remove(Encoding::Vop3, 843),
+    Remove(Encoding::Vop3, 849),
+    Remove(Encoding::Vop3, 852),
     Make(Encoding::Vop2, 31, Op::V_LshlrevB64, "v_lshlrev_b64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop3, 287, Op::V_LshlrevB64, "v_lshlrev_b64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop2, 21, Op::V_MinF32, "v_min_num_f32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
@@ -1133,6 +1214,72 @@ std::string_view ToString(Op op) noexcept
         return "v_sad_u32";
     case Op::V_LdexpF32:
         return "v_ldexp_f32";
+    case Op::V_CvtF16F32:
+        return "v_cvt_f16_f32";
+    case Op::V_CvtF32F16:
+        return "v_cvt_f32_f16";
+    case Op::V_CvtF16U16:
+        return "v_cvt_f16_u16";
+    case Op::V_CvtF16I16:
+        return "v_cvt_f16_i16";
+    case Op::V_CvtU16F16:
+        return "v_cvt_u16_f16";
+    case Op::V_CvtI16F16:
+        return "v_cvt_i16_f16";
+    case Op::V_CvtNormI16F16:
+        return "v_cvt_norm_i16_f16";
+    case Op::V_CvtNormU16F16:
+        return "v_cvt_norm_u16_f16";
+    case Op::V_RcpF16:
+        return "v_rcp_f16";
+    case Op::V_RsqF16:
+        return "v_rsq_f16";
+    case Op::V_SqrtF16:
+        return "v_sqrt_f16";
+    case Op::V_ExpF16:
+        return "v_exp_f16";
+    case Op::V_LogF16:
+        return "v_log_f16";
+    case Op::V_FloorF16:
+        return "v_floor_f16";
+    case Op::V_CeilF16:
+        return "v_ceil_f16";
+    case Op::V_TruncF16:
+        return "v_trunc_f16";
+    case Op::V_RndneF16:
+        return "v_rndne_f16";
+    case Op::V_FractF16:
+        return "v_fract_f16";
+    case Op::V_SinF16:
+        return "v_sin_f16";
+    case Op::V_CosF16:
+        return "v_cos_f16";
+    case Op::V_MovB16:
+        return "v_mov_b16";
+    case Op::V_NotB16:
+        return "v_not_b16";
+    case Op::V_AddF16:
+        return "v_add_f16";
+    case Op::V_SubF16:
+        return "v_sub_f16";
+    case Op::V_SubrevF16:
+        return "v_subrev_f16";
+    case Op::V_MulF16:
+        return "v_mul_f16";
+    case Op::V_FmacF16:
+        return "v_fmac_f16";
+    case Op::V_MinF16:
+        return "v_min_f16";
+    case Op::V_MaxF16:
+        return "v_max_f16";
+    case Op::V_LdexpF16:
+        return "v_ldexp_f16";
+    case Op::V_Min3F16:
+        return "v_min3_f16";
+    case Op::V_Max3F16:
+        return "v_max3_f16";
+    case Op::V_FmaF16:
+        return "v_fma_f16";
     case Op::V_AddNcU32:
         return "v_add_nc_u32";
     case Op::V_SubNcU32:

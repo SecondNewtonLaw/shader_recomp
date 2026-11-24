@@ -33,12 +33,73 @@ std::uint64_t MaskFor(const Module& module, TypeId typeId)
             return ~0ull;
         return (1ull << type.width) - 1;
     case TypeKind::Float:
-        return type.floatFormat == FloatFormat::F64 ? ~0ull : 0xFFFFFFFFull;
+        if (type.floatFormat == FloatFormat::F64)
+            return ~0ull;
+        if (type.floatFormat == FloatFormat::F16 || type.floatFormat == FloatFormat::BF16)
+            return 0xFFFFull;
+        return 0xFFFFFFFFull;
     case TypeKind::Pointer:
         return 0xFFFFFFFFull;
     default:
         return ~0ull;
     }
+}
+
+float HalfToFloat(std::uint16_t half)
+{
+    const std::uint32_t sign = (half & 0x8000u) << 16;
+    const std::uint32_t exponent = (half >> 10) & 0x1Fu;
+    const std::uint32_t mantissa = half & 0x3FFu;
+
+    std::uint32_t bits = 0;
+    if (exponent == 0)
+    {
+        if (mantissa == 0)
+        {
+            bits = sign;
+        }
+        else
+        {
+            // Subnormal half: normalize into a float.
+            std::uint32_t value = mantissa;
+            std::int32_t shift = 0;
+            while ((value & 0x400u) == 0)
+            {
+                value <<= 1;
+                ++shift;
+            }
+            value &= 0x3FFu;
+            bits = sign | (static_cast<std::uint32_t>(127 - 15 - shift + 1) << 23) | (value << 13);
+        }
+    }
+    else if (exponent == 0x1F)
+    {
+        bits = sign | 0x7F800000u | (mantissa << 13);
+    }
+    else
+    {
+        bits = sign | ((exponent - 15 + 127) << 23) | (mantissa << 13);
+    }
+    return std::bit_cast<float>(bits);
+}
+
+std::uint16_t FloatToHalf(float value)
+{
+    const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+    const std::uint32_t sign = (bits >> 16) & 0x8000u;
+    const std::int32_t exponent = static_cast<std::int32_t>((bits >> 23) & 0xFFu) - 127 + 15;
+    const std::uint32_t mantissa = bits & 0x7FFFFFu;
+
+    if (exponent <= 0)
+    {
+        if (exponent < -10)
+            return static_cast<std::uint16_t>(sign);
+        const std::uint32_t shifted = (mantissa | 0x800000u) >> (1 - exponent);
+        return static_cast<std::uint16_t>(sign | (shifted >> 13));
+    }
+    if (exponent >= 31)
+        return static_cast<std::uint16_t>(sign | 0x7C00u | (mantissa != 0 ? 0x200u : 0u));
+    return static_cast<std::uint16_t>(sign | (static_cast<std::uint32_t>(exponent) << 10) | (mantissa >> 13));
 }
 
 std::int64_t AsSigned(std::uint64_t value, std::uint32_t width)
@@ -55,6 +116,10 @@ double AsFloat(std::uint64_t bits, const Type& type)
 {
     if (type.floatFormat == FloatFormat::F64)
         return std::bit_cast<double>(bits);
+    if (type.floatFormat == FloatFormat::F16)
+        return static_cast<double>(HalfToFloat(static_cast<std::uint16_t>(bits)));
+    if (type.floatFormat == FloatFormat::BF16)
+        return static_cast<double>(std::bit_cast<float>(static_cast<std::uint32_t>(bits) << 16));
     return static_cast<double>(std::bit_cast<float>(static_cast<std::uint32_t>(bits)));
 }
 
@@ -62,6 +127,10 @@ std::uint64_t FromFloat(double value, const Type& type)
 {
     if (type.floatFormat == FloatFormat::F64)
         return std::bit_cast<std::uint64_t>(value);
+    if (type.floatFormat == FloatFormat::F16)
+        return FloatToHalf(static_cast<float>(value));
+    if (type.floatFormat == FloatFormat::BF16)
+        return std::bit_cast<std::uint32_t>(static_cast<float>(value)) >> 16;
     return std::bit_cast<std::uint32_t>(static_cast<float>(value));
 }
 

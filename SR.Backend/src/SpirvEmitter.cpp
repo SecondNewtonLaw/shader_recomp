@@ -300,13 +300,25 @@ public:
         if (UsesFloatReciprocal(m_module))
         {
             const IL::TypeId f32Type = m_module.types.FindFloat(IL::FloatFormat::F32);
-            if (f32Type == IL::InvalidType)
-                return std::unexpected(EmitError("SR-SPV-046", "reciprocal requires an f32 type"));
-            const auto type = EmitType(f32Type);
-            if (!type)
-                return std::unexpected(type.error());
-            m_f32One = NewId();
-            Op(OpConstant, {*type, m_f32One, 0x3F800000u});
+            if (f32Type != IL::InvalidType)
+            {
+                const auto type = EmitType(f32Type);
+                if (!type)
+                    return std::unexpected(type.error());
+                m_f32One = NewId();
+                Op(OpConstant, {*type, m_f32One, 0x3F800000u});
+            }
+            const IL::TypeId f16Type = m_module.types.FindFloat(IL::FloatFormat::F16);
+            if (f16Type != IL::InvalidType)
+            {
+                const auto type = EmitType(f16Type);
+                if (!type)
+                    return std::unexpected(type.error());
+                m_f16One = NewId();
+                Op(OpConstant, {*type, m_f16One, 0x3C00u});
+            }
+            if (m_f32One == 0 && m_f16One == 0)
+                return std::unexpected(EmitError("SR-SPV-046", "reciprocal requires a float type"));
         }
 
         const auto status = EmitFunction();
@@ -411,6 +423,28 @@ private:
         return false;
     }
 
+    [[nodiscard]] static bool UsesFloat16(const IL::Module& module)
+    {
+        for (std::size_t index = 0; index < module.types.size(); ++index)
+        {
+            const IL::Type& type = module.types.Get(static_cast<IL::TypeId>(index));
+            if (type.kind == IL::TypeKind::Float && type.floatFormat == IL::FloatFormat::F16)
+                return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] static bool UsesInt16(const IL::Module& module)
+    {
+        for (std::size_t index = 0; index < module.types.size(); ++index)
+        {
+            const IL::Type& type = module.types.Get(static_cast<IL::TypeId>(index));
+            if (type.kind == IL::TypeKind::Int && type.width == 16)
+                return true;
+        }
+        return false;
+    }
+
     [[nodiscard]] static bool UsesFloatReciprocal(const IL::Module& module)
     {
         for (const IL::Function& function : module.functions)
@@ -476,6 +510,10 @@ private:
         Op(OpCapability, {1}); // Shader
         if (UsesInt64(m_module))
             Op(OpCapability, {11}); // Int64
+        if (UsesFloat16(m_module))
+            Op(OpCapability, {9}); // Float16
+        if (UsesInt16(m_module))
+            Op(OpCapability, {22}); // Int16
         if (m_useGlsl)
         {
             m_glslSet = NewId();
@@ -1961,11 +1999,15 @@ private:
             m_valueIds[resultValue] = resultId;
             return {};
         case IL::UnaryOp::Rcp:
-            if (m_f32One == 0)
+        {
+            const std::uint32_t one =
+                resultType.floatFormat == IL::FloatFormat::F16 ? m_f16One : m_f32One;
+            if (one == 0)
                 return std::unexpected(EmitError("SR-SPV-083", "reciprocal constant was not pre-emitted", instruction.sourcePc));
-            Op(OpFDiv, {typeId, resultId, m_f32One, *operand});
+            Op(OpFDiv, {typeId, resultId, one, *operand});
             m_valueIds[resultValue] = resultId;
             return {};
+        }
         case IL::UnaryOp::Rsq:
             Op(OpExtInst, {typeId, resultId, m_glslSet, GlslInverseSqrt, *operand});
             m_valueIds[resultValue] = resultId;
@@ -2117,6 +2159,7 @@ private:
     std::uint32_t m_bufferZero = 0;
     std::uint32_t m_mainId = 0;
     std::uint32_t m_f32One = 0;
+    std::uint32_t m_f16One = 0;
 
     bool m_structured = false;
     IL::FunctionAnalysis m_analysis;

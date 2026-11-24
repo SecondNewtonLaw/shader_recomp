@@ -1619,6 +1619,258 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    [[nodiscard]] IL::TypeId F16Type() { return m_module.types.Float(IL::FloatFormat::F16); }
+    [[nodiscard]] IL::TypeId U16Type() { return m_module.types.Int(16, false); }
+    [[nodiscard]] IL::TypeId I16Type() { return m_module.types.Int(16, true); }
+
+    [[nodiscard]] Result<IL::ValueId> ReadF16(const Operand& operand, std::uint32_t pc)
+    {
+        const auto bits = ReadBits(operand, pc);
+        if (!bits)
+            return bits;
+        const IL::ValueId low = m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, *bits, false);
+        return Bitcast(F16Type(), low);
+    }
+
+    [[nodiscard]] Result<void> WriteF16(const Operand& destination, IL::ValueId value, std::uint32_t pc)
+    {
+        const IL::ValueId bits = Bitcast(U16Type(), value);
+        const IL::ValueId wide = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt, bits, false);
+        return WriteDest(destination, wide, pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF16Unary(const DecodedInstruction& instruction, IL::UnaryOp subop)
+    {
+        const auto source = ReadF16(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+        const IL::ValueId result = m_builder.UnaryValue(subop, F16Type(), *source, false);
+        return WriteF16(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF16Binary(const DecodedInstruction& instruction,
+                                             IL::BinaryOp subop,
+                                             bool reverse = false)
+    {
+        const auto first = ReadF16(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadF16(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+
+        const IL::ValueId result = m_builder.Emit(F16Type(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(subop),
+                                                  {reverse ? *second : *first, reverse ? *first : *second},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteF16(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF16Fma(const DecodedInstruction& instruction, bool accumulate)
+    {
+        const auto a = ReadF16(instruction.operands[1], instruction.pc);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadF16(instruction.operands[2], instruction.pc);
+        if (!b)
+            return std::unexpected(b.error());
+
+        IL::ValueId c = IL::InvalidValue;
+        if (accumulate)
+        {
+            const auto accumulator = ReadF16(instruction.operands[0], instruction.pc);
+            if (!accumulator)
+                return std::unexpected(accumulator.error());
+            c = *accumulator;
+        }
+        else
+        {
+            const auto third = ReadF16(instruction.operands[3], instruction.pc);
+            if (!third)
+                return std::unexpected(third.error());
+            c = *third;
+        }
+
+        const IL::ValueId result = m_builder.Emit(F16Type(),
+                                                  IL::Op::Ternary,
+                                                  static_cast<std::uint16_t>(IL::TernaryOp::Fma),
+                                                  {*a, *b, c},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteF16(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF16Ternary(const DecodedInstruction& instruction, IL::TernaryOp subop)
+    {
+        const auto a = ReadF16(instruction.operands[1], instruction.pc);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadF16(instruction.operands[2], instruction.pc);
+        if (!b)
+            return std::unexpected(b.error());
+        const auto c = ReadF16(instruction.operands[3], instruction.pc);
+        if (!c)
+            return std::unexpected(c.error());
+
+        const IL::ValueId result = m_builder.Emit(F16Type(),
+                                                  IL::Op::Ternary,
+                                                  static_cast<std::uint16_t>(subop),
+                                                  {*a, *b, *c},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteF16(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF16Convert(const DecodedInstruction& instruction)
+    {
+        switch (instruction.op)
+        {
+        case Op::V_CvtF16F32:
+        {
+            const auto source = ReadFloat(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId result = m_builder.ConvertValue(F16Type(), IL::ConvertOp::FPTrunc, *source, false);
+            return WriteF16(instruction.operands[0], result, instruction.pc);
+        }
+        case Op::V_CvtF32F16:
+        {
+            const auto source = ReadF16(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            IL::ValueId result = m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::FPExt, *source, false);
+            result = Bitcast(m_module.types.U32(), result);
+            return WriteDest(instruction.operands[0], result, instruction.pc);
+        }
+        case Op::V_CvtF16U16:
+        case Op::V_CvtF16I16:
+        {
+            const auto source = ReadBits(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId low = m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, *source, false);
+            const IL::ValueId input = instruction.op == Op::V_CvtF16I16 ? Bitcast(I16Type(), low) : low;
+            const IL::ValueId result = m_builder.ConvertValue(
+                F16Type(), instruction.op == Op::V_CvtF16I16 ? IL::ConvertOp::SIToFP : IL::ConvertOp::UIToFP,
+                input, false);
+            return WriteF16(instruction.operands[0], result, instruction.pc);
+        }
+        case Op::V_CvtU16F16:
+        case Op::V_CvtI16F16:
+        {
+            const auto source = ReadF16(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const bool isSigned = instruction.op == Op::V_CvtI16F16;
+            const IL::ValueId result = m_builder.ConvertValue(
+                isSigned ? m_module.types.I32() : m_module.types.U32(),
+                isSigned ? IL::ConvertOp::FPToSI : IL::ConvertOp::FPToUI,
+                *source, false);
+            return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result), instruction.pc);
+        }
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-050", "not an f16 conversion", instruction.pc));
+        }
+    }
+
+    [[nodiscard]] Result<void> LiftF16Norm(const DecodedInstruction& instruction, bool isSigned)
+    {
+        const auto source = ReadF16(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+        const IL::ValueId wide =
+            m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::FPExt, *source, false);
+        const IL::ValueId scaled = m_builder.Emit(m_module.types.F32(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(IL::BinaryOp::FMul),
+                                                  {wide, m_builder.ConstantF32(isSigned ? 32767.0f : 65535.0f)},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        const IL::ValueId converted = m_builder.ConvertValue(
+            isSigned ? m_module.types.I32() : m_module.types.U32(),
+            isSigned ? IL::ConvertOp::FPToSI : IL::ConvertOp::FPToUI,
+            scaled, false);
+        const IL::ValueId masked = m_builder.Emit(m_module.types.U32(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                  {Bitcast(m_module.types.U32(), converted),
+                                                   m_builder.ConstantU32(0xFFFF)},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteDest(instruction.operands[0], masked, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF16Ldexp(const DecodedInstruction& instruction)
+    {
+        const auto value = ReadF16(instruction.operands[1], instruction.pc);
+        if (!value)
+            return std::unexpected(value.error());
+        const auto exponent = ReadSigned(instruction.operands[2], instruction.pc);
+        if (!exponent)
+            return std::unexpected(exponent.error());
+
+        const IL::ValueId exponentF16 =
+            m_builder.ConvertValue(F16Type(), IL::ConvertOp::SIToFP, *exponent, false);
+        const IL::ValueId scale =
+            m_builder.UnaryValue(IL::UnaryOp::Exp2, F16Type(), exponentF16, false);
+        const IL::ValueId result = m_builder.Emit(F16Type(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(IL::BinaryOp::FMul),
+                                                  {*value, scale},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteF16(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftBit16(const DecodedInstruction& instruction, bool invert)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+        IL::ValueId value = m_builder.Emit(m_module.types.U32(),
+                                           IL::Op::Binary,
+                                           static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                           {*source, m_builder.ConstantU32(0xFFFF)},
+                                           {},
+                                           IL::NoPayload,
+                                           instruction.pc,
+                                           static_cast<std::uint16_t>(instruction.op),
+                                           false);
+        if (invert)
+        {
+            value = m_builder.Emit(m_module.types.U32(),
+                                   IL::Op::Binary,
+                                   static_cast<std::uint16_t>(IL::BinaryOp::Xor),
+                                   {value, m_builder.ConstantU32(0xFFFF)},
+                                   {},
+                                   IL::NoPayload,
+                                   instruction.pc,
+                                   static_cast<std::uint16_t>(instruction.op),
+                                   false);
+        }
+        return WriteDest(instruction.operands[0], value, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftUnaryFloat(const DecodedInstruction& instruction, IL::UnaryOp subop)
     {
         const auto source = ReadFloatSource(instruction, 1);
@@ -2840,6 +3092,67 @@ private:
             return LiftMad24(instruction, false);
         case Op::V_LdexpF32:
             return LiftLdexp(instruction);
+        case Op::V_CvtF16F32:
+        case Op::V_CvtF32F16:
+        case Op::V_CvtF16U16:
+        case Op::V_CvtF16I16:
+        case Op::V_CvtU16F16:
+        case Op::V_CvtI16F16:
+            return LiftF16Convert(instruction);
+        case Op::V_CvtNormI16F16:
+            return LiftF16Norm(instruction, true);
+        case Op::V_CvtNormU16F16:
+            return LiftF16Norm(instruction, false);
+        case Op::V_RcpF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Rcp);
+        case Op::V_RsqF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Rsq);
+        case Op::V_SqrtF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Sqrt);
+        case Op::V_ExpF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Exp2);
+        case Op::V_LogF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Log2);
+        case Op::V_FloorF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Floor);
+        case Op::V_CeilF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Ceil);
+        case Op::V_TruncF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Trunc);
+        case Op::V_RndneF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::RoundEven);
+        case Op::V_FractF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Fract);
+        case Op::V_SinF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Sin);
+        case Op::V_CosF16:
+            return LiftF16Unary(instruction, IL::UnaryOp::Cos);
+        case Op::V_MovB16:
+            return LiftBit16(instruction, false);
+        case Op::V_NotB16:
+            return LiftBit16(instruction, true);
+        case Op::V_AddF16:
+            return LiftF16Binary(instruction, IL::BinaryOp::FAdd);
+        case Op::V_SubF16:
+            return LiftF16Binary(instruction, IL::BinaryOp::FSub);
+        case Op::V_SubrevF16:
+            return LiftF16Binary(instruction, IL::BinaryOp::FSub, true);
+        case Op::V_MulF16:
+            return LiftF16Binary(instruction, IL::BinaryOp::FMul);
+        case Op::V_MinF16:
+            return LiftF16Binary(instruction, IL::BinaryOp::FMin);
+        case Op::V_MaxF16:
+            return LiftF16Binary(instruction, IL::BinaryOp::FMax);
+        case Op::V_FmaF16:
+            return LiftF16Fma(instruction, false);
+        case Op::V_FmacF16:
+            return LiftF16Fma(instruction, true);
+        case Op::V_LdexpF16:
+            return LiftF16Ldexp(instruction);
+        case Op::V_Min3F16:
+            return LiftF16Ternary(instruction, IL::TernaryOp::FMin3);
+        case Op::V_Max3F16:
+            return LiftF16Ternary(instruction, IL::TernaryOp::FMax3);
         case Op::V_BfeU32:
             return LiftBitFieldExtract(instruction, false, false);        case Op::V_BfeI32:
             return LiftBitFieldExtract(instruction, true, false);

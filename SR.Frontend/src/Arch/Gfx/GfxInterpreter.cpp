@@ -24,6 +24,60 @@ float AsFloat(std::uint32_t value) noexcept
     return std::bit_cast<float>(value);
 }
 
+float HalfToFloat(std::uint16_t half) noexcept
+{
+    const std::uint32_t sign = (half & 0x8000u) << 16;
+    const std::uint32_t exponent = (half >> 10) & 0x1Fu;
+    const std::uint32_t mantissa = half & 0x3FFu;
+    std::uint32_t bits = 0;
+    if (exponent == 0)
+    {
+        if (mantissa == 0)
+        {
+            bits = sign;
+        }
+        else
+        {
+            std::uint32_t value = mantissa;
+            std::int32_t shift = 0;
+            while ((value & 0x400u) == 0)
+            {
+                value <<= 1;
+                ++shift;
+            }
+            value &= 0x3FFu;
+            bits = sign | (static_cast<std::uint32_t>(127 - 15 - shift + 1) << 23) | (value << 13);
+        }
+    }
+    else if (exponent == 0x1F)
+    {
+        bits = sign | 0x7F800000u | (mantissa << 13);
+    }
+    else
+    {
+        bits = sign | ((exponent - 15 + 127) << 23) | (mantissa << 13);
+    }
+    return std::bit_cast<float>(bits);
+}
+
+std::uint16_t FloatToHalf(float value) noexcept
+{
+    const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+    const std::uint32_t sign = (bits >> 16) & 0x8000u;
+    const std::int32_t exponent = static_cast<std::int32_t>((bits >> 23) & 0xFFu) - 127 + 15;
+    const std::uint32_t mantissa = bits & 0x7FFFFFu;
+    if (exponent <= 0)
+    {
+        if (exponent < -10)
+            return static_cast<std::uint16_t>(sign);
+        const std::uint32_t shifted = (mantissa | 0x800000u) >> (1 - exponent);
+        return static_cast<std::uint16_t>(sign | (shifted >> 13));
+    }
+    if (exponent >= 31)
+        return static_cast<std::uint16_t>(sign | 0x7C00u | (mantissa != 0 ? 0x200u : 0u));
+    return static_cast<std::uint16_t>(sign | (static_cast<std::uint32_t>(exponent) << 10) | (mantissa >> 13));
+}
+
 std::uint32_t AsBits(float value) noexcept
 {
     return std::bit_cast<std::uint32_t>(value);
@@ -1303,6 +1357,236 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 const auto value = source(1);
                 if (!value || !write(*value & 0xFFFFu))
                     return std::unexpected(Error("SR-GFX-ISA-105", "invalid cvt_u32_u16 operands", pc));
+                break;
+            }
+        case Op::V_CvtF16F32:
+            {
+                const auto value = source(1);
+                if (!value || !write(FloatToHalf(AsFloat(*value))))
+                    return std::unexpected(Error("SR-GFX-ISA-127", "invalid cvt_f16_f32 operands", pc));
+                break;
+            }
+        case Op::V_CvtF32F16:
+            {
+                const auto value = source(1);
+                if (!value || !write(AsBits(HalfToFloat(static_cast<std::uint16_t>(*value)))))
+                    return std::unexpected(Error("SR-GFX-ISA-128", "invalid cvt_f32_f16 operands", pc));
+                break;
+            }
+        case Op::V_CvtF16U16:
+            {
+                const auto value = source(1);
+                if (!value || !write(FloatToHalf(static_cast<float>(*value & 0xFFFFu))))
+                    return std::unexpected(Error("SR-GFX-ISA-129", "invalid cvt_f16_u16 operands", pc));
+                break;
+            }
+        case Op::V_CvtF16I16:
+            {
+                const auto value = source(1);
+                if (!value || !write(FloatToHalf(static_cast<float>(static_cast<std::int16_t>(*value & 0xFFFFu)))))
+                    return std::unexpected(Error("SR-GFX-ISA-130", "invalid cvt_f16_i16 operands", pc));
+                break;
+            }
+        case Op::V_CvtU16F16:
+            {
+                const auto value = source(1);
+                if (!value || !write(static_cast<std::uint32_t>(HalfToFloat(static_cast<std::uint16_t>(*value)))))
+                    return std::unexpected(Error("SR-GFX-ISA-131", "invalid cvt_u16_f16 operands", pc));
+                break;
+            }
+        case Op::V_CvtI16F16:
+            {
+                const auto value = source(1);
+                if (!value || !write(static_cast<std::uint32_t>(
+                        static_cast<std::int32_t>(HalfToFloat(static_cast<std::uint16_t>(*value))))))
+                    return std::unexpected(Error("SR-GFX-ISA-132", "invalid cvt_i16_f16 operands", pc));
+                break;
+            }
+        case Op::V_CvtNormI16F16:
+        case Op::V_CvtNormU16F16:
+            {
+                const auto value = source(1);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-133", "invalid norm conversion operand", pc));
+                const float input = HalfToFloat(static_cast<std::uint16_t>(*value));
+                const std::uint32_t result = instruction.op == Op::V_CvtNormI16F16
+                                                 ? static_cast<std::uint32_t>(
+                                                       static_cast<std::int32_t>(input * 32767.0f)) & 0xFFFFu
+                                                 : static_cast<std::uint32_t>(input * 65535.0f) & 0xFFFFu;
+                if (!write(result))
+                    return std::unexpected(Error("SR-GFX-ISA-134", "invalid norm conversion destination", pc));
+                break;
+            }
+        case Op::V_RcpF16:
+        case Op::V_RsqF16:
+        case Op::V_SqrtF16:
+        case Op::V_ExpF16:
+        case Op::V_LogF16:
+        case Op::V_FloorF16:
+        case Op::V_CeilF16:
+        case Op::V_TruncF16:
+        case Op::V_RndneF16:
+        case Op::V_FractF16:
+        case Op::V_SinF16:
+        case Op::V_CosF16:
+            {
+                const auto value = source(1);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-135", "invalid f16 unary operand", pc));
+                const float input = HalfToFloat(static_cast<std::uint16_t>(*value));
+                float converted = 0.0f;
+                switch (instruction.op)
+                {
+                case Op::V_RcpF16:
+                    converted = 1.0f / input;
+                    break;
+                case Op::V_RsqF16:
+                    converted = 1.0f / std::sqrt(input);
+                    break;
+                case Op::V_SqrtF16:
+                    converted = std::sqrt(input);
+                    break;
+                case Op::V_ExpF16:
+                    converted = std::exp2(input);
+                    break;
+                case Op::V_LogF16:
+                    converted = std::log2(input);
+                    break;
+                case Op::V_FloorF16:
+                    converted = std::floor(input);
+                    break;
+                case Op::V_CeilF16:
+                    converted = std::ceil(input);
+                    break;
+                case Op::V_TruncF16:
+                    converted = std::trunc(input);
+                    break;
+                case Op::V_RndneF16:
+                    converted = std::nearbyint(input);
+                    break;
+                case Op::V_FractF16:
+                    converted = input - std::floor(input);
+                    break;
+                case Op::V_SinF16:
+                    converted = std::sin(input);
+                    break;
+                case Op::V_CosF16:
+                    converted = std::cos(input);
+                    break;
+                default:
+                    break;
+                }
+                if (!write(FloatToHalf(converted)))
+                    return std::unexpected(Error("SR-GFX-ISA-136", "invalid f16 unary destination", pc));
+                break;
+            }
+        case Op::V_MovB16:
+            {
+                const auto value = source(1);
+                if (!value || !write(*value & 0xFFFFu))
+                    return std::unexpected(Error("SR-GFX-ISA-137", "invalid mov_b16 operands", pc));
+                break;
+            }
+        case Op::V_NotB16:
+            {
+                const auto value = source(1);
+                if (!value || !write(~*value & 0xFFFFu))
+                    return std::unexpected(Error("SR-GFX-ISA-138", "invalid not_b16 operands", pc));
+                break;
+            }
+        case Op::V_AddF16:
+        case Op::V_SubF16:
+        case Op::V_MulF16:
+        case Op::V_MinF16:
+        case Op::V_MaxF16:
+            {
+                const auto first = source(1);
+                const auto second = source(2);
+                if (!first || !second)
+                    return std::unexpected(Error("SR-GFX-ISA-139", "invalid f16 binary operands", pc));
+                const float a = HalfToFloat(static_cast<std::uint16_t>(*first));
+                const float b = HalfToFloat(static_cast<std::uint16_t>(*second));
+                float value = 0.0f;
+                if (instruction.op == Op::V_AddF16)
+                    value = a + b;
+                else if (instruction.op == Op::V_SubF16)
+                    value = a - b;
+                else if (instruction.op == Op::V_MulF16)
+                    value = a * b;
+                else if (instruction.op == Op::V_MinF16)
+                    value = std::fmin(a, b);
+                else
+                    value = std::fmax(a, b);
+                if (!write(FloatToHalf(value)))
+                    return std::unexpected(Error("SR-GFX-ISA-140", "invalid f16 binary destination", pc));
+                break;
+            }
+        case Op::V_SubrevF16:
+            {
+                const auto first = source(1);
+                const auto second = source(2);
+                if (!first || !second)
+                    return std::unexpected(Error("SR-GFX-ISA-141", "invalid f16 subrev operands", pc));
+                const float value = HalfToFloat(static_cast<std::uint16_t>(*second)) -
+                                    HalfToFloat(static_cast<std::uint16_t>(*first));
+                if (!write(FloatToHalf(value)))
+                    return std::unexpected(Error("SR-GFX-ISA-142", "invalid f16 subrev destination", pc));
+                break;
+            }
+        case Op::V_FmaF16:
+        case Op::V_FmacF16:
+            {
+                const auto first = source(1);
+                const auto second = source(2);
+                if (!first || !second)
+                    return std::unexpected(Error("SR-GFX-ISA-143", "invalid f16 fma operands", pc));
+                float c = 0.0f;
+                if (instruction.op == Op::V_FmacF16)
+                {
+                    const auto accumulator = ReadOperand(result.state, instruction.operands[0]);
+                    if (!accumulator)
+                        return std::unexpected(Error("SR-GFX-ISA-144", "invalid f16 fma accumulator", pc));
+                    c = HalfToFloat(static_cast<std::uint16_t>(*accumulator));
+                }
+                else
+                {
+                    const auto third = source(3);
+                    if (!third)
+                        return std::unexpected(Error("SR-GFX-ISA-145", "invalid f16 fma third operand", pc));
+                    c = HalfToFloat(static_cast<std::uint16_t>(*third));
+                }
+                const float value = std::fma(HalfToFloat(static_cast<std::uint16_t>(*first)),
+                                             HalfToFloat(static_cast<std::uint16_t>(*second)), c);
+                if (!write(FloatToHalf(value)))
+                    return std::unexpected(Error("SR-GFX-ISA-146", "invalid f16 fma destination", pc));
+                break;
+            }
+        case Op::V_LdexpF16:
+            {
+                const auto value = source(1);
+                const auto exponent = source(2);
+                if (!value || !exponent)
+                    return std::unexpected(Error("SR-GFX-ISA-147", "invalid f16 ldexp operands", pc));
+                const float scale = std::exp2(static_cast<float>(AsSigned(*exponent)));
+                if (!write(FloatToHalf(HalfToFloat(static_cast<std::uint16_t>(*value)) * scale)))
+                    return std::unexpected(Error("SR-GFX-ISA-148", "invalid f16 ldexp destination", pc));
+                break;
+            }
+        case Op::V_Min3F16:
+        case Op::V_Max3F16:
+            {
+                const auto first = source(1);
+                const auto second = source(2);
+                const auto third = source(3);
+                if (!first || !second || !third)
+                    return std::unexpected(Error("SR-GFX-ISA-149", "invalid f16 min3/max3 operands", pc));
+                const float a = HalfToFloat(static_cast<std::uint16_t>(*first));
+                const float b = HalfToFloat(static_cast<std::uint16_t>(*second));
+                const float c = HalfToFloat(static_cast<std::uint16_t>(*third));
+                const float value = instruction.op == Op::V_Min3F16 ? std::fmin(std::fmin(a, b), c)
+                                                                    : std::fmax(std::fmax(a, b), c);
+                if (!write(FloatToHalf(value)))
+                    return std::unexpected(Error("SR-GFX-ISA-150", "invalid f16 min3/max3 destination", pc));
                 break;
             }
         case Op::V_RcpF32:

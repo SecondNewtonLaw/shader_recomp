@@ -95,6 +95,13 @@ LIFTED = {
     # Bitfield.
     "V_BfeI32", "V_BfeU32", "V_BfiB32", "V_BfmB32", "V_AlignbitB32",
     "V_AlignbyteB32",
+    # F16.
+    "V_CvtF16F32", "V_CvtF32F16", "V_CvtF16U16", "V_CvtF16I16", "V_CvtU16F16",
+    "V_CvtI16F16", "V_CvtNormI16F16", "V_CvtNormU16F16", "V_RcpF16", "V_RsqF16",
+    "V_SqrtF16", "V_ExpF16", "V_LogF16", "V_FloorF16", "V_CeilF16", "V_TruncF16",
+    "V_RndneF16", "V_FractF16", "V_SinF16", "V_CosF16", "V_MovB16", "V_NotB16",
+    "V_AddF16", "V_SubF16", "V_SubrevF16", "V_MulF16", "V_FmacF16", "V_MinF16",
+    "V_MaxF16", "V_LdexpF16", "V_Min3F16", "V_Max3F16", "V_FmaF16",
 }
 
 FAMILIES = [
