@@ -631,6 +631,12 @@ constexpr std::array kGfx10 = {
          {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
     Make(Encoding::Ds, 60, Op::DsLoadU16, "ds_read_u16",
          {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    // Compare-and-store: the plain form has no destination, the _rtn form
+    // returns the value the location held.
+    Make(Encoding::Ds, 16, Op::DsCmpstB32, "ds_cmpst_b32",
+         {OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 48, Op::DsCmpstRtnB32, "ds_cmpst_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
     // The counter forms carry only the destination: the immediate offset is
     // the counter's address, there is no address register.
     Make(Encoding::Ds, 61, Op::DsConsume, "ds_consume", {OperandKind::DsDest}),
@@ -3499,6 +3505,10 @@ std::string_view ToString(Op op) noexcept
         return "ds_condxchg32_rtn_b64";
     case Op::DsConsume:
         return "ds_consume";
+    case Op::DsCmpstB32:
+        return "ds_cmpst_b32";
+    case Op::DsCmpstRtnB32:
+        return "ds_cmpst_rtn_b32";
     case Op::DsDecRtnU32:
         return "ds_dec_rtn_u32";
     case Op::DsDecRtnU64:

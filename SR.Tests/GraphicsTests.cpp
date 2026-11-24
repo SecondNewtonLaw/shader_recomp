@@ -839,6 +839,53 @@ TEST_CASE("LDS counters return the value and step it", "[gfx][lds]")
 #endif
 }
 
+TEST_CASE("LDS compare-and-store writes only on a match", "[gfx][lds]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("dscmpst.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("compare-store fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    std::string liftError;
+    if (!module)
+        liftError = SR::ToString(module.error());
+    INFO(liftError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    std::string executionError;
+    if (!execution)
+        executionError = SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    // The first compare matched and stored 9, the stale compare left it, and
+    // the returning form handed back 9 while storing 11.
+    REQUIRE(execution->buffer.at(0) == 9u);
+    REQUIRE(execution->buffer.at(1) == 11u);
+
+    const auto emission = SR::Backend::Reemit(*module);
+    std::string emissionError;
+    if (!emission)
+        emissionError = SR::ToString(emission.error());
+    INFO(emissionError);
+    REQUIRE(emission.has_value());
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

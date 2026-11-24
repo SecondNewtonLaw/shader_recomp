@@ -452,6 +452,8 @@ enum class Op : std::uint16_t
     DsCondSubU32,
     DsCondxchg32RtnB64,
     DsConsume,
+    DsCmpstB32,
+    DsCmpstRtnB32,
     DsDecRtnU32,
     DsDecRtnU64,
     DsDecU32,
