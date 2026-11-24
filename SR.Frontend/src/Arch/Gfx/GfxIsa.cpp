@@ -2352,6 +2352,32 @@ constexpr std::array kGfx12 = {
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop2, 60, Op::V_PkFmacF16, "v_pk_fmac_f16",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop3P, 19, Op::V_Dot2F32F16, "v_dot2_f32_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 22, Op::V_Dot4I32Iu8, "v_dot4_i32_iu8",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 23, Op::V_Dot4U32U8, "v_dot4_u32_u8",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 24, Op::V_Dot8I32Iu4, "v_dot8_i32_iu4",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 25, Op::V_Dot8U32U4, "v_dot8_u32_u4",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 26, Op::V_Dot2F32Bf16, "v_dot2_f32_bf16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 32, Op::V_FmaMixF32, "v_fma_mix_f32",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 33, Op::V_FmaMixloF16, "v_fma_mixlo_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 34, Op::V_FmaMixhiF16, "v_fma_mixhi_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 36, Op::V_Dot4F32Fp8Bf8, "v_dot4_f32_fp8_bf8",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 37, Op::V_Dot4F32Bf8Fp8, "v_dot4_f32_bf8_fp8",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 38, Op::V_Dot4F32Fp8Fp8, "v_dot4_f32_fp8_fp8",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 39, Op::V_Dot4F32Bf8Bf8, "v_dot4_f32_bf8_bf8",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -4076,6 +4102,32 @@ std::string_view ToString(Op op) noexcept
         return "v_ldexp_f64";
     case Op::V_PkMadI16:
         return "v_pk_mad_i16";
+    case Op::V_Dot2F32F16:
+        return "v_dot2_f32_f16";
+    case Op::V_Dot4I32Iu8:
+        return "v_dot4_i32_iu8";
+    case Op::V_Dot4U32U8:
+        return "v_dot4_u32_u8";
+    case Op::V_Dot8I32Iu4:
+        return "v_dot8_i32_iu4";
+    case Op::V_Dot8U32U4:
+        return "v_dot8_u32_u4";
+    case Op::V_Dot2F32Bf16:
+        return "v_dot2_f32_bf16";
+    case Op::V_FmaMixF32:
+        return "v_fma_mix_f32";
+    case Op::V_FmaMixloF16:
+        return "v_fma_mixlo_f16";
+    case Op::V_FmaMixhiF16:
+        return "v_fma_mixhi_f16";
+    case Op::V_Dot4F32Fp8Bf8:
+        return "v_dot4_f32_fp8_bf8";
+    case Op::V_Dot4F32Bf8Fp8:
+        return "v_dot4_f32_bf8_fp8";
+    case Op::V_Dot4F32Fp8Fp8:
+        return "v_dot4_f32_fp8_fp8";
+    case Op::V_Dot4F32Bf8Bf8:
+        return "v_dot4_f32_bf8_bf8";
     case Op::V_PkMulLoU16:
         return "v_pk_mul_lo_u16";
     case Op::V_PkAddI16:

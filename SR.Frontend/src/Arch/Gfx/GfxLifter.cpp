@@ -6553,6 +6553,227 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    // ---- VOP3P dot products and mixed-precision FMA ----
+
+    [[nodiscard]] IL::ValueId HalfLaneAsFloat(const DecodedInstruction& instruction,
+                                              IL::ValueId packed,
+                                              std::uint32_t shift,
+                                              bool bfloat)
+    {
+        const IL::ValueId shifted =
+            shift == 0 ? packed
+                       : Bin(instruction, IL::BinaryOp::LShr, packed, m_builder.ConstantU32(shift));
+        const IL::ValueId low =
+            m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, shifted, false);
+        if (bfloat)
+        {
+            // bfloat16 widens to f32 by placing its bits in the high half.
+            const IL::ValueId widened =
+                m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt, low, false);
+            return Bitcast(m_module.types.F32(),
+                           Bin(instruction, IL::BinaryOp::Shl, widened, m_builder.ConstantU32(16)));
+        }
+        return m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::FPExt,
+                                      Bitcast(F16Type(), low), false);
+    }
+
+    [[nodiscard]] Result<void> LiftDot2F32(const DecodedInstruction& instruction, bool bfloat)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto accumulator = ReadFloatSource(instruction, 3);
+        if (!accumulator)
+            return std::unexpected(accumulator.error());
+
+        const IL::TypeId f32 = m_module.types.F32();
+        IL::ValueId sum = *accumulator;
+        for (std::uint32_t lane = 0; lane < 2; ++lane)
+        {
+            const std::uint32_t shift = 16 * lane;
+            const IL::ValueId product =
+                Bin(instruction, IL::BinaryOp::FMul,
+                    HalfLaneAsFloat(instruction, *first, shift, bfloat),
+                    HalfLaneAsFloat(instruction, *second, shift, bfloat), f32);
+            sum = Bin(instruction, IL::BinaryOp::FAdd, sum, product, f32);
+        }
+        return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), sum),
+                         instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftDot2F16(const DecodedInstruction& instruction, bool bfloat)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto accumulator = ReadBits(instruction.operands[3], instruction.pc);
+        if (!accumulator)
+            return std::unexpected(accumulator.error());
+
+        const IL::TypeId type = F16Type();
+        const auto lane = [&](IL::ValueId value, std::uint32_t shift) {
+            const IL::ValueId bits =
+                shift == 0 ? value
+                           : Bin(instruction, IL::BinaryOp::LShr, value,
+                                 m_builder.ConstantU32(shift));
+            const IL::ValueId low =
+                m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, bits, false);
+            if (bfloat)
+                return Bitcast(type, m_builder.ConstantU32(0));
+            return Bitcast(type, low);
+        };
+        IL::ValueId sum = lane(*accumulator, 0);
+        for (std::uint32_t i = 0; i < 2; ++i)
+        {
+            const IL::ValueId product =
+                Bin(instruction, IL::BinaryOp::FMul, lane(*first, 16 * i), lane(*second, 16 * i),
+                    type);
+            sum = Bin(instruction, IL::BinaryOp::FAdd, sum, product, type);
+        }
+        if (bfloat)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-080", "packed bfloat dot is not implemented",
+                          instruction.pc));
+        const IL::ValueId bits = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                                        Bitcast(U16Type(), sum), false);
+        return WriteDest(instruction.operands[0], bits, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftDotInteger(const DecodedInstruction& instruction,
+                                              std::uint32_t elements,
+                                              std::uint32_t elementBits,
+                                              bool signedFirst,
+                                              bool signedSecond)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto accumulator = ReadBits(instruction.operands[3], instruction.pc);
+        if (!accumulator)
+            return std::unexpected(accumulator.error());
+
+        const std::uint32_t mask = (1u << elementBits) - 1u;
+        IL::ValueId sum = *accumulator;
+        for (std::uint32_t i = 0; i < elements; ++i)
+        {
+            const IL::ValueId shift = m_builder.ConstantU32(elementBits * i);
+            const IL::ValueId lhs =
+                Bin(instruction, IL::BinaryOp::And,
+                    Bin(instruction, IL::BinaryOp::LShr, *first, shift), m_builder.ConstantU32(mask));
+            const IL::ValueId rhs =
+                Bin(instruction, IL::BinaryOp::And,
+                    Bin(instruction, IL::BinaryOp::LShr, *second, shift),
+                    m_builder.ConstantU32(mask));
+
+            const auto widen = [&](IL::ValueId value, bool isSigned) {
+                if (elementBits == 8)
+                    return isSigned ? SignExtend8Value(value) : value;
+                const IL::ValueId low = Bin(instruction, IL::BinaryOp::And, value,
+                                            m_builder.ConstantU32(0xF));
+                if (!isSigned)
+                    return low;
+                const IL::ValueId signedLow = Bitcast(m_module.types.I32(), low);
+                const IL::ValueId negative = Bin(
+                    instruction, IL::BinaryOp::And, signedLow, m_builder.ConstantI32(0x8));
+                const IL::ValueId extended =
+                    Bitcast(m_module.types.U32(),
+                            Bin(instruction, IL::BinaryOp::Or, signedLow,
+                                m_builder.ConstantI32(-16)));
+                return m_builder.SelectValue(
+                    m_module.types.U32(),
+                    m_builder.CompareValue(IL::CompareOp::INe, negative, m_builder.ConstantI32(0),
+                                           false),
+                    extended, low, false);
+            };
+
+            const IL::ValueId product = Bin(instruction, IL::BinaryOp::IMul,
+                                            widen(lhs, signedFirst), widen(rhs, signedSecond));
+            sum = Bin(instruction, IL::BinaryOp::IAdd, sum, product);
+        }
+        return WriteDest(instruction.operands[0], sum, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftFmaMix(const DecodedInstruction& instruction, std::uint8_t mode)
+    {
+        const auto firstBits = ReadBits(instruction.operands[1], instruction.pc);
+        if (!firstBits)
+            return std::unexpected(firstBits.error());
+        const auto secondBits = ReadBits(instruction.operands[2], instruction.pc);
+        if (!secondBits)
+            return std::unexpected(secondBits.error());
+        const auto thirdBits = ReadBits(instruction.operands[3], instruction.pc);
+        if (!thirdBits)
+            return std::unexpected(thirdBits.error());
+
+        // opSel picks the half used for each of the two half-precision sources.
+        const std::uint32_t firstShift = ((instruction.opSel >> 0) & 1u) * 16u;
+        const std::uint32_t secondShift = ((instruction.opSel >> 1) & 1u) * 16u;
+
+        const IL::TypeId f32 = m_module.types.F32();
+        if (mode == 0)
+        {
+            const IL::ValueId product =
+                Bin(instruction, IL::BinaryOp::FMul,
+                    HalfLaneAsFloat(instruction, *firstBits, firstShift, false),
+                    HalfLaneAsFloat(instruction, *secondBits, secondShift, false), f32);
+            const IL::ValueId sum =
+                Bin(instruction, IL::BinaryOp::FAdd, product, Bitcast(f32, *thirdBits), f32);
+            return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), sum),
+                             instruction.pc);
+        }
+
+        const bool high = mode == 2;
+        const IL::ValueId accumulator =
+            high ? Bin(instruction, IL::BinaryOp::LShr, *thirdBits, m_builder.ConstantU32(16))
+                 : *thirdBits;
+        const IL::ValueId accumulatorLow =
+            m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, accumulator, false);
+        const IL::ValueId accumulatorHalf = Bitcast(F16Type(), accumulatorLow);
+        const IL::ValueId product =
+            Bin(instruction, IL::BinaryOp::FMul,
+                HalfLaneAsFloatToHalf(instruction, *firstBits, firstShift),
+                HalfLaneAsFloatToHalf(instruction, *secondBits, secondShift), F16Type());
+        const IL::ValueId sum =
+            Bin(instruction, IL::BinaryOp::FAdd, product, accumulatorHalf, F16Type());
+        const IL::ValueId resultBits =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                   Bitcast(U16Type(), sum), false);
+
+        const auto current = ReadVgpr(instruction.operands[0].value, instruction.pc);
+        if (!current)
+            return std::unexpected(current.error());
+        const IL::ValueId merged =
+            high ? Bin(instruction, IL::BinaryOp::Or,
+                       Bin(instruction, IL::BinaryOp::And, *current, m_builder.ConstantU32(0xFFFF)),
+                       Bin(instruction, IL::BinaryOp::Shl, resultBits, m_builder.ConstantU32(16)))
+                 : Bin(instruction, IL::BinaryOp::Or,
+                       Bin(instruction, IL::BinaryOp::And, *current,
+                           m_builder.ConstantU32(0xFFFF0000)),
+                       resultBits);
+        return WriteDest(instruction.operands[0], merged, instruction.pc);
+    }
+
+    [[nodiscard]] IL::ValueId HalfLaneAsFloatToHalf(const DecodedInstruction& instruction,
+                                                    IL::ValueId packed,
+                                                    std::uint32_t shift)
+    {
+        const IL::ValueId shifted =
+            shift == 0 ? packed
+                       : Bin(instruction, IL::BinaryOp::LShr, packed, m_builder.ConstantU32(shift));
+        const IL::ValueId low =
+            m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, shifted, false);
+        return Bitcast(F16Type(), low);
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -8042,6 +8263,28 @@ private:
             return LiftFmaDx9(instruction);
         case Op::V_DivFmasF32:
             return LiftDivFmas(instruction);
+        case Op::V_Dot2F32F16:
+            return LiftDot2F32(instruction, false);
+        case Op::V_Dot2F32Bf16:
+            return LiftDot2F32(instruction, true);
+        case Op::V_Dot2F16F16:
+            return LiftDot2F16(instruction, false);
+        case Op::V_Dot2Bf16Bf16:
+            return LiftDot2F16(instruction, true);
+        case Op::V_Dot4I32Iu8:
+            return LiftDotInteger(instruction, 4, 8, true, false);
+        case Op::V_Dot4U32U8:
+            return LiftDotInteger(instruction, 4, 8, false, false);
+        case Op::V_Dot8I32Iu4:
+            return LiftDotInteger(instruction, 8, 4, true, false);
+        case Op::V_Dot8U32U4:
+            return LiftDotInteger(instruction, 8, 4, false, false);
+        case Op::V_FmaMixF32:
+            return LiftFmaMix(instruction, 0);
+        case Op::V_FmaMixloF16:
+            return LiftFmaMix(instruction, 1);
+        case Op::V_FmaMixhiF16:
+            return LiftFmaMix(instruction, 2);
         case Op::S_CmovkI32:
         case Op::S_AddkCoI32:
             return LiftScalarImmediate(instruction);

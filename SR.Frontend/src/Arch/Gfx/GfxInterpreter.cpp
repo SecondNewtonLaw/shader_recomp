@@ -4682,6 +4682,102 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 return std::unexpected(Error("SR-GFX-ISA-333", "invalid med3 destination", pc));
             break;
         }
+        case Op::V_Dot2F32F16:
+        case Op::V_Dot2F32Bf16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto accumulator = source(3);
+            if (!first || !second || !accumulator)
+                return std::unexpected(Error("SR-GFX-ISA-340", "invalid dot2 operands", pc));
+            const bool bfloat = instruction.op == Op::V_Dot2F32Bf16;
+            const auto lane = [&](std::uint32_t packed, std::uint32_t shift) {
+                const std::uint32_t bits = (packed >> shift) & 0xFFFFu;
+                return bfloat ? std::bit_cast<float>(bits << 16)
+                              : HalfToFloat(static_cast<std::uint16_t>(bits));
+            };
+            const float value = AsFloat(*accumulator) + lane(*first, 0) * lane(*second, 0) +
+                                lane(*first, 16) * lane(*second, 16);
+            if (!write(AsBits(value)))
+                return std::unexpected(Error("SR-GFX-ISA-341", "invalid dot2 destination", pc));
+            break;
+        }
+        case Op::V_Dot4I32Iu8:
+        case Op::V_Dot4U32U8:
+        case Op::V_Dot8I32Iu4:
+        case Op::V_Dot8U32U4:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto accumulator = source(3);
+            if (!first || !second || !accumulator)
+                return std::unexpected(Error("SR-GFX-ISA-342", "invalid dot operands", pc));
+            const bool nibbles = instruction.op == Op::V_Dot8I32Iu4 || instruction.op == Op::V_Dot8U32U4;
+            const bool signedFirst =
+                instruction.op == Op::V_Dot4I32Iu8 || instruction.op == Op::V_Dot8I32Iu4;
+            const std::uint32_t elements = nibbles ? 8u : 4u;
+            const std::uint32_t bitsPerElement = nibbles ? 4u : 8u;
+            const std::uint32_t mask = (1u << bitsPerElement) - 1u;
+            const auto widen = [&](std::uint32_t value, bool isSigned) -> std::int32_t {
+                if (!isSigned)
+                    return static_cast<std::int32_t>(value);
+                const std::uint32_t signBit = 1u << (bitsPerElement - 1u);
+                if ((value & signBit) == 0)
+                    return static_cast<std::int32_t>(value);
+                return static_cast<std::int32_t>(value) - static_cast<std::int32_t>(1u << bitsPerElement);
+            };
+            std::int64_t sum = static_cast<std::int64_t>(AsSigned(*accumulator));
+            for (std::uint32_t i = 0; i < elements; ++i)
+            {
+                const std::uint32_t a = (*first >> (bitsPerElement * i)) & mask;
+                const std::uint32_t b = (*second >> (bitsPerElement * i)) & mask;
+                sum += static_cast<std::int64_t>(widen(a, signedFirst)) *
+                       static_cast<std::int64_t>(widen(b, false));
+            }
+            if (!write(static_cast<std::uint32_t>(sum)))
+                return std::unexpected(Error("SR-GFX-ISA-343", "invalid dot destination", pc));
+            break;
+        }
+        case Op::V_FmaMixF32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-344", "invalid fma_mix operands", pc));
+            const std::uint32_t firstShift = (instruction.opSel & 1u) * 16u;
+            const std::uint32_t secondShift = ((instruction.opSel >> 1) & 1u) * 16u;
+            const float a = HalfToFloat(static_cast<std::uint16_t>(*first >> firstShift));
+            const float b = HalfToFloat(static_cast<std::uint16_t>(*second >> secondShift));
+            if (!write(AsBits(std::fma(a, b, AsFloat(*third)))))
+                return std::unexpected(Error("SR-GFX-ISA-345", "invalid fma_mix destination", pc));
+            break;
+        }
+        case Op::V_FmaMixloF16:
+        case Op::V_FmaMixhiF16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            const auto current = ReadOperand(result.state, instruction.operands[0]);
+            if (!first || !second || !third || !current)
+                return std::unexpected(Error("SR-GFX-ISA-346", "invalid fma_mix f16 operands", pc));
+            const bool high = instruction.op == Op::V_FmaMixhiF16;
+            const std::uint32_t firstShift = (instruction.opSel & 1u) * 16u;
+            const std::uint32_t secondShift = ((instruction.opSel >> 1) & 1u) * 16u;
+            const float a = HalfToFloat(static_cast<std::uint16_t>(*first >> firstShift));
+            const float b = HalfToFloat(static_cast<std::uint16_t>(*second >> secondShift));
+            const std::uint32_t accumulatorBits =
+                high ? (*third >> 16) : (*third & 0xFFFFu);
+            const float value =
+                std::fma(a, b, HalfToFloat(static_cast<std::uint16_t>(accumulatorBits)));
+            const std::uint32_t bits = static_cast<std::uint32_t>(FloatToHalf(value));
+            const std::uint32_t merged =
+                high ? ((*current & 0xFFFFu) | (bits << 16)) : ((*current & 0xFFFF0000u) | bits);
+            if (!write(merged))
+                return std::unexpected(Error("SR-GFX-ISA-347", "invalid fma_mix f16 destination", pc));
+            break;
+        }
         case Op::Invalid:
             return std::unexpected(Error("SR-GFX-ISA-074", "invalid instruction", pc));
         default:

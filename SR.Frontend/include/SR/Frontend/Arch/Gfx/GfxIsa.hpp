@@ -1125,6 +1125,20 @@ enum class Op : std::uint16_t
     V_CvtSrFp8F32,
     V_CvtSrBf8F32,
     V_PkFmacF16,
+    // VOP3P dot products and mixed FMA.
+    V_Dot2F32F16,
+    V_Dot4I32Iu8,
+    V_Dot4U32U8,
+    V_Dot8I32Iu4,
+    V_Dot8U32U4,
+    V_Dot2F32Bf16,
+    V_FmaMixF32,
+    V_FmaMixloF16,
+    V_FmaMixhiF16,
+    V_Dot4F32Fp8Bf8,
+    V_Dot4F32Bf8Fp8,
+    V_Dot4F32Fp8Fp8,
+    V_Dot4F32Bf8Bf8,
 };
 
 [[nodiscard]] std::string_view ToString(Op op) noexcept;
