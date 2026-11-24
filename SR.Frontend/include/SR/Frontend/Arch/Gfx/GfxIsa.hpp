@@ -55,6 +55,8 @@ enum class Encoding : std::uint8_t
     Flat,
     Buffer,
     Scratch,
+    Vintrp,
+    Exp,
 };
 
 [[nodiscard]] std::string_view ToString(Encoding encoding) noexcept;
@@ -1139,6 +1141,10 @@ enum class Op : std::uint16_t
     V_Dot4F32Bf8Fp8,
     V_Dot4F32Fp8Fp8,
     V_Dot4F32Bf8Bf8,
+    V_InterpP1F32,
+    V_InterpP2F32,
+    V_InterpMovF32,
+    Exp,
 };
 
 [[nodiscard]] std::string_view ToString(Op op) noexcept;
@@ -1187,6 +1193,9 @@ enum class OperandKind : std::uint8_t
     BufferVsrc,
     BufferSoffset,
     BufferIoffset,
+    VintrpVdst,
+    VintrpVsrc,
+    ExpVsrc,
 };
 
 struct Operand
@@ -1216,6 +1225,16 @@ struct DecodedInstruction
     std::uint8_t opSel = 0;    // VOP3P source-half selectors
     std::uint8_t opSelHi = 0;  // VOP3P high selector bits
     std::uint8_t negHi = 0;    // VOP3P high-half negate bits
+
+    // VINTRP: the attribute slot and channel are fields, not register operands.
+    std::uint8_t attr = 0;
+    std::uint8_t attrChan = 0;
+
+    // EXP: enabled channels, export target, and the compressed (16-bit) form.
+    std::uint8_t exportEnabled = 0;
+    std::uint8_t exportTarget = 0;
+    bool exportCompressed = false;
+    bool exportValidMask = false;
 
     std::uint32_t dsOffset0 = 0; // DS immediate byte offset
     std::uint32_t dsOffset1 = 0; // DS second immediate offset for the 2-address forms

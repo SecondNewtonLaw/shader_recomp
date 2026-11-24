@@ -760,6 +760,13 @@ constexpr std::array kGfx10 = {
     Make(Encoding::VopC, 125, Op::V_CmpClassF16, "v_cmp_class_f16", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::VopC, 126, Op::V_CmpClassF32, "v_cmp_class_f32", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::VopC, 127, Op::V_CmpClassF64, "v_cmp_class_f64", {OperandKind::Vcc, OperandKind::Src, OperandKind::Vsrc}),
+    // VINTRP: the opcode field selects the interpolation step.
+    Make(Encoding::Vintrp, 0, Op::V_InterpP1F32, "v_interp_p1_f32", {OperandKind::VintrpVdst, OperandKind::VintrpVsrc}),
+    Make(Encoding::Vintrp, 1, Op::V_InterpP2F32, "v_interp_p2_f32", {OperandKind::VintrpVdst, OperandKind::VintrpVsrc}),
+    Make(Encoding::Vintrp, 2, Op::V_InterpMovF32, "v_interp_mov_f32", {OperandKind::VintrpVdst, OperandKind::VintrpVsrc}),
+    // EXP carries its target and enabled channels in fields, not operands.
+    Make(Encoding::Exp, 0, Op::Exp, "exp",
+         {OperandKind::ExpVsrc, OperandKind::ExpVsrc, OperandKind::ExpVsrc, OperandKind::ExpVsrc}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -2591,6 +2598,10 @@ std::string_view ToString(Encoding encoding) noexcept
         return "buffer";
     case Encoding::Scratch:
         return "scratch";
+    case Encoding::Vintrp:
+        return "vintrp";
+    case Encoding::Exp:
+        return "exp";
     }
 
     return "unknown";
@@ -2702,6 +2713,14 @@ std::string_view ToString(Op op) noexcept
         return "s_cselect_b64";
     case Op::DsAddF32:
         return "ds_add_f32";
+    case Op::V_InterpP1F32:
+        return "v_interp_p1_f32";
+    case Op::V_InterpP2F32:
+        return "v_interp_p2_f32";
+    case Op::V_InterpMovF32:
+        return "v_interp_mov_f32";
+    case Op::Exp:
+        return "exp";
     case Op::FlatLoadU8:
         return "flat_load_u8";
     case Op::BufferLoadFormatX:
@@ -4962,6 +4981,20 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         baseWords = 2;
         wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
     }
+    else if (((word0 >> 26) & 0x3F) == 0x32)
+    {
+        encoding = Encoding::Vintrp;
+        opcode = static_cast<std::uint16_t>((word0 >> 16) & 0x3);
+    }
+    else if (((word0 >> 26) & 0x3F) == 0x3E)
+    {
+        encoding = Encoding::Exp;
+        if (words.size() < 2)
+            return std::unexpected(Error("SR-GFX-016", "truncated EXP instruction", bytePc));
+        baseWords = 2;
+        wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
+        opcode = 0;
+    }
     else if (((word0 >> 26) & 0x3F) == 0x36)
     {
         encoding = Encoding::Ds;
@@ -5158,6 +5191,19 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             operand.kind = OperandKind::Sdst;
             operand.value = Extract(wide, 0, 7);
             break;
+        case OperandKind::VintrpVdst:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 18, 8);
+            break;
+        case OperandKind::VintrpVsrc:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 0, 8);
+            break;
+        case OperandKind::ExpVsrc:
+            // The four sources are the bytes of the second word.
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 32 + 8 * i, 8);
+            break;
         case OperandKind::BufferVdst:
         case OperandKind::BufferVaddr:
         case OperandKind::BufferVsrc:
@@ -5207,6 +5253,19 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         }
 
         push(operand);
+    }
+
+    if (encoding == Encoding::Vintrp)
+    {
+        instruction.attr = static_cast<std::uint8_t>(Extract(word0, 10, 6));
+        instruction.attrChan = static_cast<std::uint8_t>(Extract(word0, 8, 2));
+    }
+    else if (encoding == Encoding::Exp)
+    {
+        instruction.exportEnabled = static_cast<std::uint8_t>(word0 & 0xF);
+        instruction.exportTarget = static_cast<std::uint8_t>(Extract(word0, 4, 6));
+        instruction.exportCompressed = Extract(word0, 10, 2) != 0;
+        instruction.exportValidMask = true;
     }
 
     if (encoding == Encoding::Vop3)

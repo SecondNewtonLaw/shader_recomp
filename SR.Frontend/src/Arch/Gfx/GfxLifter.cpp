@@ -69,6 +69,32 @@ public:
         m_builder.SetCurrentBlock(m_entry);
         m_builder.Store(ExecSlot(), m_builder.ConstantBool(true), 0);
 
+        // A vertex program receives its vertex, primitive and instance ids in
+        // v0, v2 and v3. Attributes arrive through the fetch stage, which the
+        // front end does not model yet.
+        if (m_module.stage == IL::Stage::Vertex)
+        {
+            const auto seed = [this](IL::Builtin builtin, std::uint32_t vgpr) {
+                const IL::TypeId u32 = m_module.types.U32();
+                (void)EnsureSignature(IL::Space::Input, builtin, 0, u32);
+                const IL::PayloadId payload =
+                    StageIoPayload(IL::Space::Input, builtin, 0, 0, IL::Interpolation::None);
+                const IL::ValueId value = m_builder.Emit(u32,
+                                                         IL::Op::Intrinsic,
+                                                         static_cast<std::uint16_t>(IL::IntrinsicId::StageInput),
+                                                         {},
+                                                         {},
+                                                         payload,
+                                                         0,
+                                                         0,
+                                                         true);
+                m_builder.Store(Slot(m_vgprSlots, vgpr, IL::RegisterClass::Vgpr), value, 0);
+            };
+
+            seed(IL::Builtin::VertexIndex, 0);
+            seed(IL::Builtin::InstanceIndex, 3);
+        }
+
         for (std::size_t blockIndex = 0; blockIndex < m_leaders.size(); ++blockIndex)
         {
             const auto status = LiftBlock(blockIndex);
@@ -7598,6 +7624,181 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    // Stage IO. A signature row is one location (or builtin) with a vector
+    // type; individual components are addressed by the payload.
+    struct StageSlot
+    {
+        IL::Space space;
+        IL::Builtin builtin;
+        std::uint32_t location;
+        IL::TypeId type;
+        std::size_t declaration;
+    };
+
+    [[nodiscard]] IL::TypeId EnsureSignature(IL::Space space,
+                                             IL::Builtin builtin,
+                                             std::uint32_t location,
+                                             IL::TypeId type,
+                                             IL::Interpolation interpolation = IL::Interpolation::None)
+    {
+        std::vector<IL::SignatureDecl>& declarations = space == IL::Space::Input ? m_module.inputs : m_module.outputs;
+
+        for (const StageSlot& slot : m_stageSlots)
+        {
+            if (slot.space == space && slot.builtin == builtin && slot.location == location)
+            {
+                // The first use decides the mode; a later interp instruction can
+                // refine an input that was declared without one.
+                if (interpolation != IL::Interpolation::None)
+                    declarations[slot.declaration].interpolation = interpolation;
+                return slot.type;
+            }
+        }
+
+        IL::SignatureDecl decl;
+        decl.space = space;
+        decl.location = location;
+        decl.type = type;
+        decl.builtin = builtin;
+        decl.interpolation = interpolation;
+
+        declarations.push_back(decl);
+        m_stageSlots.push_back(StageSlot{space, builtin, location, type, declarations.size() - 1});
+        return type;
+    }
+
+    [[nodiscard]] IL::PayloadId StageIoPayload(IL::Space space,
+                                               IL::Builtin builtin,
+                                               std::uint32_t location,
+                                               std::uint32_t component,
+                                               IL::Interpolation interpolation)
+    {
+        IL::StageIoDesc desc;
+        desc.space = space;
+        desc.builtin = builtin;
+        desc.location = location;
+        desc.component = component;
+        desc.interpolation = interpolation;
+        return m_module.payloads.Add(desc);
+    }
+
+    // v_interp_p1/p2 read the attribute the fixed-function unit already
+    // interpolated; the barycentric operands only feed the hardware path. The
+    // interpolation mode belongs to the SPI input table, which a console
+    // container carries and a bare code object does not, so perspective is
+    // assumed and v_interp_mov is flat.
+    [[nodiscard]] Result<void> LiftInterp(const DecodedInstruction& instruction)
+    {
+        if (m_module.stage != IL::Stage::Fragment)
+            return std::unexpected(LiftError("SR-GFX-LIFT-040", "interpolation outside a fragment shader", instruction.pc));
+
+        const IL::TypeId f32 = m_module.types.F32();
+        const IL::Interpolation mode =
+            instruction.op == Op::V_InterpMovF32 ? IL::Interpolation::Flat : IL::Interpolation::Perspective;
+        (void)EnsureSignature(IL::Space::Input,
+                              IL::Builtin::None,
+                              instruction.attr,
+                              m_module.types.Vector(f32, 4),
+                              mode);
+        const IL::PayloadId payload =
+            StageIoPayload(IL::Space::Input, IL::Builtin::None, instruction.attr, instruction.attrChan, mode);
+
+        const IL::ValueId value = m_builder.Emit(f32,
+                                                 IL::Op::Intrinsic,
+                                                 static_cast<std::uint16_t>(IL::IntrinsicId::StageInput),
+                                                 {},
+                                                 {},
+                                                 payload,
+                                                 instruction.pc,
+                                                 static_cast<std::uint16_t>(instruction.op),
+                                                 false);
+        return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), value), instruction.pc);
+    }
+
+    // exp writes up to four channels of one target: an MRT slot, the depth
+    // output, a position component or a parameter.
+    [[nodiscard]] Result<void> LiftExport(const DecodedInstruction& instruction)
+    {
+        if (instruction.exportCompressed)
+            return std::unexpected(LiftError("SR-GFX-LIFT-041", "16-bit packed exports are not modeled", instruction.pc));
+
+        const std::uint32_t target = instruction.exportTarget;
+        const IL::TypeId f32 = m_module.types.F32();
+        const IL::TypeId vec4 = m_module.types.Vector(f32, 4);
+
+        for (std::uint32_t channel = 0; channel < 4; ++channel)
+        {
+            if ((instruction.exportEnabled & (1u << channel)) == 0)
+                continue;
+
+            IL::Space space = IL::Space::Output;
+            IL::Builtin builtin = IL::Builtin::None;
+            std::uint32_t location = 0;
+            std::uint32_t component = channel;
+            IL::TypeId type = vec4;
+
+            if (target <= 7)
+            {
+                location = target;
+            }
+            else if (target == 8)
+            {
+                // exp mrtz: channel 0 is depth; stencil and sample masks are
+                // separate state the IL does not carry yet.
+                if (channel != 0)
+                    continue;
+                builtin = IL::Builtin::FragDepth;
+                component = 0;
+                type = f32;
+            }
+            else if (target == 9)
+            {
+                continue; // exp null
+            }
+            else if (target >= 12 && target <= 15)
+            {
+                // pos0..pos3 are the four components: an export group names the
+                // first slot, and the enabled channels follow it.
+                builtin = IL::Builtin::Position;
+                component = (target - 12) + channel;
+                if (component > 3)
+                {
+                    return std::unexpected(LiftError("SR-GFX-LIFT-043",
+                                                     "position export outside the four components",
+                                                     instruction.pc));
+                }
+            }
+            else if (target >= 32 && target <= 63)
+            {
+                // exp param<n>: parameters start at 32 in the target field.
+                location = target - 32;
+            }
+            else
+            {
+                return std::unexpected(LiftError("SR-GFX-LIFT-042",
+                                                 "export target " + std::to_string(target) + " is not modeled",
+                                                 instruction.pc));
+            }
+
+            const auto value = ReadFloat(instruction.operands[channel], instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+
+            (void)EnsureSignature(space, builtin, location, type);
+            const IL::PayloadId payload =
+                StageIoPayload(space, builtin, location, component, IL::Interpolation::None);
+            m_builder.EmitVoid(IL::Op::Intrinsic,
+                               static_cast<std::uint16_t>(IL::IntrinsicId::StageOutput),
+                               {*value},
+                               {},
+                               payload,
+                               instruction.pc,
+                               static_cast<std::uint16_t>(instruction.op));
+        }
+
+        return {};
+    }
+
     [[nodiscard]] Result<void> LiftOne(const DecodedInstruction& instruction)
     {
         if ((instruction.abs != 0 || instruction.neg != 0 || instruction.omod != 0 || instruction.clamp) &&
@@ -7609,6 +7810,10 @@ private:
                                              instruction.pc));
         }
 
+        if (instruction.encoding == Encoding::Vintrp)
+            return LiftInterp(instruction);
+        if (instruction.encoding == Encoding::Exp)
+            return LiftExport(instruction);
         if (instruction.encoding == Encoding::Ds)
             return LiftDs(instruction);
         if (instruction.encoding == Encoding::Flat || instruction.encoding == Encoding::Global ||
@@ -8950,6 +9155,7 @@ private:
     IL::ValueId m_sccSlot = IL::InvalidValue;
     IL::ValueId m_vccSlot = IL::InvalidValue;
     IL::ValueId m_execSlot = IL::InvalidValue;
+    std::vector<StageSlot> m_stageSlots;
 };
 
 } // namespace
@@ -8963,11 +9169,15 @@ Result<IL::Module> Lift(const DecodedShader& shader, Arch arch, std::string_view
     // vertex or pixel program needs IO variables, interpolation and exports,
     // which the emitter does not have yet, so it is refused rather than lifted
     // as if it were compute.
-    if (shader.stage != IL::Stage::Unknown && shader.stage != IL::Stage::Compute)
+    // Compute, vertex and fragment programs have an execution model. Merged
+    // geometry stages need the ES/GS pairing and NGG needs the wave allocator,
+    // so they are refused rather than lifted as something else.
+    if (shader.stage != IL::Stage::Unknown && shader.stage != IL::Stage::Compute
+        && shader.stage != IL::Stage::Vertex && shader.stage != IL::Stage::Fragment)
     {
         return std::unexpected(LiftError("SR-GFX-LIFT-032",
                                          "stage '" + std::string(IL::ToString(shader.stage))
-                                             + "' has no execution model yet; only compute is lifted",
+                                             + "' has no execution model yet",
                                          0));
     }
 
@@ -8978,7 +9188,7 @@ Result<IL::Module> Lift(const DecodedShader& shader, Arch arch, std::string_view
     std::memcpy(words.data(), shader.rawBytecode.data(), words.size() * sizeof(std::uint32_t));
 
     IL::Module module;
-    module.stage = IL::Stage::Compute;
+    module.stage = shader.stage == IL::Stage::Unknown ? IL::Stage::Compute : shader.stage;
     module.entryPoint = std::string(entryPoint);
     module.architecture = std::string(GetArchInfo(arch).name);
     module.executionModes.workgroupSize = {64, 1, 1};
