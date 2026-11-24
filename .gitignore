@@ -8,3 +8,6 @@
 *.user
 /.cache
 /tests/artifacts
+
+__pycache__/
+*.pyc
