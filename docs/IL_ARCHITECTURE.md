@@ -330,9 +330,15 @@ emitter indexes the input array with it. The RDNA input ring names that vertex
 in the byte address (`vertex * 256`) and one output register in the immediate
 offset, position first and then one four-component location per register.
 
-Vertices staged in LDS (the NGG export model, `s_sendmsg GS_OP_EMIT`) are not
-modeled: the lifter decodes the message and refuses it, because ignoring it
-would silently emit nothing.
+A shader that publishes vertices by message - the NGG form, `ds_write` into
+the vertex's slot followed by `s_sendmsg GS_OP_EMIT` - stages them instead:
+`geometry.stage-store` writes one component of slot *k* and
+`geometry.stage-load` reads it back when the message publishes the slot. The
+staging is a Function-local array of `outputVertices * outputRegisters * 4`
+floats, so it is per invocation; the slot a message publishes is an internal
+counter, and `GS_OP_EMIT_CUT` also ends the strip. Both intrinsics have no
+effect outside the emitter's staging, and the interpreter keeps the staged
+dwords so an emitted vertex can be asserted.
 
 Pipeline state that no instruction carries lives in the execution modes:
 `inputTopology`, `outputTopology` and `outputVertices`. The emitter turns them
