@@ -56,6 +56,24 @@ enum SpvOp : std::uint16_t
     OpImageSampleExplicitLod = 88,
     OpImageRead = 98,
     OpImageWrite = 99,
+    OpImageTexelPointer = 60,
+    OpImageQuerySizeLod = 103,
+    OpImageQuerySize = 104,
+    OpImageQueryLod = 105,
+    OpImageGather = 96,
+    OpAtomicExchange = 229,
+    OpAtomicCompareExchange = 230,
+    OpAtomicIIncrement = 232,
+    OpAtomicIDecrement = 233,
+    OpAtomicIAdd = 234,
+    OpAtomicISub = 235,
+    OpAtomicSMin = 236,
+    OpAtomicUMin = 237,
+    OpAtomicSMax = 238,
+    OpAtomicUMax = 239,
+    OpAtomicAnd = 240,
+    OpAtomicOr = 241,
+    OpAtomicXor = 242,
     OpEmitVertex = 218,
     OpEndPrimitive = 219,
     OpLoad = 61,
@@ -1161,14 +1179,22 @@ private:
         std::uint32_t sampledImageType = 0;
         std::uint32_t samplerType = 0;
         std::uint32_t samplerPointerType = 0;
+        std::uint32_t texelPointerType = 0;
         bool sampled = false;
+        // An image the shader atomically updates is declared R32ui so the
+        // texel pointer has an integer pointee.
+        bool atomicImage = false;
     };
     std::vector<ImageResource> m_images;
     std::uint32_t m_imageVec4 = 0;
     std::uint32_t m_imageVec2i = 0;
+    std::uint32_t m_imageInt32 = 0;
+    std::uint32_t m_imageVec2s = 0;
+    std::uint32_t m_imageIntOne = 0;
     std::uint32_t m_imageVec2f = 0;
     std::uint32_t m_imageZeroLod = 0;
     std::uint32_t m_imageVec4Element = 0;
+    std::uint32_t m_imageU32Element = 0;
 
     // Image accesses name a binding the host filled from the T# descriptor.
     void PrepareImages()
@@ -1185,6 +1211,7 @@ private:
             image.binding = access.binding;
             image.samplerBinding = access.samplerBinding;
             image.sampled = access.sampled;
+            image.atomicImage = access.format != 0;
             image.variable = NewId();
             if (access.sampled)
                 image.samplerVariable = NewId();
@@ -1197,10 +1224,16 @@ private:
             {
                 for (const IL::Instruction& instruction : block.body)
                 {
-                    if (instruction.op != IL::Op::Intrinsic ||
-                        (instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageLoad) &&
-                         instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageStore) &&
-                         instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageSample)))
+                    if (instruction.op != IL::Op::Intrinsic)
+                        continue;
+                    const auto subop = instruction.subop;
+                    if (subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageLoad) &&
+                        subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageStore) &&
+                        subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageSample) &&
+                        subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageQuerySize) &&
+                        subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageQueryLod) &&
+                        subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageGather) &&
+                        subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageAtomic))
                         continue;
                     if (instruction.payload == IL::NoPayload)
                         continue;
@@ -1251,11 +1284,19 @@ private:
         const std::uint32_t* f32 = &f32Id;
         const std::uint32_t* u32 = &u32Id;
 
+        m_imageU32Element = u32Id;
         m_imageVec4 = NewId();
         Op(OpTypeVector, {m_imageVec4, *f32, 4});
         m_imageVec4Element = f32Id;
         m_imageVec2i = NewId();
         Op(OpTypeVector, {m_imageVec2i, *u32, 2});
+        // A query returns signed integers, so the result type is ivec2.
+        m_imageInt32 = NewId();
+        Op(OpTypeInt, {m_imageInt32, 32, 1});
+        m_imageVec2s = NewId();
+        Op(OpTypeVector, {m_imageVec2s, m_imageInt32, 2});
+        m_imageIntOne = NewId();
+        Op(OpConstant, {m_imageInt32, m_imageIntOne, 1});
         m_imageVec2f = NewId();
         Op(OpTypeVector, {m_imageVec2f, f32Id, 2});
 
@@ -1279,6 +1320,15 @@ private:
                 Op(OpTypeSampledImage, {image.sampledImageType, image.imageType});
                 image.samplerType = NewId();
                 Op(OpTypeSampler, {image.samplerType});
+            }
+            else if (image.atomicImage)
+            {
+                // An atomic needs an integer image: R32ui, so the texel
+                // pointer's pointee is a u32.
+                Op(OpTypeImage, {image.imageType, *u32, 1 /* 2D */, 0 /* depth */, 0 /* arrayed */, 0 /* ms */,
+                                 2 /* sampled */, 33 /* R32ui */});
+                image.texelPointerType = NewId();
+                Op(OpTypePointer, {image.texelPointerType, 11 /* Image */, *u32});
             }
             else
             {
@@ -1342,6 +1392,11 @@ private:
         }
         if (m_module.stage == IL::Stage::Geometry)
             Op(OpCapability, {2}); // Geometry
+        if (UsesIntrinsic(m_module, IL::IntrinsicId::ImageQuerySize) ||
+            UsesIntrinsic(m_module, IL::IntrinsicId::ImageQueryLod))
+        {
+            Op(OpCapability, {50}); // ImageQuery
+        }
         if (UsesIntrinsic(m_module, IL::IntrinsicId::DeviceLoad) ||
             UsesIntrinsic(m_module, IL::IntrinsicId::DeviceStore))
         {
@@ -2241,6 +2296,11 @@ private:
 
     [[nodiscard]] Result<void> EmitAllocas(const IL::Function& function)
     {
+        // Every function variable must come before the first non-variable
+        // instruction, so the variables are emitted first and the register
+        // zeroing after them.
+        std::vector<std::uint32_t> zeroed;
+
         for (const IL::Instruction& instruction : function.blocks[function.entry].body)
         {
             if (instruction.op != IL::Op::Alloca)
@@ -2265,16 +2325,19 @@ private:
             {
                 const IL::Type& pointee = m_module.types.Get(pointerType.element);
                 if (pointee.kind == IL::TypeKind::Int && pointee.width == 32)
-                {
-                    const auto zero = m_u32Constants.find(0);
-                    if (zero != m_u32Constants.end())
-                        Op(OpStore, {id, zero->second});
-                }
+                    zeroed.push_back(id);
             }
         }
 
         if (m_stagingVariable != 0)
             Op(OpVariable, {m_stagingArrayPointer, m_stagingVariable, 7 /* Function */, m_stagingNull});
+
+        const auto zero = m_u32Constants.find(0);
+        if (zero != m_u32Constants.end())
+        {
+            for (const std::uint32_t id : zeroed)
+                Op(OpStore, {id, zero->second});
+        }
 
         return {};
     }
@@ -2333,13 +2396,15 @@ private:
         Op(OpLabel, {setupLabel});
         Op(OpVariable, {*pointerType, pcVariable, 7 /* Function */});
 
-        const auto allocas = EmitAllocas(function);
-        if (!allocas)
-            return std::unexpected(allocas.error());
-
+        // Every function variable must precede the first non-variable
+        // instruction, and EmitAllocas zero-initialises the register slots.
         const auto spillVariables = EmitSpillVariables(function);
         if (!spillVariables)
             return std::unexpected(spillVariables.error());
+
+        const auto allocas = EmitAllocas(function);
+        if (!allocas)
+            return std::unexpected(allocas.error());
 
         const auto entryConstant = U32Constant(function.entry);
         if (!entryConstant)
@@ -2635,6 +2700,207 @@ private:
                 Op(OpEndPrimitive, {});
             }
             return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
+            (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageQuerySize) ||
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageQueryLod) ||
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageGather) ||
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageAtomic)))
+        {
+            const auto* access = instruction.payload != IL::NoPayload
+                                     ? std::get_if<IL::ImageAccessDesc>(&m_module.payloads.Get(instruction.payload))
+                                     : nullptr;
+            if (access == nullptr)
+                return std::unexpected(EmitError("SR-SPV-082", "image access without a descriptor", instruction.sourcePc));
+
+            const ImageResource* image = FindImage(access->set, access->binding);
+            if (image == nullptr)
+                return std::unexpected(EmitError("SR-SPV-083", "image binding is not declared", instruction.sourcePc));
+
+            const auto resultType = [&]() -> Result<std::uint32_t> {
+                if (instruction.results.size() != 1)
+                    return std::unexpected(
+                        EmitError("SR-SPV-085", "image intrinsic must have one result", instruction.sourcePc));
+                const IL::ValueId resultValue = instruction.results[0];
+                return EmitType(function.values[resultValue].type);
+            }();
+            if (!resultType)
+                return std::unexpected(resultType.error());
+            const IL::ValueId resultValue = instruction.results[0];
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+
+            const auto finish = [&](std::uint32_t value) {
+                m_valueIds[resultValue] = resultId;
+                Op(OpBitcast, {*resultType, resultId, value});
+                if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                    Op(OpStore, {m_spillVars[resultValue], resultId});
+                return Result<void>{};
+            };
+
+            if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageQuerySize))
+            {
+                // resinfo: width, height, then the depth and level count of a
+                // single-level 2D surface.
+                const std::uint32_t component = access->component & 3;
+                const std::uint32_t one = m_imageIntOne;
+                if (component >= 2)
+                {
+                    m_valueIds[resultValue] = resultId;
+                    Op(OpBitcast, {*resultType, resultId, one});
+                    if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                        Op(OpStore, {m_spillVars[resultValue], resultId});
+                    return {};
+                }
+
+                const std::uint32_t loaded = NewId();
+                Op(OpLoad, {image->imageType, loaded, image->variable});
+                const std::uint32_t size = NewId();
+                if (image->sampled)
+                {
+                    const auto zero = U32Constant(0);
+                    if (!zero)
+                        return std::unexpected(zero.error());
+                    Op(OpImageQuerySizeLod, {m_imageVec2s, size, loaded, *zero});
+                }
+                else
+                {
+                    Op(OpImageQuerySize, {m_imageVec2s, size, loaded});
+                }
+                const std::uint32_t extracted = NewId();
+                Op(OpCompositeExtract, {m_imageInt32, extracted, size, static_cast<std::uint32_t>(component)});
+                return finish(extracted);
+            }
+
+            const auto x = ValueId(function, instruction.operands[0]);
+            const auto y = ValueId(function, instruction.operands[1]);
+            if (!x || !y)
+                return std::unexpected(EmitError("SR-SPV-084", "invalid image coordinates", instruction.sourcePc));
+
+            if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageAtomic))
+            {
+                if (image->sampled || !image->atomicImage || image->texelPointerType == 0)
+                    return std::unexpected(EmitError("SR-SPV-101",
+                                                     "an image atomic needs an integer image binding",
+                                                     instruction.sourcePc));
+                if (!access->atomic)
+                    return std::unexpected(
+                        EmitError("SR-SPV-102", "image atomic without an operation", instruction.sourcePc));
+
+                const auto coordinate = NewId();
+                Op(OpCompositeConstruct, {m_imageVec2i, coordinate, *x, *y});
+                const auto sample = U32Constant(0);
+                const auto scope = U32Constant(1);   // Device
+                const auto relaxed = U32Constant(0); // Relaxed
+                if (!sample || !scope || !relaxed)
+                    return std::unexpected((!sample ? sample : (!scope ? scope : relaxed)).error());
+
+                const std::uint32_t texel = NewId();
+                Op(OpImageTexelPointer, {image->texelPointerType, texel, image->variable, coordinate, *sample});
+
+                const auto value = ValueId(function, instruction.operands[2]);
+                if (!value)
+                    return std::unexpected(
+                        EmitError("SR-SPV-103", "image atomic without a value", instruction.sourcePc));
+
+                m_valueIds[resultValue] = resultId;
+                switch (access->atomicKind)
+                {
+                case IL::AtomicKind::Add:
+                case IL::AtomicKind::Sub:
+                case IL::AtomicKind::SMin:
+                case IL::AtomicKind::UMin:
+                case IL::AtomicKind::SMax:
+                case IL::AtomicKind::UMax:
+                case IL::AtomicKind::And:
+                case IL::AtomicKind::Or:
+                case IL::AtomicKind::Xor:
+                {
+                    const std::uint16_t opcode =
+                        access->atomicKind == IL::AtomicKind::Add    ? OpAtomicIAdd
+                        : access->atomicKind == IL::AtomicKind::Sub   ? OpAtomicISub
+                        : access->atomicKind == IL::AtomicKind::SMin  ? OpAtomicSMin
+                        : access->atomicKind == IL::AtomicKind::UMin  ? OpAtomicUMin
+                        : access->atomicKind == IL::AtomicKind::SMax  ? OpAtomicSMax
+                        : access->atomicKind == IL::AtomicKind::UMax  ? OpAtomicUMax
+                        : access->atomicKind == IL::AtomicKind::And   ? OpAtomicAnd
+                        : access->atomicKind == IL::AtomicKind::Or    ? OpAtomicOr
+                                                                      : OpAtomicXor;
+                    Op(opcode, {m_imageU32Element, resultId, texel, *scope, *relaxed, *value});
+                    break;
+                }
+                case IL::AtomicKind::Exchange:
+                    Op(OpAtomicExchange, {m_imageU32Element, resultId, texel, *scope, *relaxed, *value});
+                    break;
+                case IL::AtomicKind::CompareExchange:
+                {
+                    // Operands are the compare value then the new value.
+                    if (instruction.operands.size() != 4)
+                        return std::unexpected(EmitError("SR-SPV-104",
+                                                         "compare-exchange needs both values",
+                                                         instruction.sourcePc));
+                    const auto comparator = ValueId(function, instruction.operands[2]);
+                    const auto replacement = ValueId(function, instruction.operands[3]);
+                    if (!comparator || !replacement)
+                        return std::unexpected(
+                            EmitError("SR-SPV-105", "invalid compare-exchange values", instruction.sourcePc));
+                    Op(OpAtomicCompareExchange,
+                       {m_imageU32Element, resultId, texel, *scope, *relaxed, *relaxed, *replacement, *comparator});
+                    break;
+                }
+                case IL::AtomicKind::Increment:
+                    Op(OpAtomicIIncrement, {m_imageU32Element, resultId, texel, *scope, *relaxed});
+                    break;
+                case IL::AtomicKind::Decrement:
+                    Op(OpAtomicIDecrement, {m_imageU32Element, resultId, texel, *scope, *relaxed});
+                    break;
+                }
+                if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                    Op(OpStore, {m_spillVars[resultValue], resultId});
+                return {};
+            }
+
+            if (!image->sampled)
+                return std::unexpected(
+                    EmitError("SR-SPV-089", "sampled image operation on a storage image binding", instruction.sourcePc));
+
+            const std::uint32_t fx = NewId();
+            Op(OpBitcast, {m_imageVec4Element, fx, *x});
+            const std::uint32_t fy = NewId();
+            Op(OpBitcast, {m_imageVec4Element, fy, *y});
+            const std::uint32_t floatCoordinate = NewId();
+            Op(OpCompositeConstruct, {m_imageVec2f, floatCoordinate, fx, fy});
+
+            const std::uint32_t imageObject = NewId();
+            Op(OpLoad, {image->imageType, imageObject, image->variable});
+            const std::uint32_t samplerObject = NewId();
+            Op(OpLoad, {image->samplerType, samplerObject, image->samplerVariable});
+            const std::uint32_t sampledObject = NewId();
+            Op(OpSampledImage, {image->sampledImageType, sampledObject, imageObject, samplerObject});
+
+            if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageQueryLod))
+            {
+                // get_lod: the computed level and the unclamped level.
+                const std::uint32_t lod = NewId();
+                Op(OpImageQueryLod, {m_imageVec2f, lod, sampledObject, floatCoordinate});
+                const std::uint32_t extracted = NewId();
+                Op(OpCompositeExtract, {m_imageVec4Element, extracted, lod,
+                                        static_cast<std::uint32_t>(access->component & 1)});
+                return finish(extracted);
+            }
+
+            // gather4: four neighbouring texels. The destination component
+            // selects which of the four texels; the gathered channel is red.
+            const auto channel = U32Constant(access->channel & 3);
+            if (!channel)
+                return std::unexpected(channel.error());
+            const std::uint32_t gathered = NewId();
+            Op(OpImageGather, {m_imageVec4, gathered, sampledObject, floatCoordinate, *channel});
+            const std::uint32_t extracted = NewId();
+            Op(OpCompositeExtract, {m_imageVec4Element, extracted, gathered,
+                                    static_cast<std::uint32_t>(access->component & 3)});
+            return finish(extracted);
         }
 
         if (instruction.op == IL::Op::Intrinsic &&
