@@ -2,6 +2,7 @@
 
 #include <csignal>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <exception>
 #include <mutex>
@@ -29,6 +30,35 @@ void Print(std::string_view text) noexcept
 }
 
 #ifdef _WIN32
+// The module that contains an address: a stack in a driver is not a stack in
+// our code, and the module name is what makes that distinction.
+void ModuleOf(const void* address, char* buffer, std::size_t size) noexcept
+{
+    HMODULE module = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                               | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           static_cast<LPCSTR>(address),
+                           &module)
+        != FALSE)
+    {
+        char path[MAX_PATH] = {};
+        GetModuleFileNameA(module, path, MAX_PATH);
+        const char* name = path;
+        for (const char* cursor = path; *cursor != '\0'; ++cursor)
+        {
+            if (*cursor == '\\' || *cursor == '/')
+                name = cursor + 1;
+        }
+        std::snprintf(buffer, size, "%s+0x%llX", name,
+                      static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(address)
+                                                     - reinterpret_cast<std::uintptr_t>(module)));
+    }
+    else
+    {
+        std::snprintf(buffer, size, "%p", address);
+    }
+}
+
 void PrintStack() noexcept
 {
     void* frames[48] = {};
@@ -65,7 +95,19 @@ void PrintStack() noexcept
         }
 
         if (line[0] == '\0')
-            std::snprintf(line, sizeof(line), "  #%02u %p\n", index, frames[index]);
+        {
+            char origin[320] = {};
+            ModuleOf(frames[index], origin, sizeof(origin));
+            std::snprintf(line, sizeof(line), "  #%02u %s\n", index, origin);
+        }
+        else
+        {
+            // Append the module so a frame without line information still says
+            // which image it came from.
+            char origin[320] = {};
+            ModuleOf(frames[index], origin, sizeof(origin));
+            std::snprintf(line + std::strlen(line), sizeof(line) - std::strlen(line), " [%s]", origin);
+        }
         Print(line);
     }
 
@@ -79,12 +121,14 @@ LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info) noexcept
     char header[256] = {};
     if (record != nullptr)
     {
+        char origin[320] = {};
+        ModuleOf(record->ExceptionAddress, origin, sizeof(origin));
         std::snprintf(header,
                       sizeof(header),
-                      "[%s] unhandled exception 0x%08lX at %p\n",
+                      "[%s] unhandled exception 0x%08lX at %s\n",
                       g_application.c_str(),
                       record->ExceptionCode,
-                      record->ExceptionAddress);
+                      origin);
     }
     else
     {
