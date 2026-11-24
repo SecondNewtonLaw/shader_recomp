@@ -176,15 +176,15 @@ TEST_CASE("Backend maps every geometry topology to a valid execution mode", "[ba
     }
 }
 
-TEST_CASE("Backend refuses a geometry input it cannot shape", "[backend][geometry]")
+TEST_CASE("Backend arrays a geometry input by input vertex", "[backend][geometry]")
 {
-    // A geometry input is an array indexed by the input vertex; emitting a
-    // plain input variable would quietly change the interface, so the gap is a
-    // diagnostic until the array form is built.
+    // A geometry input is an array over the primitive's vertices, so the SPIR-V
+    // variable is arrayed even though the IL stores one component.
     IL::Module module;
     module.stage = IL::Stage::Geometry;
     module.entryPoint = "main";
     module.architecture = "gfx1030";
+    module.executionModes.inputTopology = IL::InputTopology::Triangles;
 
     (void)module.types.U32();
     (void)module.types.Bool();
@@ -209,6 +209,19 @@ TEST_CASE("Backend refuses a geometry input it cannot shape", "[backend][geometr
     builder.Terminate(builder.CurrentBlock(), terminator);
 
     const auto emission = Backend::Reemit(module);
-    REQUIRE_FALSE(emission.has_value());
-    REQUIRE(emission.error().code == "SR-SPV-094");
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+
+    // One array type per geometry input and the input variable points at it;
+    // the vertex selects the element.
+    std::size_t arrays = 0;
+    for (std::size_t index = 5; index < emission->words.size();)
+    {
+        const std::uint32_t word = emission->words[index];
+        if ((word & 0xFFFFu) == 28) // OpTypeArray
+            ++arrays;
+        index += word >> 16;
+    }
+    REQUIRE(arrays == 1);
 }

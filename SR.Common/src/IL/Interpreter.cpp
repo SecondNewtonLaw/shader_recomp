@@ -829,8 +829,23 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     if (id == IntrinsicId::StageInput)
                     {
                         const ValueId slot = resultId();
-                        const auto it = options.stageInputs.find(key);
-                        values[slot] = it == options.stageInputs.end() ? 0 : it->second;
+                        if (instruction.operands.empty())
+                        {
+                            const auto it = options.stageInputs.find(key);
+                            values[slot] = it == options.stageInputs.end() ? 0 : it->second;
+                        }
+                        else
+                        {
+                            // A geometry input names the input vertex; its
+                            // values are per vertex.
+                            const std::uint64_t vertexKey = StageInputVertexKey(
+                                io->builtin,
+                                io->location,
+                                io->component,
+                                static_cast<std::uint32_t>(read(instruction.operands[0])));
+                            const auto it = options.stageInputVertices.find(vertexKey);
+                            values[slot] = it == options.stageInputVertices.end() ? 0 : it->second;
+                        }
                     }
                     else
                     {

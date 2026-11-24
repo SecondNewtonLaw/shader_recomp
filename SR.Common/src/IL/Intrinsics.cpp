@@ -65,7 +65,9 @@ constexpr std::array<IntrinsicSpec, 57> kSpecs = {
     Make(IntrinsicId::TestBufferLoad, "test.buffer-load", 1, 1, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::LocalStore, "local.store", 2, 2, 0, 0, Effect::WriteMemory),
     Make(IntrinsicId::LocalLoad, "local.load", 1, 1, 1, 1, Effect::ReadMemory),
-    Make(IntrinsicId::StageInput, "stage.input", 0, 0, 1, 1, Effect::None),
+    // A geometry input names the input vertex as its only operand; every other
+    // stage reads the current invocation's value with no operand.
+    Make(IntrinsicId::StageInput, "stage.input", 0, 1, 1, 1, Effect::None),
     Make(IntrinsicId::StageOutput, "stage.output", 1, 1, 0, 0, Effect::WriteMemory),
     Make(IntrinsicId::UserData, "user-data", 0, 0, 1, 1, Effect::None),
     Make(IntrinsicId::DeviceLoad, "device.load", 1, 1, 1, 1, Effect::ReadMemory),

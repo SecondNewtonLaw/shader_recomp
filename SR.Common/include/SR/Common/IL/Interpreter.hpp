@@ -38,6 +38,8 @@ struct ExecutionOptions
     // kBuiltinKeyBase + the Builtin enumerator; locations use
     // location * 4 + component.
     std::unordered_map<std::uint64_t, std::uint64_t> stageInputs;
+    // Geometry inputs, keyed per input vertex; see StageInputVertexKey.
+    std::unordered_map<std::uint64_t, std::uint64_t> stageInputVertices;
     // Compute invocation state a program reads through special registers.
     std::array<std::uint32_t, 3> threadId = {0, 0, 0};
     std::array<std::uint32_t, 3> workgroupId = {0, 0, 0};
@@ -60,6 +62,16 @@ inline constexpr std::uint64_t kBuiltinKeyBase = 0x8000'0000ull;
     return builtin != Builtin::None
                ? kBuiltinKeyBase + (static_cast<std::uint64_t>(builtin) * 4) + component
                : static_cast<std::uint64_t>(location) * 4 + component;
+}
+
+// The key for one component of one geometry input vertex. Geometry inputs are
+// arrays, so the vertex is part of the key; the other stages use StageIoKey.
+[[nodiscard]] constexpr std::uint64_t StageInputVertexKey(Builtin builtin,
+                                                         std::uint32_t location,
+                                                         std::uint32_t component,
+                                                         std::uint32_t vertex) noexcept
+{
+    return StageIoKey(builtin, location, component) | (static_cast<std::uint64_t>(vertex + 1) << 40);
 }
 
 // Executes one invocation of a lifted module. This is a reference model for

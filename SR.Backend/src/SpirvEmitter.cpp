@@ -683,6 +683,10 @@ private:
         IL::TypeId type = IL::InvalidType;
         std::uint32_t components = 1;
         IL::Interpolation interpolation = IL::Interpolation::None;
+        // A geometry input is an array indexed by the input vertex.
+        bool arrayedInput = false;
+        std::uint32_t arrayType = 0;
+        std::uint32_t scalarPointer = 0; // pointer to one component
     };
 
     [[nodiscard]] static std::uint32_t ExecutionModel(IL::Stage stage) noexcept
@@ -721,6 +725,25 @@ private:
         case IL::InputTopology::Triangles:
         default:
             return 22; // Triangles
+        }
+    }
+
+    // How many array elements one input primitive fills.
+    [[nodiscard]] static std::uint32_t InputVertexCount(IL::InputTopology topology) noexcept
+    {
+        switch (topology)
+        {
+        case IL::InputTopology::Points:
+            return 1;
+        case IL::InputTopology::Lines:
+            return 2;
+        case IL::InputTopology::LinesAdjacency:
+            return 4;
+        case IL::InputTopology::TrianglesAdjacency:
+            return 6;
+        case IL::InputTopology::Triangles:
+        default:
+            return 3;
         }
     }
 
@@ -943,17 +966,41 @@ private:
             if (!element)
                 return std::unexpected(element.error());
 
+            if (m_module.stage == IL::Stage::Geometry && binding.space == IL::Space::Input)
+            {
+                // One array element per input vertex of the primitive.
+                const auto count = U32Constant(InputVertexCount(m_module.executionModes.inputTopology));
+                if (!count)
+                    return std::unexpected(count.error());
+                binding.arrayedInput = true;
+                binding.arrayType = NewId();
+                Op(OpTypeArray, {binding.arrayType, *type, *count});
+            }
+
             binding.variablePointer = NewId();
-            Op(OpTypePointer, {binding.variablePointer, StorageClass(binding.space), *type});
+            Op(OpTypePointer, {binding.variablePointer, StorageClass(binding.space),
+                               binding.arrayedInput ? binding.arrayType : *type});
 
             if (declared.kind == IL::TypeKind::Vector)
             {
-                binding.elementPointer = NewId();
-                Op(OpTypePointer, {binding.elementPointer, StorageClass(binding.space), *element});
+                binding.scalarPointer = NewId();
+                Op(OpTypePointer, {binding.scalarPointer, StorageClass(binding.space), *element});
             }
             else
             {
-                binding.elementPointer = binding.variablePointer;
+                binding.scalarPointer = binding.variablePointer;
+            }
+
+            if (binding.arrayedInput)
+            {
+                // The element is the declared type, so the vertex index stops
+                // at the vector and the component index follows.
+                binding.elementPointer = NewId();
+                Op(OpTypePointer, {binding.elementPointer, StorageClass(binding.space), *type});
+            }
+            else
+            {
+                binding.elementPointer = binding.scalarPointer;
             }
 
             pointers[i] = binding.variablePointer;
@@ -977,17 +1024,27 @@ private:
     }
 
     // The pointer to one component of a stage IO variable.
-    [[nodiscard]] Result<std::uint32_t> StageIoPointer(const StageIo& binding, std::uint32_t component)
+    [[nodiscard]] Result<std::uint32_t> StageIoPointer(const StageIo& binding,
+                                                       std::uint32_t component,
+                                                       std::uint32_t vertex = 0)
     {
+        std::uint32_t base = binding.variable;
+
+        if (binding.arrayedInput)
+        {
+            base = NewId();
+            Op(OpAccessChain, {binding.elementPointer, base, binding.variable, vertex});
+        }
+
         if (binding.components == 1)
-            return binding.variable;
+            return base;
 
         const auto index = U32Constant(component);
         if (!index)
             return std::unexpected(index.error());
 
         const std::uint32_t pointer = NewId();
-        Op(OpAccessChain, {binding.elementPointer, pointer, binding.variable, *index});
+        Op(OpAccessChain, {binding.scalarPointer, pointer, base, *index});
         return pointer;
     }
 
@@ -2810,7 +2867,21 @@ private:
                     return std::unexpected(
                         EmitError("SR-SPV-052", "stage IO component is outside the declared vector", instruction.sourcePc));
 
-                const auto pointer = StageIoPointer(*binding, desc->component);
+                std::uint32_t vertex = 0;
+                if (intrinsic == IL::IntrinsicId::StageInput && binding->arrayedInput)
+                {
+                    if (instruction.operands.size() != 1)
+                        return std::unexpected(EmitError("SR-SPV-095",
+                                                         "a geometry input needs the input vertex operand",
+                                                         instruction.sourcePc));
+                    const auto vertexValue = ValueId(function, instruction.operands[0]);
+                    if (!vertexValue)
+                        return std::unexpected(EmitError("SR-SPV-096", "invalid geometry input vertex",
+                                                         instruction.sourcePc));
+                    vertex = *vertexValue;
+                }
+
+                const auto pointer = StageIoPointer(*binding, desc->component, vertex);
                 if (!pointer)
                     return std::unexpected(pointer.error());
 
@@ -3578,11 +3649,6 @@ Result<Emission> Reemit(const IL::Module& module, const TargetProfile& profile)
 {
     (void)profile;
 
-    // A geometry input is an array indexed by the input vertex. The emitter
-    // does not build that interface yet, so a plain input variable would be
-    // silently wrong; name the gap instead.
-    if (module.stage == IL::Stage::Geometry && !module.inputs.empty())
-        return std::unexpected(EmitError("SR-SPV-094", "geometry input variables are not modeled"));
 
     // Prefer structured control flow for reducible functions; if the result
     // does not validate, retry with the dispatcher, which handles any CFG.
