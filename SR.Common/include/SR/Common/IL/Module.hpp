@@ -169,10 +169,31 @@ struct Function
     bool isEntry = false;
 };
 
+// What one invocation of a geometry stage consumes.
+enum class InputTopology : std::uint8_t
+{
+    Points,
+    Lines,
+    LinesAdjacency,
+    Triangles,
+    TrianglesAdjacency,
+};
+
+// What a geometry invocation produces.
+enum class OutputTopology : std::uint8_t
+{
+    Points,
+    LineStrip,
+    TriangleStrip,
+};
+
 struct ExecutionModes
 {
     std::array<std::uint32_t, 3> workgroupSize = {1, 1, 1};
-    // Geometry: how many vertices an invocation may emit.
+    // Geometry: the input primitive each invocation sees, the primitive it
+    // emits and how many vertices it may emit.
+    InputTopology inputTopology = InputTopology::Triangles;
+    OutputTopology outputTopology = OutputTopology::TriangleStrip;
     std::uint32_t outputVertices = 3;
     std::uint32_t subgroupSize = 0; // 0 = natural
     bool earlyFragmentTests = false;

@@ -19,7 +19,7 @@ TEST_CASE("Backend rejects a module without an entry function", "[backend]")
     REQUIRE(result.error().code == "SR-SPV-020");
 }
 
-TEST_CASE("Backend emits a geometry stage with per-vertex outputs", "[backend][geometry]")
+TEST_CASE("Backend emits a geometry stage that emits vertices", "[backend][geometry]")
 {
     IL::Module module;
     module.stage = IL::Stage::Geometry;
@@ -91,10 +91,10 @@ TEST_CASE("Backend emits a geometry stage with per-vertex outputs", "[backend][g
         return false;
     };
 
-    // The output is an array, emission uses the geometry opcodes, and the
-    // vertex counter is advanced with an integer add.
-    REQUIRE(hasOpcode(28));  // OpTypeArray
-    REQUIRE(hasOpcode(218)); // OpEmitVertex
-    REQUIRE(hasOpcode(219)); // OpEndPrimitive
-    REQUIRE(hasOpcode(128)); // OpIAdd
+    // Geometry outputs are the plain per-vertex variables other stages use;
+    // OpEmitVertex captures them, so an arrayed output is an interface the
+    // driver does not accept (glslang emits plain variables too).
+    REQUIRE_FALSE(hasOpcode(28)); // OpTypeArray
+    REQUIRE(hasOpcode(218));      // OpEmitVertex
+    REQUIRE(hasOpcode(219));      // OpEndPrimitive
 }

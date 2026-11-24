@@ -683,12 +683,6 @@ private:
         IL::TypeId type = IL::InvalidType;
         std::uint32_t components = 1;
         IL::Interpolation interpolation = IL::Interpolation::None;
-        // Geometry outputs are arrays indexed by the emitted vertex.
-        bool arrayed = false;
-        std::uint32_t arrayType = 0;
-        std::uint32_t vectorPointer = 0;  // pointer to the declared type
-        std::uint32_t scalarPointer = 0;  // pointer to one component
-        std::uint32_t vertexCounter = 0;  // i32 local, Function storage
     };
 
     [[nodiscard]] static std::uint32_t ExecutionModel(IL::Stage stage) noexcept
@@ -707,6 +701,40 @@ private:
             return 4;
         default:
             return 5; // GLCompute
+        }
+    }
+
+    // SPIR-V execution modes for the geometry topologies, kept here so the IL
+    // stays vendor- and binary-neutral.
+    [[nodiscard]] static std::uint32_t InputTopologyMode(IL::InputTopology topology) noexcept
+    {
+        switch (topology)
+        {
+        case IL::InputTopology::Points:
+            return 0; // InputPoints
+        case IL::InputTopology::Lines:
+            return 2; // InputLines
+        case IL::InputTopology::LinesAdjacency:
+            return 10; // InputLinesAdjacency
+        case IL::InputTopology::TrianglesAdjacency:
+            return 18; // InputTrianglesAdjacency
+        case IL::InputTopology::Triangles:
+        default:
+            return 22; // Triangles
+        }
+    }
+
+    [[nodiscard]] static std::uint32_t OutputTopologyMode(IL::OutputTopology topology) noexcept
+    {
+        switch (topology)
+        {
+        case IL::OutputTopology::Points:
+            return 16; // OutputPoints
+        case IL::OutputTopology::LineStrip:
+            return 17; // OutputLineStrip
+        case IL::OutputTopology::TriangleStrip:
+        default:
+            return 29; // OutputTriangleStrip
         }
     }
 
@@ -901,9 +929,6 @@ private:
         std::vector<std::uint32_t> pointers(m_stageIo.size(), 0);
         bool needsIndices = false;
 
-        const bool geometry = m_module.stage == IL::Stage::Geometry;
-        const std::uint32_t outputVertices = m_module.executionModes.outputVertices;
-
         for (std::size_t i = 0; i < m_stageIo.size(); ++i)
         {
             StageIo& binding = m_stageIo[i];
@@ -912,18 +937,6 @@ private:
             if (!type)
                 return std::unexpected(type.error());
 
-            if (geometry && binding.space == IL::Space::Output)
-            {
-                // Geometry outputs are arrays of OutputVertices elements; the
-                // emitted vertex selects the element.
-                const auto count = U32Constant(outputVertices);
-                if (!count)
-                    return std::unexpected(count.error());
-                binding.arrayed = true;
-                binding.arrayType = NewId();
-                Op(OpTypeArray, {binding.arrayType, *type, *count});
-            }
-
             const IL::Type& declared = m_module.types.Get(binding.type);
             const IL::TypeId elementId = declared.kind == IL::TypeKind::Vector ? declared.element : binding.type;
             const auto element = EmitType(elementId);
@@ -931,23 +944,18 @@ private:
                 return std::unexpected(element.error());
 
             binding.variablePointer = NewId();
-            Op(OpTypePointer, {binding.variablePointer, StorageClass(binding.space),
-                               binding.arrayed ? binding.arrayType : *type});
-
-            binding.vectorPointer = NewId();
-            Op(OpTypePointer, {binding.vectorPointer, StorageClass(binding.space), *type});
+            Op(OpTypePointer, {binding.variablePointer, StorageClass(binding.space), *type});
 
             if (declared.kind == IL::TypeKind::Vector)
             {
-                binding.scalarPointer = NewId();
-                Op(OpTypePointer, {binding.scalarPointer, StorageClass(binding.space), *element});
+                binding.elementPointer = NewId();
+                Op(OpTypePointer, {binding.elementPointer, StorageClass(binding.space), *element});
             }
             else
             {
-                binding.scalarPointer = binding.vectorPointer;
+                binding.elementPointer = binding.variablePointer;
             }
 
-            binding.elementPointer = binding.scalarPointer;
             pointers[i] = binding.variablePointer;
             needsIndices = needsIndices || binding.components > 1;
         }
@@ -962,32 +970,6 @@ private:
             }
         }
 
-        if (geometry)
-        {
-            // The emitted-vertex counter: Function-local i32, zeroed at entry,
-            // bumped by EmitVertex and reset by EndPrimitive.
-            const IL::TypeId i32Type = m_module.types.FindInt(32, true) != IL::InvalidType
-                                           ? m_module.types.FindInt(32, true)
-                                           : m_module.types.FindInt(32, false);
-            if (i32Type == IL::InvalidType)
-                return std::unexpected(EmitError("SR-SPV-091", "geometry requires a 32-bit integer type"));
-            const auto i32 = EmitType(i32Type);
-            if (!i32)
-                return std::unexpected(i32.error());
-            m_geometryCounterType = *i32;
-
-            m_geometryZero = NewId();
-            Op(OpConstant, {*i32, m_geometryZero, 0});
-            m_geometryOne = NewId();
-            Op(OpConstant, {*i32, m_geometryOne, 1});
-
-            m_geometryCounterPointer = NewId();
-            Op(OpTypePointer, {m_geometryCounterPointer, 7 /* Function */, *i32});
-            // The variable itself belongs to the entry block, so its id is
-            // reserved here and the instruction is emitted in the prologue.
-            m_geometryCounter = NewId();
-        }
-
         for (std::size_t i = 0; i < m_stageIo.size(); ++i)
             Op(OpVariable, {pointers[i], m_stageIo[i].variable, StorageClass(m_stageIo[i].space)});
 
@@ -997,27 +979,15 @@ private:
     // The pointer to one component of a stage IO variable.
     [[nodiscard]] Result<std::uint32_t> StageIoPointer(const StageIo& binding, std::uint32_t component)
     {
-        std::uint32_t base = binding.variable;
-
-        if (binding.arrayed)
-        {
-            // The emitted-vertex counter selects the array element, so the
-            // index is the counter's value, not the pointer to it.
-            const std::uint32_t vertex = NewId();
-            Op(OpLoad, {m_geometryCounterType, vertex, m_geometryCounter});
-            base = NewId();
-            Op(OpAccessChain, {binding.vectorPointer, base, binding.variable, vertex});
-        }
-
         if (binding.components == 1)
-            return base;
+            return binding.variable;
 
         const auto index = U32Constant(component);
         if (!index)
             return std::unexpected(index.error());
 
         const std::uint32_t pointer = NewId();
-        Op(OpAccessChain, {binding.scalarPointer, pointer, base, *index});
+        Op(OpAccessChain, {binding.elementPointer, pointer, binding.variable, *index});
         return pointer;
     }
 
@@ -1110,11 +1080,6 @@ private:
     std::uint32_t m_imageVec2i = 0;
     std::uint32_t m_imageVec2f = 0;
     std::uint32_t m_imageZeroLod = 0;
-    std::uint32_t m_geometryCounter = 0;
-    std::uint32_t m_geometryCounterPointer = 0;
-    std::uint32_t m_geometryCounterType = 0;
-    std::uint32_t m_geometryZero = 0;
-    std::uint32_t m_geometryOne = 0;
     std::uint32_t m_imageVec4Element = 0;
 
     // Image accesses name a binding the host filled from the T# descriptor.
@@ -1352,9 +1317,10 @@ private:
         }
         else if (executionModel == 3) // Geometry
         {
-            Op(OpExecutionMode, {m_mainId, 22 /* Triangles */});
-            Op(OpExecutionMode, {m_mainId, 29 /* OutputTriangleStrip */});
-            Op(OpExecutionMode, {m_mainId, 26 /* OutputVertices */, 3});
+            Op(OpExecutionMode, {m_mainId, InputTopologyMode(m_module.executionModes.inputTopology)});
+            Op(OpExecutionMode, {m_mainId, OutputTopologyMode(m_module.executionModes.outputTopology)});
+            Op(OpExecutionMode,
+               {m_mainId, 26 /* OutputVertices */, m_module.executionModes.outputVertices});
         }
         else if (executionModel == 4) // Fragment
         {
@@ -1892,13 +1858,6 @@ private:
         if (!allocas)
             return std::unexpected(allocas.error());
 
-        // A geometry invocation starts at vertex zero.
-        if (m_module.stage == IL::Stage::Geometry && m_geometryCounter != 0)
-        {
-            Op(OpVariable, {m_geometryCounterPointer, m_geometryCounter, 7 /* Function */});
-            Op(OpStore, {m_geometryCounter, m_geometryZero});
-        }
-
         Op(OpBranch, {m_blockLabels[function.entry]});
         return EmitStructuredBlock(function, function.entry, IL::InvalidBlockId);
     }
@@ -2238,13 +2197,6 @@ private:
         if (!allocas)
             return std::unexpected(allocas.error());
 
-        // A geometry invocation starts at vertex zero.
-        if (m_module.stage == IL::Stage::Geometry && m_geometryCounter != 0)
-        {
-            Op(OpVariable, {m_geometryCounterPointer, m_geometryCounter, 7 /* Function */});
-            Op(OpStore, {m_geometryCounter, m_geometryZero});
-        }
-
         const IL::Block& block = function.blocks[function.entry];
         for (const IL::Instruction& instruction : block.body)
         {
@@ -2293,13 +2245,6 @@ private:
         const auto allocas = EmitAllocas(function);
         if (!allocas)
             return std::unexpected(allocas.error());
-
-        // A geometry invocation starts at vertex zero.
-        if (m_module.stage == IL::Stage::Geometry && m_geometryCounter != 0)
-        {
-            Op(OpVariable, {m_geometryCounterPointer, m_geometryCounter, 7 /* Function */});
-            Op(OpStore, {m_geometryCounter, m_geometryZero});
-        }
 
         const auto spillVariables = EmitSpillVariables(function);
         if (!spillVariables)
@@ -2593,17 +2538,10 @@ private:
             if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex))
             {
                 Op(OpEmitVertex, {});
-                // The next vertex writes into the next array element.
-                const std::uint32_t current = NewId();
-                Op(OpLoad, {m_geometryCounterType, current, m_geometryCounter});
-                const std::uint32_t next = NewId();
-                Op(OpIAdd, {m_geometryCounterType, next, current, m_geometryOne});
-                Op(OpStore, {m_geometryCounter, next});
             }
             else
             {
                 Op(OpEndPrimitive, {});
-                Op(OpStore, {m_geometryCounter, m_geometryZero});
             }
             return {};
         }
