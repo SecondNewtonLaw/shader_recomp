@@ -5273,38 +5273,6 @@ private:
         SubClamp,
     };
 
-    // ds_cmpst_b32: store the new value only when the location holds the
-    // comparison value; the _rtn form returns what it held. The select keeps
-    // the memory write conditional without a branch, so a race-free program
-    // observes the same result. Cross-lane atomicity is not modelled: the IL
-    // has no local compare-exchange.
-    [[nodiscard]] Result<void> LiftDsCmpst(const DecodedInstruction& instruction, bool returning)
-    {
-        const auto index = DsIndex(instruction, instruction.dsOffset0);
-        if (!index)
-            return std::unexpected(index.error());
-
-        const auto compare = DsData(instruction, OperandKind::DsData0, false);
-        if (!compare)
-            return std::unexpected(compare.error());
-        const auto value = DsData(instruction, OperandKind::DsData1, false);
-        if (!value)
-            return std::unexpected(value.error());
-
-        const IL::ValueId old = DsDword(instruction, *index);
-        const IL::ValueId equal = m_builder.CompareValue(IL::CompareOp::UEq, old, *compare, false);
-        const IL::ValueId merged =
-            m_builder.SelectValue(m_module.types.U32(), equal, *value, old, false);
-
-        const IL::ValueId guard = CurrentGuard(instruction.pc);
-        m_builder.IntrinsicVoid(IL::IntrinsicId::LocalStore, {*index, merged}, IL::NoPayload, instruction.pc);
-        ApplyGuard(instruction.pc, guard);
-
-        if (returning)
-            return DsWriteDest(instruction, old);
-        return {};
-    }
-
     // ds_append / ds_consume: return the counter and step it. The plain forms
     // wrap through zero; the bounded forms take their bound from M0.
     [[nodiscard]] Result<void> LiftDsCounter(const DecodedInstruction& instruction, bool increment)
@@ -5667,10 +5635,6 @@ private:
         case Op::DsStoreB16D16Hi:
             return LiftDsByteAccess(instruction);
 
-        case Op::DsCmpstB32:
-            return LiftDsCmpst(instruction, false);
-        case Op::DsCmpstRtnB32:
-            return LiftDsCmpst(instruction, true);
         case Op::DsAppend:
             return LiftDsCounter(instruction, true);
         case Op::DsConsume:
