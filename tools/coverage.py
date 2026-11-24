@@ -59,6 +59,8 @@ LIFTED = {
     "S_Bitset0B32", "S_Bitset0B64", "S_Bitset1B32", "S_Bitset1B64",
     "S_LshlB64", "S_LshrB64", "S_AshrI64", "S_BfmB64",
     "S_BfeU64", "S_BfeI64", "S_MulHiI32", "S_MulHiU32",
+    # Save-exec masks, wave control and f64 min/max.
+"S_AndSaveexecB32", "S_OrSaveexecB32", "S_XorSaveexecB32", "S_NandSaveexecB32", "S_NorSaveexecB32", "S_XnorSaveexecB32", "S_AndSaveexecB64", "S_OrSaveexecB64", "S_XorSaveexecB64", "S_NandSaveexecB64", "S_NorSaveexecB64", "S_XnorSaveexecB64", "S_CvtPkRtzF16F32", "S_Sendmsg", "S_Sendmsghalt", "S_Sethalt", "S_Setkill", "S_Sleep", "S_Trap", "V_MinimumF64", "V_MaximumF64", "GlobalInv", "GlobalWb", "GlobalWbinv",
     # frexp.
 "V_FrexpExpI32F32", "V_FrexpMantF32", "V_FrexpExpI16F16", "V_FrexpMantF16",
     # VOP3 mask, byte pack, SAD16 and 64-bit shifts.

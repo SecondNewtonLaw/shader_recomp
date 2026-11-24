@@ -5021,6 +5021,26 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 return std::unexpected(Error("SR-GFX-ISA-371", "invalid frexp destination", pc));
             break;
         }
+        case Op::V_MinimumF64:
+        case Op::V_MaximumF64:
+        {
+            const auto first = ReadVgprPair(result.state, instruction.operands[1]);
+            const auto second = ReadVgprPair(result.state, instruction.operands[2]);
+            if (!first || !second)
+                return std::unexpected(Error("SR-GFX-ISA-380", "invalid f64 min/max operands", pc));
+            const double a = std::bit_cast<double>(*first);
+            const double b = std::bit_cast<double>(*second);
+            double value = 0.0;
+            if (std::isnan(a) || std::isnan(b))
+                value = std::numeric_limits<double>::quiet_NaN();
+            else
+                value = instruction.op == Op::V_MaximumF64 ? std::fmax(a, b) : std::fmin(a, b);
+            const std::uint64_t bits = std::bit_cast<std::uint64_t>(value);
+            const std::uint32_t destination = instruction.operands[0].value;
+            result.state.vgpr[destination] = static_cast<std::uint32_t>(bits);
+            result.state.vgpr[destination + 1] = static_cast<std::uint32_t>(bits >> 32);
+            break;
+        }
         case Op::Invalid:
             return std::unexpected(Error("SR-GFX-ISA-074", "invalid instruction", pc));
         default:

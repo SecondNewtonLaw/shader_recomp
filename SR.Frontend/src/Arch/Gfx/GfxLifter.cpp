@@ -5385,6 +5385,21 @@ private:
     {
         switch (instruction.op)
         {
+        case Op::S_Sendmsg:
+        case Op::S_Sendmsghalt:
+        case Op::S_Sethalt:
+        case Op::S_Setkill:
+        case Op::S_Sleep:
+            // Wave-level control has no effect on the single-invocation model.
+            return {};
+        case Op::S_Trap:
+        {
+            IL::Terminator terminator;
+            terminator.kind = IL::TerminatorKind::Unreachable;
+            terminator.sourcePc = instruction.pc;
+            m_builder.Terminate(m_builder.CurrentBlock(), std::move(terminator));
+            return {};
+        }
         case Op::S_Nop:
         case Op::S_Clause:
         case Op::S_DelayAlu:
@@ -7174,6 +7189,118 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    // Save-exec forms: the destination receives the previous mask (all ones
+    // while this lane is active) and EXEC takes the combined condition.
+    [[nodiscard]] Result<void> LiftSaveExec(const DecodedInstruction& instruction, IL::BinaryOp op,
+                                            bool invert, bool wide)
+    {
+        const auto source = wide ? ReadPairSource(instruction.operands[1], instruction.pc)
+                                 : ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        const auto exec = ReadExec(instruction.pc);
+        if (!exec)
+            return std::unexpected(exec.error());
+
+        const IL::ValueId maskNonZero = m_builder.CompareValue(
+            IL::CompareOp::UNe, *source,
+            wide ? m_builder.ConstantU64(0) : m_builder.ConstantU32(0), true);
+        IL::ValueId condition = m_builder.Emit(m_module.types.Bool(), IL::Op::Binary,
+                                              static_cast<std::uint16_t>(op), {*exec, maskNonZero},
+                                              {}, IL::NoPayload, instruction.pc,
+                                              static_cast<std::uint16_t>(instruction.op), true);
+        if (invert)
+            condition = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), condition, true);
+
+        // The saved mask is the previous EXEC value for this lane.
+        const IL::ValueId saved = m_builder.SelectValue(
+            wide ? m_module.types.U64() : m_module.types.U32(), *exec,
+            wide ? m_builder.ConstantU64(~std::uint64_t{0}) : m_builder.ConstantU32(0xFFFFFFFFu),
+            wide ? m_builder.ConstantU64(0) : m_builder.ConstantU32(0), true);
+
+        const auto status = wide ? WriteSgpr64(instruction.operands[0], saved, instruction.pc)
+                                 : WriteDest(instruction.operands[0], saved, instruction.pc);
+        if (!status)
+            return status;
+        return WriteExec(condition, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftCvtPkRtzF16F32Scalar(const DecodedInstruction& instruction)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+
+        const auto convert = [&](IL::ValueId bits) {
+            const IL::ValueId value = Bitcast(m_module.types.F32(), bits);
+            const IL::ValueId rounded =
+                m_builder.ConvertValue(F16Type(), IL::ConvertOp::FPTrunc, value, false);
+            const IL::ValueId widened =
+                m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::FPExt, rounded, false);
+            const IL::ValueId absSource =
+                m_builder.UnaryValue(IL::UnaryOp::FAbs, m_module.types.F32(), value, false);
+            const IL::ValueId absRounded =
+                m_builder.UnaryValue(IL::UnaryOp::FAbs, m_module.types.F32(), widened, false);
+            const IL::ValueId tooLarge =
+                m_builder.CompareValue(IL::CompareOp::FOrdGt, absRounded, absSource, false);
+            const IL::ValueId halfBits =
+                m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                       Bitcast(U16Type(), rounded), false);
+            const IL::ValueId stepped = m_builder.SelectValue(
+                m_module.types.U32(), tooLarge,
+                Bin(instruction, IL::BinaryOp::ISub, halfBits, m_builder.ConstantU32(1)), halfBits,
+                false);
+            return Bin(instruction, IL::BinaryOp::And, stepped, m_builder.ConstantU32(0xFFFF));
+        };
+
+        const IL::ValueId low = convert(*first);
+        const IL::ValueId high = convert(*second);
+        return WriteDest(instruction.operands[0],
+                         Bin(instruction, IL::BinaryOp::Or, low,
+                             Bin(instruction, IL::BinaryOp::Shl, high,
+                                 m_builder.ConstantU32(16))),
+                         instruction.pc);
+    }
+
+    // f64 minimum/maximum propagate NaN and write a VGPR pair.
+    [[nodiscard]] Result<void> LiftF64MinMax(const DecodedInstruction& instruction, bool maximum)
+    {
+        if (instruction.operands[1].kind != OperandKind::Vgpr ||
+            instruction.operands[2].kind != OperandKind::Vgpr)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-083", "f64 min/max needs vector register pairs",
+                          instruction.pc));
+        const auto first = ReadVgpr64(instruction.operands[1].value, instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadVgpr64(instruction.operands[2].value, instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+
+        const IL::TypeId f64 = F64Type();
+        const IL::ValueId left = Bitcast(f64, *first);
+        const IL::ValueId right = Bitcast(f64, *second);
+        const IL::ValueId orderedLeft =
+            m_builder.CompareValue(IL::CompareOp::FOrdEq, left, left, false);
+        const IL::ValueId orderedRight =
+            m_builder.CompareValue(IL::CompareOp::FOrdEq, right, right, false);
+        const IL::ValueId ordered = m_builder.Emit(
+            m_module.types.Bool(), IL::Op::Binary, static_cast<std::uint16_t>(IL::BinaryOp::And),
+            {orderedLeft, orderedRight}, {}, IL::NoPayload, instruction.pc,
+            static_cast<std::uint16_t>(instruction.op), false);
+        const IL::ValueId selected =
+            Bin(instruction, maximum ? IL::BinaryOp::FMax : IL::BinaryOp::FMin, left, right, f64);
+        const IL::ValueId nan =
+            m_builder.ConstantF64(std::numeric_limits<double>::quiet_NaN());
+        const IL::ValueId result = m_builder.SelectValue(f64, ordered, selected, nan, false);
+        return WriteVgpr64(instruction.operands[0], Bitcast(m_module.types.U64(), result),
+                           instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -8725,6 +8852,36 @@ private:
             return LiftFrexp(instruction, false, true);
         case Op::V_FrexpMantF16:
             return LiftFrexp(instruction, true, true);
+        case Op::S_AndSaveexecB32:
+            return LiftSaveExec(instruction, IL::BinaryOp::And, false, false);
+        case Op::S_OrSaveexecB32:
+            return LiftSaveExec(instruction, IL::BinaryOp::Or, false, false);
+        case Op::S_XorSaveexecB32:
+            return LiftSaveExec(instruction, IL::BinaryOp::Xor, false, false);
+        case Op::S_NandSaveexecB32:
+            return LiftSaveExec(instruction, IL::BinaryOp::And, true, false);
+        case Op::S_NorSaveexecB32:
+            return LiftSaveExec(instruction, IL::BinaryOp::Or, true, false);
+        case Op::S_XnorSaveexecB32:
+            return LiftSaveExec(instruction, IL::BinaryOp::Xor, true, false);
+        case Op::S_AndSaveexecB64:
+            return LiftSaveExec(instruction, IL::BinaryOp::And, false, true);
+        case Op::S_OrSaveexecB64:
+            return LiftSaveExec(instruction, IL::BinaryOp::Or, false, true);
+        case Op::S_XorSaveexecB64:
+            return LiftSaveExec(instruction, IL::BinaryOp::Xor, false, true);
+        case Op::S_NandSaveexecB64:
+            return LiftSaveExec(instruction, IL::BinaryOp::And, true, true);
+        case Op::S_NorSaveexecB64:
+            return LiftSaveExec(instruction, IL::BinaryOp::Or, true, true);
+        case Op::S_XnorSaveexecB64:
+            return LiftSaveExec(instruction, IL::BinaryOp::Xor, true, true);
+        case Op::S_CvtPkRtzF16F32:
+            return LiftCvtPkRtzF16F32Scalar(instruction);
+        case Op::V_MinimumF64:
+            return LiftF64MinMax(instruction, false);
+        case Op::V_MaximumF64:
+            return LiftF64MinMax(instruction, true);
         case Op::S_CmovkI32:
         case Op::S_AddkCoI32:
             return LiftScalarImmediate(instruction);

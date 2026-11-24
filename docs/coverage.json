@@ -18,24 +18,24 @@
     "gfx1100": {
       "total": 1148,
       "decoded": 815,
-      "lifted": 741
+      "lifted": 759
     },
     "gfx1150": {
       "total": 1208,
       "decoded": 815,
-      "lifted": 741
+      "lifted": 759
     },
     "gfx1200": {
       "total": 1264,
       "decoded": 1453,
-      "lifted": 1306
+      "lifted": 1330
     }
   },
   "gfx1200_families": {
     "VOP3": {
       "total": 363,
       "decoded": 429,
-      "lifted": 398
+      "lifted": 400
     },
     "DS": {
       "total": 125,
@@ -55,17 +55,17 @@
     "SOP1": {
       "total": 84,
       "decoded": 84,
-      "lifted": 43
+      "lifted": 55
     },
     "SOP2": {
       "total": 72,
       "decoded": 72,
-      "lifted": 71
+      "lifted": 72
     },
     "GLOBAL": {
       "total": 65,
       "decoded": 65,
-      "lifted": 54
+      "lifted": 57
     },
     "IMAGE": {
       "total": 58,
@@ -90,7 +90,7 @@
     "SOPP": {
       "total": 41,
       "decoded": 43,
-      "lifted": 36
+      "lifted": 42
     },
     "OTHER": {
       "total": 40,
