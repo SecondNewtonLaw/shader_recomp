@@ -1,11 +1,12 @@
 # Xbox Series X|S GPU to SPIR-V
 
-Status: format research, phase 1 landed (container reader, fixture, identity
-test). This document records what a console shader actually is on the wire, what
-the translation contract with the rest of the pipeline is, and the order in
-which the missing pieces are built. Numbers and layouts are taken from three
-independent reverse-engineering efforts, and anything that only one of them
-reports is marked as unconfirmed.
+Status: phases 1-4 landed and verified on hardware; phase 5 (resources) is
+designed against AnyPS5's runtime ABI and not implemented yet; phase 6 (merged
+stages) and phase 7 (title sweep) are open. This document records what a console
+shader actually is on the wire, what the translation contract with the rest of
+the pipeline is, and the order in which the missing pieces are built. Numbers
+and layouts are taken from three independent reverse-engineering efforts, and
+anything that only one of them reports is marked as unconfirmed.
 
 ## 1. What the hardware is
 
@@ -163,11 +164,11 @@ optimisation, not the contract.
 |---|---|---|
 | Container | PC DXBC (`SHDR`/`SHEX`), DXIL bitcode, SPIR-V, cubin, HSACO, Series X|S XDAT/XBCH/FSSM (`XboxShaderContainer`) | DXBC signature parts, root layout and used-resource tables |
 | ISA decode | gfx10 base table; gfx1013 and gfx103 inherit it with **no delta**; RDNA3/4 have their own tables | real RDNA2 delta, and the four encodings the decoder does not know: `VINTRP` (3 opcodes), `EXP`, `MIMG` (103), `MTBUF` (16) |
-| ISA lift | ALU, compare, conversion, branch, scalar, buffer/global/flat/scratch memory, 92.7% of gfx1200 entries | `v_interp_*`, `exp`, image ops, typed buffers |
-| Stages | `GLCompute` only; multi-block functions go through the dispatcher fallback | `Vertex`, `Fragment`, then geometry and NGG mesh |
-| Waves | single-invocation IL; wave intrinsics declared in `Intrinsics.hpp` but not lowered | EXEC as per-lane predicates, ballots, shuffles, subgroup size |
+| ISA lift | ALU, compare, conversion, branch, scalar, buffer/global/flat/scratch memory, `v_interp_p1/p2/mov`, `exp`, wave ballots, 92.7% of gfx1200 entries | image ops (`MIMG`), typed buffers (`MTBUF`), descriptor-driven loads |
+| Stages | `GLCompute`, `Vertex` and `Fragment` with IO variables, interpolation decorations and exports; multi-block functions still use the dispatcher fallback when the CFG is not reducible | geometry and NGG mesh |
+| Waves | thread ids as `LocalInvocationId`, compare masks as `OpGroupNonUniformBallot` (wave32 or wave64 masks), one-lane interpreter model | per-lane EXEC predication of stores, readlane/shuffle, quad ops |
 | Resources | one test buffer at set 0 binding 0 (`--test-abi`) | T#/V#/S# decode, SRT/heap access, push constants |
-| Verification | 58 targets, RX 9060 XT (gfx1200) + IL interpreter | console fixtures through the same GPU run, then a title shader pack sweep |
+| Verification | `tests/sweep.ps1`: 66 fixtures translated, driver-accepted and ISA-probed in parallel; VS/PS pair rasterised by `SR.VkDraw`; console container executed | title shader pack sweep |
 
 ## 6. Roadmap
 
@@ -180,26 +181,75 @@ Each phase ends with something executable, not with a table entry.
    module passes `spirv-val` and, when the fixture is observable, runs on the
    detected GPU with the same result. `tests/corpus/xbox/` is that fixture; the
    root layout and used-resource tables are still to be decoded.
-2. **RDNA2 decode delta.** Fill `Arch::Gfx103` with the instructions RDNA2 adds
-   over RDNA1, add `VINTRP` and `EXP`, lift interpolation and exports. Acceptance:
-   a VS/PS pair assembled for gfx1030 lifts, and its exports land in the right
-   SPIR-V locations.
-3. **Graphics stages.** `Vertex` and `Fragment` execution models, IO variables
-   from signature rows, fragment interpolation modes, depth/colour export.
-   Acceptance: an offscreen triangle renders on the detected GPU with pixels
-   that match a reference computed on the CPU.
-4. **Waves.** EXEC to per-lane predicates, ballot/readlane/shuffle, subgroup
-   size 64 (with the 32-lane fallback). Acceptance: a wave ballot fixture
-   matches the interpreter for every lane.
-5. **Resources.** Descriptor decode, SRT and heap indexing, `MIMG`/`MTBUF`.
-   Acceptance: sample a known texture and compare on the GPU.
-6. **Merged stages.** ES/GS pairs, NGG mesh, `s_sendmsg` allocation.
-7. **Sweep.** Run a title's shader pack, publish coverage and the diagnostic
-   list of what refuses, per stage.
+2. **RDNA2 decode and lift (landed).** `VINTRP` and `EXP` were the two
+   encodings the decoder did not know; both are decoded now (interpolation step
+   in the opcode field, attribute slot and channel as fields; export target and
+   enabled channels in the first dword with four source bytes in the second) and
+   lifted into stage IO. A VOP3-encoded compare also names its mask destination
+   in the destination field and keeps the VOPC opcode numbering, which the
+   lookup and the operand decoder now honour. Acceptance: the gfx1030 vertex and
+   fragment fixtures lift and emit; `tests/sweep.ps1` reports every fixture
+   accepted by the driver.
+3. **Graphics stages (landed).** Execution model from `Module::stage`, interface
+   variables with location/builtin and interpolation decorations, vector types,
+   component access chains, `OriginUpperLeft` and `DepthReplacing`. Acceptance:
+   `SR.VkDraw` renders the translated pair on the RX 9060 XT (2080 of 4096
+   pixels written, centre `255 0 0 255`) and prints the driver ISA of both
+   stages.
+4. **Waves (ballot landed).** Thread ids arrive as `LocalInvocationId`, a
+   compare mask becomes `OpGroupNonUniformBallot` and the lifter writes one
+   SGPR (wave32) or the pair (wave64). Acceptance: `waveballot` stores
+   `popcount(ballot(tid < 1000))`, which is 64 on the RX 9060 XT in wave64 mode
+   and 1 in the one-lane interpreter, from the same module. Predicating stores
+   on EXEC and `v_readlane`/`v_writelane`/`ds_swizzle` remain.
+5. **Resources (designed, open).** See section 5a. `MIMG` and `MTBUF` are the
+   remaining encodings the decoder refuses; both need the descriptor model, not
+   more opcode entries.
+6. **Merged stages (open).** ES/GS pairs and NGG mesh; the lifter refuses them
+   with a diagnostic instead of lifting them as standalone stages.
+7. **Sweep (done for the corpus).** `tests/sweep.ps1` translates every
+   checked-in fixture in parallel, probes each compute module with the driver's
+   compiler and draws the graphics pair: 66 of 66 in about two seconds. The
+   title shader-pack sweep needs real data.
 
-Phases 2-6 extend the IL and the emitter, not the number of special cases: the
+Phases 5-6 extend the IL and the emitter, not the number of special cases: the
 stages and resources already have IL declarations (`Module::inputs`,
-`outputs`, `resources`, `executionModes`); the emitter ignores them today.
+`outputs`, `resources`, `executionModes`).
+
+### 5a. Resource plan, from AnyPS5
+
+AnyPS5 is the only RDNA2 (gfx1013, PS5) to SPIR-V recompiler with a shipped
+resource model, and its shape is the one to copy:
+
+- **Descriptors are values, not bindings.** A V#/T#/S# is decoded from guest
+  memory: the shader's SRT walk (`s_load_dwordx4` from user SGPRs, or user data
+  itself) is evaluated on the CPU, and the resulting descriptor words are
+  either specialized into the module (formats, dimensions, compare/gather,
+  swizzles) or carried as runtime metadata (`ResourceMetadata`) when the
+  descriptor is only known per draw.
+- **Two artifacts per stage.** A *registration* form reads descriptor words at
+  run time and is pipeline-library friendly; a *specialized* form folds them
+  into the module. AnyPS5 emits the first for pixel stages and the second for
+  vertex stages, because a vertex buffer load would otherwise decode a V# per
+  vertex.
+- **Runtime tables become descriptor arrays.** A T#/S# whose offset the walker
+  cannot evaluate (`key * stride + addend`) is planned as a `TableColumn` and
+  bound as a variable-count `SAMPLED_IMAGE`/`SAMPLER` array indexed by a map
+  buffer; a descriptor the walker *can* evaluate is selected and indexed at
+  entry 0.
+- **User data is a push constant block** (256 bytes, 128 per stage when
+  libraries split the sets); buffers/images are buffer device addresses, for
+  which our `TargetProfile::physicalStorageBuffer` is already enabled.
+- **The ABI is shared with the host**: `RuntimeAbi.hpp`, `BdaAbi.hpp` and
+  `ImageTableAbi.hpp` define the exact layouts the driver fills, which is how
+  the recompiler stays independent of the guest memory it cannot see at
+  compile time.
+
+For this project the same layering applies with a smaller host: decode the
+descriptor from user data (or a literal `s_load`), specialize what is constant,
+and bind what is not as one SSBO/image array; the test ABI already gives set 0
+binding 0. The step that is missing is the SGPR user-data model: `s0..s31` are
+undefined today, so no `s_load`-driven descriptor can be produced.
 
 ## 7. Open questions that need real bytes
 
