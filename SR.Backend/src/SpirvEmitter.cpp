@@ -711,13 +711,13 @@ private:
         switch (topology)
         {
         case IL::InputTopology::Points:
-            return 0; // InputPoints
+            return 19; // InputPoints
         case IL::InputTopology::Lines:
-            return 2; // InputLines
+            return 20; // InputLines
         case IL::InputTopology::LinesAdjacency:
-            return 10; // InputLinesAdjacency
+            return 21; // InputLinesAdjacency
         case IL::InputTopology::TrianglesAdjacency:
-            return 18; // InputTrianglesAdjacency
+            return 23; // InputTrianglesAdjacency
         case IL::InputTopology::Triangles:
         default:
             return 22; // Triangles
@@ -729,9 +729,9 @@ private:
         switch (topology)
         {
         case IL::OutputTopology::Points:
-            return 16; // OutputPoints
+            return 27; // OutputPoints
         case IL::OutputTopology::LineStrip:
-            return 17; // OutputLineStrip
+            return 28; // OutputLineStrip
         case IL::OutputTopology::TriangleStrip:
         default:
             return 29; // OutputTriangleStrip
