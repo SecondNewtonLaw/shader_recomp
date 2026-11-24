@@ -6774,6 +6774,172 @@ private:
         return Bitcast(F16Type(), low);
     }
 
+    // 8-bit float formats: fp8 is E4M3 and bf8 is E5M2. Decoding to f32 needs
+    // no rounding, so it is built from the exponent and mantissa fields.
+    [[nodiscard]] IL::ValueId DecodeFp8(const DecodedInstruction& instruction, IL::ValueId byte,
+                                        bool bf8)
+    {
+        const std::uint32_t mantissaBits = bf8 ? 2u : 3u;
+        const std::uint32_t exponentBits = bf8 ? 5u : 4u;
+        const std::uint32_t bias = bf8 ? 15u : 7u;
+        const std::uint32_t exponentMax = (1u << exponentBits) - 1u;
+        const std::uint32_t mantissaMask = (1u << mantissaBits) - 1u;
+        const IL::TypeId f32 = m_module.types.F32();
+
+        const IL::ValueId sign = Bin(instruction, IL::BinaryOp::And,
+                                     Bin(instruction, IL::BinaryOp::LShr, byte,
+                                         m_builder.ConstantU32(7)),
+                                     m_builder.ConstantU32(1));
+        const IL::ValueId exponentBitsValue =
+            Bin(instruction, IL::BinaryOp::And,
+                Bin(instruction, IL::BinaryOp::LShr, byte, m_builder.ConstantU32(mantissaBits)),
+                m_builder.ConstantU32(exponentMax));
+        const IL::ValueId mantissa =
+            Bin(instruction, IL::BinaryOp::And, byte, m_builder.ConstantU32(mantissaMask));
+
+        const IL::ValueId isZeroExponent = m_builder.CompareValue(
+            IL::CompareOp::UEq, exponentBitsValue, m_builder.ConstantU32(0), false);
+        const IL::ValueId isMaxExponent = m_builder.CompareValue(
+            IL::CompareOp::UEq, exponentBitsValue, m_builder.ConstantU32(exponentMax), false);
+        const IL::ValueId mantissaZero = m_builder.CompareValue(
+            IL::CompareOp::UEq, mantissa, m_builder.ConstantU32(0), false);
+
+        // Unbiased exponent: subnormals use 1 - bias.
+        const IL::ValueId unbiasedNormal = Bin(
+            instruction, IL::BinaryOp::ISub, exponentBitsValue, m_builder.ConstantU32(bias));
+        const IL::ValueId unbiased =
+            m_builder.SelectValue(m_module.types.U32(), isZeroExponent,
+                                  m_builder.ConstantU32(1u - bias), unbiasedNormal, false);
+        const IL::ValueId biasedExponent =
+            Bin(instruction, IL::BinaryOp::IAdd, unbiased, m_builder.ConstantU32(127));
+        const IL::ValueId powerBits =
+            Bin(instruction, IL::BinaryOp::Shl, biasedExponent, m_builder.ConstantU32(23));
+        const IL::ValueId power = Bitcast(f32, powerBits);
+
+        // Mantissa value: 1.m for normals, 0.m for subnormals.
+        const IL::ValueId mantissaScale = m_builder.ConstantF32(
+            mantissaBits == 3 ? 0.125f : 0.25f);
+        const IL::ValueId fraction = Bin(
+            instruction, IL::BinaryOp::FMul,
+            m_builder.ConvertValue(f32, IL::ConvertOp::UIToFP, mantissa, false), mantissaScale, f32);
+        const IL::ValueId one = m_builder.ConstantF32(1.0f);
+        const IL::ValueId mantissaValue = m_builder.SelectValue(
+            f32, isZeroExponent, fraction, Bin(instruction, IL::BinaryOp::FAdd, one, fraction, f32),
+            false);
+        IL::ValueId value = Bin(instruction, IL::BinaryOp::FMul, mantissaValue, power, f32);
+
+        // Zero, infinity and NaN patterns.
+        const IL::ValueId zero = m_builder.ConstantF32(0.0f);
+        const IL::ValueId infinity = m_builder.ConstantF32(std::numeric_limits<float>::infinity());
+        const IL::ValueId nan = m_builder.ConstantF32(std::numeric_limits<float>::quiet_NaN());
+        const IL::ValueId zeroPattern = m_builder.Emit(
+            m_module.types.Bool(), IL::Op::Binary, static_cast<std::uint16_t>(IL::BinaryOp::And),
+            {isZeroExponent, mantissaZero}, {}, IL::NoPayload, 0, 0, false);
+        value = m_builder.SelectValue(f32, zeroPattern, zero, value, false);
+        if (bf8)
+        {
+            value = m_builder.SelectValue(f32, isMaxExponent, nan, value, false);
+            const IL::ValueId infinite = m_builder.Emit(
+                m_module.types.Bool(), IL::Op::Binary,
+                static_cast<std::uint16_t>(IL::BinaryOp::And), {isMaxExponent, mantissaZero}, {},
+                IL::NoPayload, 0, 0, false);
+            value = m_builder.SelectValue(f32, infinite, infinity, value, false);
+        }
+        else
+        {
+            const IL::ValueId nanPattern = m_builder.Emit(
+                m_module.types.Bool(), IL::Op::Binary,
+                static_cast<std::uint16_t>(IL::BinaryOp::And),
+                {isMaxExponent,
+                 m_builder.CompareValue(IL::CompareOp::UEq, mantissa,
+                                        m_builder.ConstantU32(mantissaMask), false)},
+                {}, IL::NoPayload, 0, 0, false);
+            value = m_builder.SelectValue(f32, nanPattern, nan, value, false);
+        }
+
+        const IL::ValueId negative = m_builder.CompareValue(
+            IL::CompareOp::UNe, sign, m_builder.ConstantU32(0), false);
+        const IL::ValueId negated = m_builder.UnaryValue(IL::UnaryOp::Neg, f32, value, false);
+        return m_builder.SelectValue(f32, negative, negated, value, false);
+    }
+
+    [[nodiscard]] Result<void> LiftCvtFromFp8(const DecodedInstruction& instruction, bool bf8,
+                                              bool packed)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        const auto byteAt = [&](std::uint32_t shift) {
+            return Bin(instruction, IL::BinaryOp::And,
+                       Bin(instruction, IL::BinaryOp::LShr, *source, m_builder.ConstantU32(shift)),
+                       m_builder.ConstantU32(0xFF));
+        };
+
+        if (!packed)
+        {
+            const IL::ValueId value = DecodeFp8(instruction, byteAt(0), bf8);
+            return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), value),
+                             instruction.pc);
+        }
+
+        // The packed form gives two results: f32 conversions of two bytes.
+        const IL::ValueId low = DecodeFp8(instruction, byteAt(0), bf8);
+        const IL::ValueId high = DecodeFp8(instruction, byteAt(8), bf8);
+        const IL::ValueId destination = instruction.operands[0].value;
+        IL::ValueId second = IL::InvalidValue;
+        {
+            const IL::ValueId lowBits = Bitcast(m_module.types.U32(), low);
+            const IL::ValueId highBits = Bitcast(m_module.types.U32(), high);
+            const auto firstStatus = WriteVgprValue(destination, lowBits, instruction.pc);
+            if (!firstStatus)
+                return firstStatus;
+            second = highBits;
+        }
+        return WriteVgprValue(destination + 1, second, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> WriteVgprValue(std::uint32_t index, IL::ValueId value,
+                                              std::uint32_t pc)
+    {
+        Operand destination;
+        destination.kind = OperandKind::Vgpr;
+        destination.value = index;
+        return WriteDest(destination, value, pc);
+    }
+
+    [[nodiscard]] Result<void> LiftDot4Fp8(const DecodedInstruction& instruction, bool firstBf8,
+                                           bool secondBf8)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto accumulator = ReadFloatSource(instruction, 3);
+        if (!accumulator)
+            return std::unexpected(accumulator.error());
+
+        const IL::TypeId f32 = m_module.types.F32();
+        IL::ValueId sum = *accumulator;
+        for (std::uint32_t i = 0; i < 4; ++i)
+        {
+            const IL::ValueId shift = m_builder.ConstantU32(8 * i);
+            const auto byteAt = [&](IL::ValueId value) {
+                return Bin(instruction, IL::BinaryOp::And,
+                           Bin(instruction, IL::BinaryOp::LShr, value, shift),
+                           m_builder.ConstantU32(0xFF));
+            };
+            const IL::ValueId product =
+                Bin(instruction, IL::BinaryOp::FMul, DecodeFp8(instruction, byteAt(*first), firstBf8),
+                    DecodeFp8(instruction, byteAt(*second), secondBf8), f32);
+            sum = Bin(instruction, IL::BinaryOp::FAdd, sum, product, f32);
+        }
+        return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), sum),
+                         instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -8285,6 +8451,22 @@ private:
             return LiftFmaMix(instruction, 1);
         case Op::V_FmaMixhiF16:
             return LiftFmaMix(instruction, 2);
+        case Op::V_CvtF32Fp8:
+            return LiftCvtFromFp8(instruction, false, false);
+        case Op::V_CvtF32Bf8:
+            return LiftCvtFromFp8(instruction, true, false);
+        case Op::V_CvtPkF32Fp8:
+            return LiftCvtFromFp8(instruction, false, true);
+        case Op::V_CvtPkF32Bf8:
+            return LiftCvtFromFp8(instruction, true, true);
+        case Op::V_Dot4F32Fp8Bf8:
+            return LiftDot4Fp8(instruction, false, true);
+        case Op::V_Dot4F32Bf8Fp8:
+            return LiftDot4Fp8(instruction, true, false);
+        case Op::V_Dot4F32Fp8Fp8:
+            return LiftDot4Fp8(instruction, false, false);
+        case Op::V_Dot4F32Bf8Bf8:
+            return LiftDot4Fp8(instruction, true, true);
         case Op::S_CmovkI32:
         case Op::S_AddkCoI32:
             return LiftScalarImmediate(instruction);

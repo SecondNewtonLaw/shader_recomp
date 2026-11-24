@@ -4778,6 +4778,117 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 return std::unexpected(Error("SR-GFX-ISA-347", "invalid fma_mix f16 destination", pc));
             break;
         }
+        case Op::V_CvtF32Fp8:
+        case Op::V_CvtF32Bf8:
+        case Op::V_CvtPkF32Fp8:
+        case Op::V_CvtPkF32Bf8:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-350", "invalid fp8 conversion", pc));
+            const bool bf8 = instruction.op == Op::V_CvtF32Bf8 || instruction.op == Op::V_CvtPkF32Bf8;
+            const bool packed = instruction.op == Op::V_CvtPkF32Fp8 ||
+                                instruction.op == Op::V_CvtPkF32Bf8;
+            const auto decode = [&](std::uint32_t byte) {
+                const std::uint32_t mantissaBits = bf8 ? 2u : 3u;
+                const std::uint32_t exponentBits = bf8 ? 5u : 4u;
+                const std::uint32_t bias = bf8 ? 15u : 7u;
+                const std::uint32_t exponentMax = (1u << exponentBits) - 1u;
+                const std::uint32_t mantissaMask = (1u << mantissaBits) - 1u;
+                const bool negative = ((byte >> 7) & 1u) != 0;
+                const std::uint32_t exponent = (byte >> mantissaBits) & exponentMax;
+                const std::uint32_t mantissa = byte & mantissaMask;
+                float value = 0.0f;
+                if (exponent == 0 && mantissa == 0)
+                    value = 0.0f;
+                else if (bf8 && exponent == exponentMax)
+                    value = mantissa == 0 ? std::numeric_limits<float>::infinity()
+                                          : std::numeric_limits<float>::quiet_NaN();
+                else if (!bf8 && exponent == exponentMax && mantissa == mantissaMask)
+                    value = std::numeric_limits<float>::quiet_NaN();
+                else
+                {
+                    const int unbiased = exponent == 0 ? 1 - static_cast<int>(bias)
+                                                       : static_cast<int>(exponent) - static_cast<int>(bias);
+                    const float significand =
+                        exponent == 0
+                            ? static_cast<float>(mantissa) /
+                                  static_cast<float>(1u << mantissaBits)
+                            : 1.0f + static_cast<float>(mantissa) /
+                                         static_cast<float>(1u << mantissaBits);
+                    value = std::ldexp(significand, unbiased);
+                }
+                return negative ? -value : value;
+            };
+            if (!packed)
+            {
+                if (!write(AsBits(decode(*source_ & 0xFFu))))
+                    return std::unexpected(Error("SR-GFX-ISA-351", "invalid fp8 destination", pc));
+            }
+            else
+            {
+                const std::uint32_t destination = instruction.operands[0].value;
+                result.state.vgpr[destination] = AsBits(decode(*source_ & 0xFFu));
+                result.state.vgpr[destination + 1] = AsBits(decode((*source_ >> 8) & 0xFFu));
+            }
+            break;
+        }
+        case Op::V_Dot4F32Fp8Fp8:
+        case Op::V_Dot4F32Bf8Bf8:
+        case Op::V_Dot4F32Fp8Bf8:
+        case Op::V_Dot4F32Bf8Fp8:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto accumulator = source(3);
+            if (!first || !second || !accumulator)
+                return std::unexpected(Error("SR-GFX-ISA-352", "invalid fp8 dot operands", pc));
+            const bool firstBf8 = instruction.op == Op::V_Dot4F32Bf8Bf8 ||
+                                  instruction.op == Op::V_Dot4F32Bf8Fp8;
+            const bool secondBf8 = instruction.op == Op::V_Dot4F32Bf8Bf8 ||
+                                   instruction.op == Op::V_Dot4F32Fp8Bf8;
+            const auto decode = [&](std::uint32_t byte, bool bf8) {
+                const std::uint32_t mantissaBits = bf8 ? 2u : 3u;
+                const std::uint32_t exponentBits = bf8 ? 5u : 4u;
+                const std::uint32_t bias = bf8 ? 15u : 7u;
+                const std::uint32_t exponentMax = (1u << exponentBits) - 1u;
+                const std::uint32_t mantissaMask = (1u << mantissaBits) - 1u;
+                const bool negative = ((byte >> 7) & 1u) != 0;
+                const std::uint32_t exponent = (byte >> mantissaBits) & exponentMax;
+                const std::uint32_t mantissa = byte & mantissaMask;
+                float value = 0.0f;
+                if (exponent == 0 && mantissa == 0)
+                    value = 0.0f;
+                else if (bf8 && exponent == exponentMax)
+                    value = mantissa == 0 ? std::numeric_limits<float>::infinity()
+                                          : std::numeric_limits<float>::quiet_NaN();
+                else if (!bf8 && exponent == exponentMax && mantissa == mantissaMask)
+                    value = std::numeric_limits<float>::quiet_NaN();
+                else
+                {
+                    const int unbiased = exponent == 0 ? 1 - static_cast<int>(bias)
+                                                       : static_cast<int>(exponent) - static_cast<int>(bias);
+                    const float significand =
+                        exponent == 0
+                            ? static_cast<float>(mantissa) /
+                                  static_cast<float>(1u << mantissaBits)
+                            : 1.0f + static_cast<float>(mantissa) /
+                                         static_cast<float>(1u << mantissaBits);
+                    value = std::ldexp(significand, unbiased);
+                }
+                return negative ? -value : value;
+            };
+            float sum = AsFloat(*accumulator);
+            for (std::uint32_t i = 0; i < 4; ++i)
+            {
+                const std::uint32_t a = (*first >> (8 * i)) & 0xFFu;
+                const std::uint32_t b = (*second >> (8 * i)) & 0xFFu;
+                sum += decode(a, firstBf8) * decode(b, secondBf8);
+            }
+            if (!write(AsBits(sum)))
+                return std::unexpected(Error("SR-GFX-ISA-353", "invalid fp8 dot destination", pc));
+            break;
+        }
         case Op::Invalid:
             return std::unexpected(Error("SR-GFX-ISA-074", "invalid instruction", pc));
         default:

@@ -27,15 +27,15 @@
     },
     "gfx1200": {
       "total": 1264,
-      "decoded": 1448,
-      "lifted": 1288
+      "decoded": 1452,
+      "lifted": 1300
     }
   },
   "gfx1200_families": {
     "VOP3": {
       "total": 363,
       "decoded": 428,
-      "lifted": 388
+      "lifted": 392
     },
     "DS": {
       "total": 125,
@@ -44,8 +44,8 @@
     },
     "VOP1": {
       "total": 90,
-      "decoded": 76,
-      "lifted": 76
+      "decoded": 80,
+      "lifted": 80
     },
     "BUFFER": {
       "total": 89,

@@ -2378,6 +2378,10 @@ constexpr std::array kGfx12 = {
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3P, 39, Op::V_Dot4F32Bf8Bf8, "v_dot4_f32_bf8_bf8",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop1, 108, Op::V_CvtF32Fp8, "v_cvt_f32_fp8", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 109, Op::V_CvtF32Bf8, "v_cvt_f32_bf8", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 110, Op::V_CvtPkF32Fp8, "v_cvt_pk_f32_fp8", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 111, Op::V_CvtPkF32Bf8, "v_cvt_pk_f32_bf8", {OperandKind::Vgpr, OperandKind::Src}),
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept

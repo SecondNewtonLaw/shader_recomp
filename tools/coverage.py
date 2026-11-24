@@ -59,6 +59,8 @@ LIFTED = {
     "S_Bitset0B32", "S_Bitset0B64", "S_Bitset1B32", "S_Bitset1B64",
     "S_LshlB64", "S_LshrB64", "S_AshrI64", "S_BfmB64",
     "S_BfeU64", "S_BfeI64", "S_MulHiI32", "S_MulHiU32",
+    # 8-bit float conversions and dots.
+"V_CvtF32Fp8", "V_CvtF32Bf8", "V_CvtPkF32Fp8", "V_CvtPkF32Bf8", "V_Dot4F32Fp8Fp8", "V_Dot4F32Bf8Bf8", "V_Dot4F32Fp8Bf8", "V_Dot4F32Bf8Fp8",
     # VOP3P dot products and mixed FMA.
 "V_Dot2F32F16", "V_Dot2F32Bf16", "V_Dot4I32Iu8", "V_Dot4U32U8", "V_Dot8I32Iu4", "V_Dot8U32U4", "V_FmaMixF32", "V_FmaMixloF16", "V_FmaMixhiF16",
     # Extended VOP3 ALU and conversion forms.
