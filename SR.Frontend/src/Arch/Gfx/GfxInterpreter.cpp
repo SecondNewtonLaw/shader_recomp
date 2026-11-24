@@ -4957,6 +4957,70 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             result.state.vgpr[destination + 1] = static_cast<std::uint32_t>(shifted >> 32);
             break;
         }
+        case Op::V_FrexpExpI32F32:
+        case Op::V_FrexpMantF32:
+        case Op::V_FrexpExpI16F16:
+        case Op::V_FrexpMantF16:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-370", "invalid frexp operand", pc));
+            const bool half = instruction.op == Op::V_FrexpExpI16F16 ||
+                              instruction.op == Op::V_FrexpMantF16;
+            const bool mantissa = instruction.op == Op::V_FrexpMantF32 ||
+                                  instruction.op == Op::V_FrexpMantF16;
+            const std::uint32_t mantissaBits = half ? 10u : 23u;
+            const std::uint32_t bias = half ? 15u : 127u;
+            const std::uint32_t exponentMax = half ? 31u : 255u;
+            const std::uint32_t mantissaMask = (1u << mantissaBits) - 1u;
+            const std::uint32_t signShift = half ? 15u : 31u;
+
+            const std::uint32_t bits = half ? (*source_ & 0xFFFFu) : *source_;
+            const std::uint32_t sign = (bits >> signShift) & 1u;
+            const std::uint32_t mantissaField = bits & mantissaMask;
+            const std::uint32_t exponentField = (bits >> mantissaBits) & exponentMax;
+            const std::uint32_t targetExponent = bias - 1u;
+
+            std::uint32_t value = 0;
+            if (exponentField == exponentMax)
+            {
+                value = mantissa ? bits : 0u;
+            }
+            else if (exponentField != 0)
+            {
+                if (mantissa)
+                {
+                    value = (sign << signShift) |
+                            (targetExponent << mantissaBits) | mantissaField;
+                }
+                else
+                {
+                    value = exponentField - (bias - 1u);
+                }
+            }
+            else if (mantissaField != 0)
+            {
+                const std::uint32_t leading = std::countl_zero(mantissaField);
+                const std::uint32_t highest = 31u - leading;
+                if (mantissa)
+                {
+                    const std::uint32_t shift = mantissaBits - highest;
+                    value = (sign << signShift) | (targetExponent << mantissaBits) |
+                            ((mantissaField << shift) & mantissaMask);
+                }
+                else
+                {
+                    value = highest + 2u - bias - mantissaBits;
+                }
+            }
+            else
+            {
+                value = 0;
+            }
+            if (!write(value))
+                return std::unexpected(Error("SR-GFX-ISA-371", "invalid frexp destination", pc));
+            break;
+        }
         case Op::Invalid:
             return std::unexpected(Error("SR-GFX-ISA-074", "invalid instruction", pc));
         default:

@@ -7072,6 +7072,108 @@ private:
         return WriteVgpr64(instruction.operands[0], shifted, instruction.pc);
     }
 
+    // frexp: x = m * 2^e with m in [0.5, 1). The mantissa keeps the sign and
+    // rescales the exponent field to 126; subnormals are normalized first.
+    [[nodiscard]] Result<void> LiftFrexp(const DecodedInstruction& instruction, bool mantissa,
+                                        bool half)
+    {
+        const auto source = half ? ReadBits(instruction.operands[1], instruction.pc)
+                                 : ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        IL::ValueId bits = *source;
+        if (half)
+            bits = Bin(instruction, IL::BinaryOp::And, bits, m_builder.ConstantU32(0xFFFF));
+
+        const std::uint32_t mantissaBits = half ? 10u : 23u;
+        const std::uint32_t exponentBias = half ? 15u : 127u;
+        const std::uint32_t exponentMax = half ? 31u : 255u;
+        const std::uint32_t mantissaMask = (1u << mantissaBits) - 1u;
+        const std::uint32_t signShift = half ? 15u : 31u;
+        const std::uint32_t targetExponent = exponentBias - 1u; // 0.5 * 2^e
+
+        const IL::ValueId mantissaField = Bin(
+            instruction, IL::BinaryOp::And, bits, m_builder.ConstantU32(mantissaMask));
+        const IL::ValueId exponentField = Bin(
+            instruction, IL::BinaryOp::And,
+            Bin(instruction, IL::BinaryOp::LShr, bits, m_builder.ConstantU32(mantissaBits)),
+            m_builder.ConstantU32(exponentMax));
+        const IL::ValueId sign = Bin(instruction, IL::BinaryOp::And,
+                                     Bin(instruction, IL::BinaryOp::LShr, bits,
+                                         m_builder.ConstantU32(signShift)),
+                                     m_builder.ConstantU32(1));
+
+        const IL::ValueId exponentZero = m_builder.CompareValue(
+            IL::CompareOp::UEq, exponentField, m_builder.ConstantU32(0), false);
+        const IL::ValueId mantissaZero = m_builder.CompareValue(
+            IL::CompareOp::UEq, mantissaField, m_builder.ConstantU32(0), false);
+        const IL::ValueId isZero = m_builder.Emit(
+            m_module.types.Bool(), IL::Op::Binary, static_cast<std::uint16_t>(IL::BinaryOp::And),
+            {exponentZero, mantissaZero}, {}, IL::NoPayload, 0, 0, false);
+        const IL::ValueId isSubnormal = m_builder.Emit(
+            m_module.types.Bool(), IL::Op::Binary, static_cast<std::uint16_t>(IL::BinaryOp::And),
+            {exponentZero,
+             m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), mantissaZero, false)},
+            {}, IL::NoPayload, 0, 0, false);
+        const IL::ValueId exponentMaxed = m_builder.CompareValue(
+            IL::CompareOp::UEq, exponentField, m_builder.ConstantU32(exponentMax), false);
+
+        const IL::ValueId leadingZeroBits =
+            m_builder.UnaryValue(IL::UnaryOp::Clz, m_module.types.U32(), mantissaField, false);
+        // Clz counts over the full 32-bit register, so the mantissa's most
+        // significant bit position is 31 - clz for either width.
+        const IL::ValueId highestBit = Bin(
+            instruction, IL::BinaryOp::ISub, m_builder.ConstantU32(31u), leadingZeroBits);
+        const IL::ValueId normalizingShift = Bin(
+            instruction, IL::BinaryOp::ISub, m_builder.ConstantU32(mantissaBits), highestBit);
+        const IL::ValueId normalizedMantissa = Bin(
+            instruction, IL::BinaryOp::And,
+            Bin(instruction, IL::BinaryOp::Shl, mantissaField, normalizingShift),
+            m_builder.ConstantU32(mantissaMask));
+
+        const IL::ValueId normalBits =
+            Bin(instruction, IL::BinaryOp::Or,
+                Bin(instruction, IL::BinaryOp::Shl, sign, m_builder.ConstantU32(signShift)),
+                Bin(instruction, IL::BinaryOp::Or,
+                    Bin(instruction, IL::BinaryOp::Shl, m_builder.ConstantU32(targetExponent),
+                        m_builder.ConstantU32(mantissaBits)),
+                    mantissaField));
+        const IL::ValueId subnormalBits =
+            Bin(instruction, IL::BinaryOp::Or,
+                Bin(instruction, IL::BinaryOp::Shl, sign, m_builder.ConstantU32(signShift)),
+                Bin(instruction, IL::BinaryOp::Or,
+                    Bin(instruction, IL::BinaryOp::Shl, m_builder.ConstantU32(targetExponent),
+                        m_builder.ConstantU32(mantissaBits)),
+                    normalizedMantissa));
+
+        const IL::ValueId normalExponent = Bin(
+            instruction, IL::BinaryOp::ISub, exponentField,
+            m_builder.ConstantU32(exponentBias - 1u));
+        const IL::ValueId subnormalExponent =
+            Bin(instruction, IL::BinaryOp::IAdd, highestBit,
+                m_builder.ConstantU32(2u - exponentBias - mantissaBits));
+
+        IL::ValueId result = mantissa ? normalBits : normalExponent;
+        result = m_builder.SelectValue(
+            m_module.types.U32(), isSubnormal, mantissa ? subnormalBits : subnormalExponent,
+            result, false);
+        result = m_builder.SelectValue(m_module.types.U32(), isZero,
+                                       m_builder.ConstantU32(0), result, false);
+        if (mantissa)
+        {
+            // Non-finite inputs are returned unchanged.
+            result = m_builder.SelectValue(m_module.types.U32(), exponentMaxed, bits, result,
+                                           false);
+        }
+        else
+        {
+            result = m_builder.SelectValue(m_module.types.U32(), exponentMaxed,
+                                           m_builder.ConstantU32(0), result, false);
+        }
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -8615,6 +8717,14 @@ private:
             return std::unexpected(LiftError("SR-GFX-LIFT-082", "unsupported wide divide fixup", instruction.pc));
         case Op::V_DivFmasF64:
             return std::unexpected(LiftError("SR-GFX-LIFT-082", "unsupported wide divide fixup", instruction.pc));
+        case Op::V_FrexpExpI32F32:
+            return LiftFrexp(instruction, false, false);
+        case Op::V_FrexpMantF32:
+            return LiftFrexp(instruction, true, false);
+        case Op::V_FrexpExpI16F16:
+            return LiftFrexp(instruction, false, true);
+        case Op::V_FrexpMantF16:
+            return LiftFrexp(instruction, true, true);
         case Op::S_CmovkI32:
         case Op::S_AddkCoI32:
             return LiftScalarImmediate(instruction);
