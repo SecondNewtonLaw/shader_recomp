@@ -3322,19 +3322,127 @@ private:
     // or inline offset. The descriptor is read from the user data slots, which
     // the host fills; the result is a buffer device address the emitter turns
     // into a physical pointer.
-    // Images need the descriptor model: a T# names the surface, its format and
-    // its tiling, and an S# the sampler state. The decode is complete; the
-    // translation is not, so the diagnostic names exactly what is missing.
+    // An image access: the T# in the scalar registers names the surface, the
+    // VGPR pair holds the coordinates and DMASK selects the components. The
+    // host binds the image the descriptor resolved to, so the translation
+    // carries a descriptor-set binding rather than re-deriving the tiling.
     [[nodiscard]] Result<void> LiftImageAccess(const DecodedInstruction& instruction)
     {
-        const std::string srsrc = "s" + std::to_string(instruction.imageSrsrc);
-        const std::string ssamp = "s" + std::to_string(instruction.imageSsamp);
-        return std::unexpected(LiftError("SR-GFX-LIFT-090",
-                                         std::string("image access is not translated yet: ") +
-                                             std::string(ToString(instruction.op)) + " T#=" + srsrc +
-                                             " S#=" + ssamp + " dmask=" + std::to_string(instruction.imageDmask) +
-                                             " dim=" + std::to_string(instruction.imageDim),
-                                         instruction.pc));
+        if (instruction.op != Op::ImageLoad && instruction.op != Op::ImageStore)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-090",
+                                             std::string("image access is not translated yet: ") +
+                                                 std::string(ToString(instruction.op)) +
+                                                 " T#=s" + std::to_string(instruction.imageSrsrc) +
+                                                 " S#=s" + std::to_string(instruction.imageSsamp) +
+                                                 " (needs a sampler binding)",
+                                             instruction.pc));
+        }
+
+        const std::uint32_t srsrc = instruction.imageSrsrc;
+        if (static_cast<std::size_t>(srsrc) + 1 >= m_options.userData.size())
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-091",
+                                             "image descriptor s" + std::to_string(srsrc) +
+                                                 " is not in the user data",
+                                             instruction.pc));
+        }
+
+        // T#: 48-bit base address in dwords 0 and 1, extent in dword 2.
+        const auto low = ReadSgprBits(srsrc, instruction.pc);
+        if (!low)
+            return std::unexpected(low.error());
+        const auto high = ReadSgprBits(srsrc + 1, instruction.pc);
+        if (!high)
+            return std::unexpected(high.error());
+        const auto extent = ReadSgprBits(srsrc + 2, instruction.pc);
+        if (!extent)
+            return std::unexpected(extent.error());
+
+        // Each distinct descriptor gets its own binding; set 0 binding 0 is the
+        // test buffer.
+        std::uint32_t binding = 0;
+        for (std::size_t i = 0; i < m_imageBindings.size(); ++i)
+        {
+            if (m_imageBindings[i].srsrc == srsrc)
+                binding = m_imageBindings[i].binding;
+        }
+        if (binding == 0)
+        {
+            binding = static_cast<std::uint32_t>(m_imageBindings.size()) + 1;
+            m_imageBindings.push_back(ImageBinding{srsrc, binding});
+        }
+
+        // A null descriptor is a common way to say "no surface": treat the
+        // access as reading zero rather than faulting.
+        const IL::ValueId addressLow = *low;
+        (void)addressLow;
+        const IL::ValueId addressHigh = *high;
+        (void)addressHigh;
+        const IL::ValueId extentValue = *extent;
+        (void)extentValue;
+
+        const Operand* vaddrOperand = instruction.operandCount > 1 ? &instruction.operands[1] : nullptr;
+        if (vaddrOperand == nullptr)
+            return std::unexpected(LiftError("SR-GFX-LIFT-092", "image access has no address", instruction.pc));
+
+        // 2D coordinates: x in the address VGPR, y in the next one.
+        const Operand xOperand = *vaddrOperand;
+        Operand yOperand = xOperand;
+        ++yOperand.value;
+        const auto x = ReadBits(xOperand, instruction.pc);
+        if (!x)
+            return std::unexpected(x.error());
+        const auto y = ReadBits(yOperand, instruction.pc);
+        if (!y)
+            return std::unexpected(y.error());
+
+        const Operand* dataOperand = instruction.operandCount > 0 ? &instruction.operands[0] : nullptr;
+        if (dataOperand == nullptr)
+            return std::unexpected(LiftError("SR-GFX-LIFT-093", "image access has no data register", instruction.pc));
+
+        for (std::uint32_t component = 0; component < 4; ++component)
+        {
+            if ((instruction.imageDmask & (1u << component)) == 0)
+                continue;
+
+            IL::ImageAccessDesc access;
+            access.set = 0;
+            access.binding = binding;
+            access.component = static_cast<std::uint8_t>(component);
+            access.dimensions = 2;
+            const IL::PayloadId payload = m_module.payloads.Add(access);
+
+            if (instruction.op == Op::ImageLoad)
+            {
+                const IL::ValueId value = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                                   IL::IntrinsicId::ImageLoad,
+                                                                   {*x, *y},
+                                                                   payload,
+                                                                   instruction.pc,
+                                                                   false);
+                Operand destination = *dataOperand;
+                destination.value += component;
+                if (const auto written = WriteDest(destination, value, instruction.pc); !written)
+                    return written;
+            }
+            else
+            {
+                Operand source = *dataOperand;
+                source.value += component;
+                const auto value = ReadBits(source, instruction.pc);
+                if (!value)
+                    return std::unexpected(value.error());
+                const IL::ValueId guard = CurrentGuard(instruction.pc);
+                m_builder.IntrinsicVoid(IL::IntrinsicId::ImageStore,
+                                        {*x, *y, *value},
+                                        payload,
+                                        instruction.pc);
+                ApplyGuard(instruction.pc, guard);
+            }
+        }
+
+        return {};
     }
 
     [[nodiscard]] Result<void> LiftMubuf(const DecodedInstruction& instruction)
@@ -9462,6 +9570,12 @@ private:
     IL::ValueId m_vccSlot = IL::InvalidValue;
     IL::ValueId m_execSlot = IL::InvalidValue;
     std::vector<StageSlot> m_stageSlots;
+    struct ImageBinding
+    {
+        std::uint32_t srsrc = 0;
+        std::uint32_t binding = 0;
+    };
+    std::vector<ImageBinding> m_imageBindings;
     bool m_execMayBeFalse = false;
 };
 

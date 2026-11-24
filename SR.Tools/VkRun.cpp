@@ -248,28 +248,124 @@ int main(int argc, char** argv)
         for (std::size_t index = 0; index < initialValues.size(); ++index)
             initial[index] = initialValues[index];
     }
+    // A 4x4 RGBA32F storage image at set 0 binding 1 stands in for whatever
+    // surface the shader's T# pointed at: the host resolves the descriptor, the
+    // shader reads texels.
+    const std::uint32_t imageExtent = 4;
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    imageInfo.extent = {imageExtent, imageExtent, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_LINEAR;
+    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VkImage image = VK_NULL_HANDLE;
+    if (vkCreateImage(device.logical, &imageInfo, nullptr, &image) != VK_SUCCESS)
+    {
+        std::cerr << "cannot create the test image\n";
+        return 1;
+    }
+
+    VkMemoryRequirements imageRequirements{};
+    vkGetImageMemoryRequirements(device.logical, image, &imageRequirements);
+
+    std::uint32_t imageMemoryType = memoryType;
+    bool imageMemoryFound = false;
+    for (std::uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i)
+    {
+        const bool hostVisible = (memoryProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0;
+        const bool coherent = (memoryProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
+        if ((imageRequirements.memoryTypeBits & (1u << i)) != 0 && hostVisible && coherent)
+        {
+            imageMemoryType = i;
+            imageMemoryFound = true;
+            break;
+        }
+    }
+    if (!imageMemoryFound)
+        std::cerr << "no host-visible image memory type\n";
+
+    VkMemoryAllocateInfo imageAllocate{};
+    imageAllocate.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    imageAllocate.allocationSize = imageRequirements.size;
+    imageAllocate.memoryTypeIndex = imageMemoryType;
+
+    VkDeviceMemory imageMemory = VK_NULL_HANDLE;
+    if (vkAllocateMemory(device.logical, &imageAllocate, nullptr, &imageMemory) != VK_SUCCESS)
+    {
+        std::cerr << "cannot allocate the test image\n";
+        return 1;
+    }
+    vkBindImageMemory(device.logical, image, imageMemory, 0);
+
+    void* imageMapped = nullptr;
+    vkMapMemory(device.logical, imageMemory, 0, VK_WHOLE_SIZE, 0, &imageMapped);
+    {
+        VkImageSubresource subresource{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0};
+        VkSubresourceLayout layout{};
+        vkGetImageSubresourceLayout(device.logical, image, &subresource, &layout);
+        auto* texels = static_cast<float*>(imageMapped);
+        for (std::uint32_t y = 0; y < imageExtent; ++y)
+        {
+            for (std::uint32_t x = 0; x < imageExtent; ++x)
+            {
+                auto* texel = reinterpret_cast<float*>(reinterpret_cast<std::uint8_t*>(texels) + layout.offset +
+                                                       static_cast<std::size_t>(y) * layout.rowPitch +
+                                                       static_cast<std::size_t>(x) * 16);
+                texel[0] = static_cast<float>(1 + x + y * imageExtent);
+                texel[1] = texel[0] + 1.0f;
+                texel[2] = texel[0] + 2.0f;
+                texel[3] = texel[0] + 3.0f;
+            }
+        }
+    }
+
+    VkImageViewCreateInfo imageViewInfo{};
+    imageViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    imageViewInfo.image = image;
+    imageViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    imageViewInfo.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    imageViewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    VkImageView imageView = VK_NULL_HANDLE;
+    vkCreateImageView(device.logical, &imageViewInfo, nullptr, &imageView);
+
     VkDescriptorSetLayoutBinding binding{};
     binding.binding = 0;
     binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     binding.descriptorCount = 1;
     binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
+    VkDescriptorSetLayoutBinding imageBinding{};
+    imageBinding.binding = 1;
+    imageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    imageBinding.descriptorCount = 1;
+    imageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    const VkDescriptorSetLayoutBinding bindings[] = {binding, imageBinding};
     VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
     setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    setLayoutInfo.bindingCount = 1;
-    setLayoutInfo.pBindings = &binding;
+    setLayoutInfo.bindingCount = 2;
+    setLayoutInfo.pBindings = bindings;
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
     vkCreateDescriptorSetLayout(device.logical, &setLayoutInfo, nullptr, &setLayout);
 
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSize.descriptorCount = 1;
+    VkDescriptorPoolSize poolSizes[2]{};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    poolSizes[1].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = 1;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.poolSizeCount = 2;
+    poolInfo.pPoolSizes = poolSizes;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     vkCreateDescriptorPool(device.logical, &poolInfo, nullptr, &pool);
 
@@ -293,7 +389,21 @@ int main(int argc, char** argv)
     write.descriptorCount = 1;
     write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     write.pBufferInfo = &bufferDescriptor;
-    vkUpdateDescriptorSets(device.logical, 1, &write, 0, nullptr);
+
+    VkDescriptorImageInfo imageDescriptor{};
+    imageDescriptor.imageView = imageView;
+    imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet imageWrite{};
+    imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    imageWrite.dstSet = descriptorSet;
+    imageWrite.dstBinding = 1;
+    imageWrite.descriptorCount = 1;
+    imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    imageWrite.pImageInfo = &imageDescriptor;
+
+    const VkWriteDescriptorSet writes[] = {write, imageWrite};
+    vkUpdateDescriptorSets(device.logical, 2, writes, 0, nullptr);
 
     VkShaderModuleCreateInfo moduleInfo{};
     moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -352,6 +462,27 @@ int main(int argc, char** argv)
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(command, &beginInfo);
+
+    VkImageMemoryBarrier toGeneral{};
+    toGeneral.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toGeneral.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toGeneral.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.image = image;
+    toGeneral.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    toGeneral.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+    toGeneral.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(command,
+                         VK_PIPELINE_STAGE_HOST_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &toGeneral);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
     vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                        static_cast<std::uint32_t>(pushData.size() * sizeof(std::uint32_t)), pushData.data());

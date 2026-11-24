@@ -64,6 +64,8 @@ enum class IntrinsicId : std::uint16_t
     UserData,
     DeviceLoad,
     DeviceStore,
+    ImageLoad,
+    ImageStore,
 };
 
 enum class SpecialRegId : std::uint16_t
@@ -212,6 +214,17 @@ struct UserDataDesc
     std::uint32_t index = 0;
 };
 
+// One component of an image texel. The source names the surface through a T#
+// descriptor; the host binds the image the descriptor resolved to, so the
+// access carries the binding and the component index.
+struct ImageAccessDesc
+{
+    std::uint32_t set = 0;
+    std::uint32_t binding = 0;
+    std::uint8_t component = 0;
+    std::uint8_t dimensions = 2;
+};
+
 using Payload = std::variant<std::monostate,
                              SpecialRegPayload,
                              VotePayload,
@@ -223,7 +236,8 @@ using Payload = std::variant<std::monostate,
                              SendDesc,
                              TestBufferDesc,
                              StageIoDesc,
-                             UserDataDesc>;
+                             UserDataDesc,
+                             ImageAccessDesc>;
 
 struct IntrinsicSpec
 {

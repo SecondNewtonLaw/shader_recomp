@@ -501,3 +501,70 @@ TEST_CASE("a predicated store leaves masked lanes untouched", "[gfx][exec][guard
     REQUIRE(emission.has_value());
 #endif
 }
+
+namespace {
+
+std::uint32_t FloatAsBits(float value)
+{
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+} // namespace
+
+TEST_CASE("image_load reads a texel through a T# descriptor", "[gfx][image][load]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("imageload.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("imageload fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    // The T# lives in the first eight user data dwords; set 0 binding 0 is the
+    // test buffer so the first image descriptor becomes binding 1.
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const std::string dump = SR::IL::DumpModule(*module);
+    REQUIRE(dump.find("image.load") != std::string::npos);
+    REQUIRE(dump.find("binding=1") != std::string::npos);
+
+    // Texel (0,0) is (1,2,3,4); the fixture copies the four components to the
+    // test buffer's first four dwords.
+    const std::uint64_t texelKey = (1ull << 40); // binding 1, y = 0, x = 0
+    SR::IL::ExecutionOptions executionOptions;
+    executionOptions.images[texelKey] = {FloatAsBits(1.0f), FloatAsBits(2.0f), FloatAsBits(3.0f), FloatAsBits(4.0f)};
+
+    const auto execution = SR::IL::Interpret(*module, executionOptions);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+    REQUIRE(execution->buffer.at(0) == FloatAsBits(1.0f));
+    REQUIRE(execution->buffer.at(1) == FloatAsBits(2.0f));
+    REQUIRE(execution->buffer.at(2) == FloatAsBits(3.0f));
+    REQUIRE(execution->buffer.at(3) == FloatAsBits(4.0f));
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    const auto emission = SR::Backend::Reemit(*module);
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+#endif
+}

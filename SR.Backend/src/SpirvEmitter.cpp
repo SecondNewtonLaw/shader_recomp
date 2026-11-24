@@ -34,6 +34,7 @@ enum SpvOp : std::uint16_t
     OpTypeInt = 21,
     OpTypeFloat = 22,
     OpTypeVector = 23,
+    OpTypeImage = 25,
     OpTypeMatrix = 24,
     OpTypeRuntimeArray = 29,
     OpTypeArray = 28,
@@ -46,6 +47,8 @@ enum SpvOp : std::uint16_t
     OpFunction = 54,
     OpFunctionEnd = 56,
     OpVariable = 59,
+    OpImageRead = 98,
+    OpImageWrite = 99,
     OpLoad = 61,
     OpStore = 62,
     OpAccessChain = 65,
@@ -281,6 +284,7 @@ public:
             m_localVar = NewId();
         PrepareStageIo();
         PreparePushConstants();
+        PrepareImages();
         for (const IL::Function& function : m_module.functions)
         {
             for (const IL::Block& block : function.blocks)
@@ -407,6 +411,12 @@ public:
             Op(OpTypeVector, {m_ballotVecType, *u32, 4});
             m_ballotPairType = NewId();
             Op(OpTypeVector, {m_ballotPairType, *u32, 2});
+        }
+
+        {
+            const auto declarations = EmitImageDeclarations();
+            if (!declarations)
+                return std::unexpected(declarations.error());
         }
 
         {
@@ -1009,6 +1019,130 @@ private:
         return {};
     }
 
+    struct ImageResource
+    {
+        std::uint32_t set = 0;
+        std::uint32_t binding = 0;
+        std::uint32_t variable = 0;
+        std::uint32_t imageType = 0;
+        std::uint32_t pointerType = 0;
+    };
+    std::vector<ImageResource> m_images;
+    std::uint32_t m_imageVec4 = 0;
+    std::uint32_t m_imageVec2i = 0;
+    std::uint32_t m_imageVec4Element = 0;
+
+    // Image accesses name a binding the host filled from the T# descriptor.
+    void PrepareImages()
+    {
+        const auto add = [this](const IL::ImageAccessDesc& access) {
+            for (const ImageResource& image : m_images)
+            {
+                if (image.set == access.set && image.binding == access.binding)
+                    return;
+            }
+
+            ImageResource image;
+            image.set = access.set;
+            image.binding = access.binding;
+            image.variable = NewId();
+            m_images.push_back(image);
+        };
+
+        for (const IL::Function& function : m_module.functions)
+        {
+            for (const IL::Block& block : function.blocks)
+            {
+                for (const IL::Instruction& instruction : block.body)
+                {
+                    if (instruction.op != IL::Op::Intrinsic ||
+                        (instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageLoad) &&
+                         instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageStore)))
+                        continue;
+                    if (instruction.payload == IL::NoPayload)
+                        continue;
+                    if (const auto* access = std::get_if<IL::ImageAccessDesc>(&m_module.payloads.Get(instruction.payload)))
+                        add(*access);
+                }
+            }
+        }
+    }
+
+    [[nodiscard]] Result<void> EmitImageDeclarations()
+    {
+        if (m_images.empty())
+            return {};
+
+        // The module may have neither type: image texels are 32-bit regardless
+        // of what the rest of the shader uses, so declare them here.
+        const IL::TypeId f32Type = m_module.types.FindFloat(IL::FloatFormat::F32);
+        std::uint32_t f32Id = 0;
+        if (f32Type != IL::InvalidType)
+        {
+            const auto f32 = EmitType(f32Type);
+            if (!f32)
+                return std::unexpected(f32.error());
+            f32Id = *f32;
+        }
+        else
+        {
+            f32Id = NewId();
+            Op(OpTypeFloat, {f32Id, 32});
+        }
+
+        const IL::TypeId u32Type = m_module.types.FindInt(32, false);
+        std::uint32_t u32Id = 0;
+        if (u32Type != IL::InvalidType)
+        {
+            const auto u32 = EmitType(u32Type);
+            if (!u32)
+                return std::unexpected(u32.error());
+            u32Id = *u32;
+        }
+        else
+        {
+            u32Id = NewId();
+            Op(OpTypeInt, {u32Id, 32, 0});
+        }
+
+        const std::uint32_t* f32 = &f32Id;
+        const std::uint32_t* u32 = &u32Id;
+
+        m_imageVec4 = NewId();
+        Op(OpTypeVector, {m_imageVec4, *f32, 4});
+        m_imageVec4Element = f32Id;
+        m_imageVec2i = NewId();
+        Op(OpTypeVector, {m_imageVec2i, *u32, 2});
+
+        for (ImageResource& image : m_images)
+        {
+            // A 2D storage image with a 32-bit float RGBA format: image_load and
+            // image_store map to OpImageRead and OpImageWrite without a sampler.
+            image.imageType = NewId();
+            // Sampled = 2 is Vulkan's storage image: read and written through
+            // OpImageRead/OpImageWrite without a sampler.
+            Op(OpTypeImage, {image.imageType, *f32, 1 /* 2D */, 0 /* depth */, 0 /* arrayed */, 0 /* ms */,
+                             2 /* sampled */, 1 /* Rgba32f */});
+            image.pointerType = NewId();
+            Op(OpTypePointer, {image.pointerType, 0 /* UniformConstant */, image.imageType});
+        }
+
+        for (const ImageResource& image : m_images)
+            Op(OpVariable, {image.pointerType, image.variable, 0 /* UniformConstant */});
+
+        return {};
+    }
+
+    [[nodiscard]] const ImageResource* FindImage(std::uint32_t set, std::uint32_t binding) const noexcept
+    {
+        for (const ImageResource& image : m_images)
+        {
+            if (image.set == set && image.binding == binding)
+                return &image;
+        }
+        return nullptr;
+    }
+
     void EmitHeader()
     {
         m_words.push_back(kMagic);
@@ -1076,6 +1210,8 @@ private:
             operands.push_back(entry.variable);
         if (m_usePushConstants)
             operands.push_back(m_pushVar);
+        for (const ImageResource& image : m_images)
+            operands.push_back(image.variable);
         Op(OpEntryPoint, operands);
 
         if (executionModel == 5) // GLCompute
@@ -1102,6 +1238,12 @@ private:
 
         for (const SpecialVariable& entry : m_special)
             Op(OpDecorate, {entry.variable, 11 /* Builtin */, BuiltinValue(entry.builtin)});
+
+        for (const ImageResource& image : m_images)
+        {
+            Op(OpDecorate, {image.variable, 34 /* DescriptorSet */, image.set});
+            Op(OpDecorate, {image.variable, 33 /* Binding */, image.binding});
+        }
 
         if (m_usePushConstants)
         {
@@ -2278,6 +2420,83 @@ private:
             m_valueIds[resultValue] = resultId;
             if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
                 Op(OpStore, {m_spillVars[resultValue], resultId});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
+            (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageLoad) ||
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageStore)))
+        {
+            const auto* access = instruction.payload != IL::NoPayload
+                                     ? std::get_if<IL::ImageAccessDesc>(&m_module.payloads.Get(instruction.payload))
+                                     : nullptr;
+            if (access == nullptr)
+                return std::unexpected(EmitError("SR-SPV-082", "image access without a descriptor", instruction.sourcePc));
+
+            const ImageResource* image = FindImage(access->set, access->binding);
+            if (image == nullptr)
+                return std::unexpected(EmitError("SR-SPV-083", "image binding is not declared", instruction.sourcePc));
+
+            const auto x = ValueId(function, instruction.operands[0]);
+            const auto y = ValueId(function, instruction.operands[1]);
+            if (!x || !y)
+                return std::unexpected(EmitError("SR-SPV-084", "invalid image coordinates", instruction.sourcePc));
+
+            const std::uint32_t coordinate = NewId();
+            Op(OpCompositeConstruct, {m_imageVec2i, coordinate, *x, *y});
+
+            if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageLoad))
+            {
+                if (instruction.results.size() != 1)
+                    return std::unexpected(EmitError("SR-SPV-085", "image load must have one result", instruction.sourcePc));
+
+                // OpImageRead takes the image object, so load it from the
+                // UniformConstant variable first.
+                const std::uint32_t loaded = NewId();
+                Op(OpLoad, {image->imageType, loaded, image->variable});
+
+                const std::uint32_t texel = NewId();
+                Op(OpImageRead, {m_imageVec4, texel, loaded, coordinate});
+
+                const std::uint32_t component = NewId();
+                Op(OpCompositeExtract, {m_imageVec4Element, component, texel,
+                                        static_cast<std::uint32_t>(access->component & 3)});
+
+                const IL::ValueId resultValue = instruction.results[0];
+                const auto resultType = EmitType(function.values[resultValue].type);
+                if (!resultType)
+                    return std::unexpected(resultType.error());
+
+                const std::uint32_t resultId =
+                    (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+                Op(OpBitcast, {*resultType, resultId, component});
+                m_valueIds[resultValue] = resultId;
+                if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                    Op(OpStore, {m_spillVars[resultValue], resultId});
+                return {};
+            }
+
+            if (instruction.operands.size() != 3)
+                return std::unexpected(EmitError("SR-SPV-086", "image store needs a value", instruction.sourcePc));
+
+            const auto value = ValueId(function, instruction.operands[2]);
+            if (!value)
+                return std::unexpected(EmitError("SR-SPV-087", "invalid image store value", instruction.sourcePc));
+
+            const std::uint32_t stored = NewId();
+            Op(OpBitcast, {m_imageVec4Element, stored, *value});
+            const auto zero = U32Constant(0);
+            if (!zero)
+                return std::unexpected(zero.error());
+            const std::uint32_t zeroFloat = NewId();
+            Op(OpBitcast, {m_imageVec4Element, zeroFloat, *zero});
+
+            const std::uint32_t loaded = NewId();
+            Op(OpLoad, {image->imageType, loaded, image->variable});
+
+            const std::uint32_t texel = NewId();
+            Op(OpCompositeConstruct, {m_imageVec4, texel, stored, zeroFloat, zeroFloat, zeroFloat});
+            Op(OpImageWrite, {loaded, coordinate, texel});
             return {};
         }
 

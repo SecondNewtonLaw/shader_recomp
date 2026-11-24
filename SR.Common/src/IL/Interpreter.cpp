@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -716,6 +717,34 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                                                               instruction.sourcePc));
                     }
                     values[slot] = value;
+                    break;
+                }
+
+                if (id == IntrinsicId::ImageLoad || id == IntrinsicId::ImageStore)
+                {
+                    const auto* image = instruction.payload != NoPayload
+                                            ? std::get_if<ImageAccessDesc>(&module.payloads.Get(instruction.payload))
+                                            : nullptr;
+                    if (image == nullptr)
+                        return std::unexpected(ExecutionError("SR-IL-INT-019",
+                                                              "image access without a descriptor",
+                                                              instruction.sourcePc));
+
+                    const std::uint64_t x = read(instruction.operands[0]);
+                    const std::uint64_t y = read(instruction.operands[1]);
+                    const std::uint64_t key = (static_cast<std::uint64_t>(image->binding) << 40) | ((y & 0xFFFFF) << 20) |
+                                              (x & 0xFFFFF);
+
+                    if (id == IntrinsicId::ImageLoad)
+                    {
+                        const ValueId slot = resultId();
+                        const auto it = options.images.find(key);
+                        values[slot] = it == options.images.end() ? 0 : it->second[image->component & 3];
+                        break;
+                    }
+
+                    auto& texel = result.images[key];
+                    texel[image->component & 3] = static_cast<std::uint32_t>(read(instruction.operands[2]));
                     break;
                 }
 
