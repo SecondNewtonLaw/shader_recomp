@@ -1786,6 +1786,7 @@ private:
     }
 
     [[nodiscard]] IL::TypeId F16Type() { return m_module.types.Float(IL::FloatFormat::F16); }
+    [[nodiscard]] IL::TypeId BF16Type() { return m_module.types.Float(IL::FloatFormat::BF16); }
     [[nodiscard]] IL::TypeId U16Type() { return m_module.types.Int(16, false); }
     [[nodiscard]] IL::TypeId I16Type() { return m_module.types.Int(16, true); }
 
@@ -3072,6 +3073,838 @@ private:
         return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
+    // ---- Data-share (LDS) ----
+    //
+    // LDS addresses are byte offsets formed from a VGPR plus an immediate. The
+    // IL addresses workgroup-scope memory by dword index, so byte accesses split
+    // into a dword index and a byte lane. A single invocation is modelled, so
+    // read-modify-write atomics need no cross-lane arbitration.
+
+    [[nodiscard]] Operand DsOperand(const DecodedInstruction& instruction, OperandKind kind) const
+    {
+        if (const Operand* found = FindOperand(instruction, kind))
+            return *found;
+        return Operand{};
+    }
+
+    [[nodiscard]] IL::ValueId Bin(const DecodedInstruction& instruction,
+                                  IL::BinaryOp op,
+                                  IL::ValueId left,
+                                  IL::ValueId right,
+                                  IL::TypeId type = IL::InvalidType)
+    {
+        return m_builder.Emit(type == IL::InvalidType ? m_module.types.U32() : type,
+                              IL::Op::Binary,
+                              static_cast<std::uint16_t>(op),
+                              {left, right},
+                              {},
+                              IL::NoPayload,
+                              instruction.pc,
+                              static_cast<std::uint16_t>(instruction.op),
+                              false);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> DsByteAddress(const DecodedInstruction& instruction,
+                                                    std::uint32_t immediate)
+    {
+        const Operand address = DsOperand(instruction, OperandKind::DsAddr);
+        if (address.kind == OperandKind::None)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-057", "DS instruction has no address operand", instruction.pc));
+
+        const auto base = ReadVgpr(address.value, instruction.pc);
+        if (!base)
+            return std::unexpected(base.error());
+        if (immediate == 0)
+            return *base;
+        return Bin(instruction, IL::BinaryOp::IAdd, *base, m_builder.ConstantU32(immediate));
+    }
+
+    [[nodiscard]] Result<IL::ValueId> DsIndexFromBytes(const DecodedInstruction& instruction,
+                                                       IL::ValueId bytes)
+    {
+        return Bin(instruction, IL::BinaryOp::LShr, bytes, m_builder.ConstantU32(2));
+    }
+
+    [[nodiscard]] Result<IL::ValueId> DsIndex(const DecodedInstruction& instruction,
+                                              std::uint32_t immediate)
+    {
+        const auto bytes = DsByteAddress(instruction, immediate);
+        if (!bytes)
+            return std::unexpected(bytes.error());
+        return DsIndexFromBytes(instruction, *bytes);
+    }
+
+    [[nodiscard]] IL::ValueId DsLaneShift(const DecodedInstruction& instruction, IL::ValueId bytes,
+                                          std::uint32_t mask)
+    {
+        const IL::ValueId lane = Bin(instruction, IL::BinaryOp::And, bytes, m_builder.ConstantU32(mask));
+        return Bin(instruction, IL::BinaryOp::Shl, lane, m_builder.ConstantU32(3));
+    }
+
+    [[nodiscard]] IL::ValueId DsDword(const DecodedInstruction& instruction, IL::ValueId index)
+    {
+        return m_builder.IntrinsicValue(m_module.types.U32(),
+                                        IL::IntrinsicId::LocalLoad,
+                                        {index},
+                                        IL::NoPayload,
+                                        instruction.pc,
+                                        false);
+    }
+
+    void DsPutDword(const DecodedInstruction& instruction, IL::ValueId index, IL::ValueId value)
+    {
+        m_builder.IntrinsicVoid(IL::IntrinsicId::LocalStore, {index, value}, IL::NoPayload, instruction.pc);
+    }
+
+    [[nodiscard]] IL::ValueId DsDwordAt(const DecodedInstruction& instruction,
+                                        IL::ValueId index,
+                                        std::uint32_t delta)
+    {
+        if (delta == 0)
+            return index;
+        return Bin(instruction, IL::BinaryOp::IAdd, index, m_builder.ConstantU32(delta));
+    }
+
+    [[nodiscard]] IL::ValueId DsLoad64(const DecodedInstruction& instruction, IL::ValueId index)
+    {
+        const IL::ValueId low = DsDword(instruction, index);
+        const IL::ValueId high = DsDword(instruction, DsDwordAt(instruction, index, 1));
+        const IL::ValueId high64 =
+            m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, high, false);
+        const IL::ValueId shifted =
+            Bin(instruction, IL::BinaryOp::Shl, high64, m_builder.ConstantU64(32), m_module.types.U64());
+        const IL::ValueId low64 =
+            m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, low, false);
+        return Bin(instruction, IL::BinaryOp::Or, low64, shifted, m_module.types.U64());
+    }
+
+    void DsStore64(const DecodedInstruction& instruction, IL::ValueId index, IL::ValueId value)
+    {
+        const IL::ValueId low =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, value, false);
+        const IL::ValueId high64 =
+            Bin(instruction, IL::BinaryOp::LShr, value, m_builder.ConstantU64(32), m_module.types.U64());
+        const IL::ValueId high =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, high64, false);
+        DsPutDword(instruction, index, low);
+        DsPutDword(instruction, DsDwordAt(instruction, index, 1), high);
+    }
+
+    void DsWriteVgpr(const DecodedInstruction& instruction, std::uint32_t index, IL::ValueId value)
+    {
+        Operand destination;
+        destination.kind = OperandKind::Vgpr;
+        destination.value = index;
+        (void)WriteDest(destination, value, instruction.pc);
+    }
+
+    void DsWriteVgprPair(const DecodedInstruction& instruction, std::uint32_t index, IL::ValueId value)
+    {
+        const IL::ValueId low =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, value, false);
+        const IL::ValueId high64 =
+            Bin(instruction, IL::BinaryOp::LShr, value, m_builder.ConstantU64(32), m_module.types.U64());
+        const IL::ValueId high =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, high64, false);
+        DsWriteVgpr(instruction, index, low);
+        DsWriteVgpr(instruction, index + 1, high);
+    }
+
+    [[nodiscard]] Result<void> DsWriteDest(const DecodedInstruction& instruction, IL::ValueId value)
+    {
+        const Operand destination = DsOperand(instruction, OperandKind::DsDest);
+        if (destination.kind == OperandKind::None)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-058", "DS instruction has no destination", instruction.pc));
+        DsWriteVgpr(instruction, destination.value, value);
+        return {};
+    }
+
+    [[nodiscard]] Result<IL::ValueId> DsData(const DecodedInstruction& instruction,
+                                             OperandKind kind,
+                                             bool wide)
+    {
+        const Operand operand = DsOperand(instruction, kind);
+        if (operand.kind == OperandKind::None)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-059", "DS instruction is missing a data operand", instruction.pc));
+        if (wide)
+            return ReadVgpr64(operand.value, instruction.pc);
+        return ReadVgpr(operand.value, instruction.pc);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> DsLoadValue(const DecodedInstruction& instruction,
+                                                  std::uint32_t immediate,
+                                                  bool wide)
+    {
+        const auto index = DsIndex(instruction, immediate);
+        if (!index)
+            return std::unexpected(index.error());
+        return wide ? DsLoad64(instruction, *index) : DsDword(instruction, *index);
+    }
+
+    [[nodiscard]] Result<void> DsStoreValue(const DecodedInstruction& instruction,
+                                            std::uint32_t immediate,
+                                            IL::ValueId value,
+                                            bool wide)
+    {
+        const auto index = DsIndex(instruction, immediate);
+        if (!index)
+            return std::unexpected(index.error());
+        if (wide)
+            DsStore64(instruction, *index, value);
+        else
+            DsPutDword(instruction, *index, value);
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftDsLoadStore(const DecodedInstruction& instruction)
+    {
+        const bool wide = instruction.op == Op::DsLoadB64 || instruction.op == Op::DsStoreB64 ||
+                          instruction.op == Op::DsLoad2addrB64 ||
+                          instruction.op == Op::DsStore2addrB64 ||
+                          instruction.op == Op::DsLoad2addrStride64B64 ||
+                          instruction.op == Op::DsStore2addrStride64B64;
+
+        const bool store = instruction.op == Op::DsStoreB32 || instruction.op == Op::DsStoreB64 ||
+                           instruction.op == Op::DsStore2addrB32 || instruction.op == Op::DsStore2addrB64 ||
+                           instruction.op == Op::DsStore2addrStride64B32 ||
+                           instruction.op == Op::DsStore2addrStride64B64;
+
+        const bool second = instruction.op == Op::DsLoad2addrB32 || instruction.op == Op::DsLoad2addrB64 ||
+                            instruction.op == Op::DsLoad2addrStride64B32 ||
+                            instruction.op == Op::DsLoad2addrStride64B64 ||
+                            instruction.op == Op::DsStore2addrB32 ||
+                            instruction.op == Op::DsStore2addrB64 ||
+                            instruction.op == Op::DsStore2addrStride64B32 ||
+                            instruction.op == Op::DsStore2addrStride64B64;
+
+        const bool strided = instruction.op == Op::DsLoad2addrStride64B32 ||
+                             instruction.op == Op::DsLoad2addrStride64B64 ||
+                             instruction.op == Op::DsStore2addrStride64B32 ||
+                             instruction.op == Op::DsStore2addrStride64B64;
+
+        // The stride-64 forms scale both immediates by 256 bytes.
+        const std::uint32_t first = strided ? instruction.dsOffset0 * 256u : instruction.dsOffset0;
+        const std::uint32_t secondOffset =
+            strided ? instruction.dsOffset1 * 256u : instruction.dsOffset1;
+
+        if (store)
+        {
+            const auto firstValue = DsData(instruction, OperandKind::DsData0, wide);
+            if (!firstValue)
+                return std::unexpected(firstValue.error());
+            const auto status = DsStoreValue(instruction, first, *firstValue, wide);
+            if (!status)
+                return status;
+            if (second)
+            {
+                const auto value = DsData(instruction, OperandKind::DsData1, wide);
+                if (!value)
+                    return std::unexpected(value.error());
+                return DsStoreValue(instruction, secondOffset, *value, wide);
+            }
+            return {};
+        }
+
+        const auto value = DsLoadValue(instruction, first, wide);
+        if (!value)
+            return std::unexpected(value.error());
+        if (wide)
+        {
+            const Operand destination = DsOperand(instruction, OperandKind::DsDest);
+            if (destination.kind == OperandKind::None)
+                return std::unexpected(
+                    LiftError("SR-GFX-LIFT-058", "DS instruction has no destination", instruction.pc));
+            DsWriteVgprPair(instruction, destination.value, *value);
+            if (second)
+            {
+                const auto other = DsLoadValue(instruction, secondOffset, true);
+                if (!other)
+                    return std::unexpected(other.error());
+                DsWriteVgprPair(instruction, destination.value + 2, *other);
+            }
+            return {};
+        }
+
+        const auto status = DsWriteDest(instruction, *value);
+        if (!status)
+            return status;
+        if (second)
+        {
+            const auto other = DsLoadValue(instruction, secondOffset, false);
+            if (!other)
+                return std::unexpected(other.error());
+            DsWriteVgpr(instruction, DsOperand(instruction, OperandKind::DsDest).value + 1, *other);
+        }
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftDsBlock(const DecodedInstruction& instruction, std::uint32_t count)
+    {
+        const bool store = instruction.op == Op::DsStoreB96 || instruction.op == Op::DsStoreB128;
+        const auto bytes = DsByteAddress(instruction, instruction.dsOffset0);
+        if (!bytes)
+            return std::unexpected(bytes.error());
+        const auto index = DsIndexFromBytes(instruction, *bytes);
+        if (!index)
+            return std::unexpected(index.error());
+
+        if (store)
+        {
+            const std::uint32_t base = DsOperand(instruction, OperandKind::DsData0).value;
+            for (std::uint32_t i = 0; i < count; ++i)
+            {
+                const auto value = ReadVgpr(base + i, instruction.pc);
+                if (!value)
+                    return std::unexpected(value.error());
+                DsPutDword(instruction, DsDwordAt(instruction, *index, i), *value);
+            }
+            return {};
+        }
+
+        const std::uint32_t base = DsOperand(instruction, OperandKind::DsDest).value;
+        for (std::uint32_t i = 0; i < count; ++i)
+            DsWriteVgpr(instruction, base + i, DsDword(instruction, DsDwordAt(instruction, *index, i)));
+        return {};
+    }
+
+    enum class DsAtomicKind
+    {
+        Add,
+        Sub,
+        Rsub,
+        Inc,
+        Dec,
+        MinI,
+        MaxI,
+        MinU,
+        MaxU,
+        And,
+        Or,
+        Xor,
+        Mskor,
+        Exchange,
+        CompareStore,
+        AddFloat,
+        MinNum,
+        MaxNum,
+        CondSub,
+        SubClamp,
+    };
+
+    [[nodiscard]] Result<void> LiftDsAtomic(const DecodedInstruction& instruction,
+                                            DsAtomicKind kind,
+                                            bool wide,
+                                            bool rtn)
+    {
+        const auto index = DsIndex(instruction, instruction.dsOffset0);
+        if (!index)
+            return std::unexpected(index.error());
+
+        const auto data0 = DsData(instruction, OperandKind::DsData0, wide);
+        if (!data0)
+            return std::unexpected(data0.error());
+
+        const bool needsSecond = kind == DsAtomicKind::Mskor || kind == DsAtomicKind::CompareStore;
+        IL::ValueId data1 = IL::InvalidValue;
+        if (needsSecond)
+        {
+            const auto value = DsData(instruction, OperandKind::DsData1, wide);
+            if (!value)
+                return std::unexpected(value.error());
+            data1 = *value;
+        }
+
+        const IL::TypeId uintType = wide ? m_module.types.U64() : m_module.types.U32();
+        const IL::TypeId intType = wide ? m_module.types.I64() : m_module.types.I32();
+        const IL::TypeId floatType = wide ? F64Type() : m_module.types.F32();
+
+        const IL::ValueId old = wide ? DsLoad64(instruction, *index) : DsDword(instruction, *index);
+        const IL::ValueId zero = wide ? m_builder.ConstantU64(0) : m_builder.ConstantU32(0);
+        const IL::ValueId one = wide ? m_builder.ConstantU64(1) : m_builder.ConstantU32(1);
+
+        IL::ValueId result = old;
+        switch (kind)
+        {
+        case DsAtomicKind::Add:
+            result = Bin(instruction, IL::BinaryOp::IAdd, old, *data0, uintType);
+            break;
+        case DsAtomicKind::Sub:
+            result = Bin(instruction, IL::BinaryOp::ISub, old, *data0, uintType);
+            break;
+        case DsAtomicKind::Rsub:
+            result = Bin(instruction, IL::BinaryOp::ISub, *data0, old, uintType);
+            break;
+        case DsAtomicKind::Inc:
+        {
+            const IL::ValueId exceeded = m_builder.CompareValue(IL::CompareOp::UGe, old, *data0, false);
+            const IL::ValueId incremented = Bin(instruction, IL::BinaryOp::IAdd, old, one, uintType);
+            result = m_builder.SelectValue(uintType, exceeded, zero, incremented, false);
+            break;
+        }
+        case DsAtomicKind::Dec:
+        {
+            const IL::ValueId atZero = m_builder.CompareValue(IL::CompareOp::UEq, old, zero, false);
+            const IL::ValueId decremented = Bin(instruction, IL::BinaryOp::ISub, old, one, uintType);
+            result = m_builder.SelectValue(uintType, atZero, *data0, decremented, false);
+            break;
+        }
+        case DsAtomicKind::MinI:
+            result = m_builder.SelectValue(uintType,
+                                           m_builder.CompareValue(IL::CompareOp::ILt, old, *data0, false),
+                                           old,
+                                           *data0,
+                                           false);
+            break;
+        case DsAtomicKind::MaxI:
+            result = m_builder.SelectValue(uintType,
+                                           m_builder.CompareValue(IL::CompareOp::IGt, old, *data0, false),
+                                           old,
+                                           *data0,
+                                           false);
+            break;
+        case DsAtomicKind::MinU:
+            result = m_builder.SelectValue(uintType,
+                                           m_builder.CompareValue(IL::CompareOp::ULt, old, *data0, false),
+                                           old,
+                                           *data0,
+                                           false);
+            break;
+        case DsAtomicKind::MaxU:
+            result = m_builder.SelectValue(uintType,
+                                           m_builder.CompareValue(IL::CompareOp::UGt, old, *data0, false),
+                                           old,
+                                           *data0,
+                                           false);
+            break;
+        case DsAtomicKind::And:
+            result = Bin(instruction, IL::BinaryOp::And, old, *data0, uintType);
+            break;
+        case DsAtomicKind::Or:
+            result = Bin(instruction, IL::BinaryOp::Or, old, *data0, uintType);
+            break;
+        case DsAtomicKind::Xor:
+            result = Bin(instruction, IL::BinaryOp::Xor, old, *data0, uintType);
+            break;
+        case DsAtomicKind::Mskor:
+        {
+            const IL::ValueId masked = Bin(instruction, IL::BinaryOp::And, old, *data0, uintType);
+            result = Bin(instruction, IL::BinaryOp::Or, masked, data1, uintType);
+            break;
+        }
+        case DsAtomicKind::Exchange:
+            result = *data0;
+            break;
+        case DsAtomicKind::CompareStore:
+        {
+            const IL::ValueId equal = m_builder.CompareValue(IL::CompareOp::UEq, old, *data0, false);
+            result = m_builder.SelectValue(uintType, equal, data1, old, false);
+            break;
+        }
+        case DsAtomicKind::AddFloat:
+            result = Bin(instruction, IL::BinaryOp::FAdd, old, *data0, floatType);
+            break;
+        case DsAtomicKind::MinNum:
+            result = Bin(instruction, IL::BinaryOp::FMin, old, *data0, floatType);
+            break;
+        case DsAtomicKind::MaxNum:
+            result = Bin(instruction, IL::BinaryOp::FMax, old, *data0, floatType);
+            break;
+        case DsAtomicKind::CondSub:
+        {
+            const IL::ValueId large = m_builder.CompareValue(IL::CompareOp::UGe, old, *data0, false);
+            const IL::ValueId difference = Bin(instruction, IL::BinaryOp::ISub, old, *data0, uintType);
+            result = m_builder.SelectValue(uintType, large, difference, old, false);
+            break;
+        }
+        case DsAtomicKind::SubClamp:
+        {
+            const IL::ValueId large = m_builder.CompareValue(IL::CompareOp::UGe, old, *data0, false);
+            const IL::ValueId difference = Bin(instruction, IL::BinaryOp::ISub, *data0, old, uintType);
+            result = m_builder.SelectValue(uintType, large, zero, difference, false);
+            break;
+        }
+        }
+
+        if (wide)
+            DsStore64(instruction, *index, result);
+        else
+            DsPutDword(instruction, *index, result);
+
+        (void)intType;
+        if (rtn)
+        {
+            if (!wide)
+                return DsWriteDest(instruction, old);
+            DsWriteVgprPair(instruction, DsOperand(instruction, OperandKind::DsDest).value, old);
+            return {};
+        }
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftDsPkAdd(const DecodedInstruction& instruction, bool bfloat, bool rtn)
+    {
+        const auto index = DsIndex(instruction, instruction.dsOffset0);
+        if (!index)
+            return std::unexpected(index.error());
+        const auto data = DsData(instruction, OperandKind::DsData0, false);
+        if (!data)
+            return std::unexpected(data.error());
+
+        const IL::ValueId old = DsDword(instruction, *index);
+        const IL::TypeId halfType = bfloat ? BF16Type() : F16Type();
+
+        const auto laneAdd = [&](std::uint32_t shift) -> IL::ValueId {
+            const auto lane = [&](IL::ValueId value) {
+                const IL::ValueId bits = shift == 0
+                                             ? value
+                                             : Bin(instruction, IL::BinaryOp::LShr, value,
+                                                   m_builder.ConstantU32(shift));
+                const IL::ValueId low =
+                    m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, bits, false);
+                return Bitcast(halfType, low);
+            };
+            const IL::ValueId sum = Bin(instruction, IL::BinaryOp::FAdd, lane(old), lane(*data), halfType);
+            const IL::ValueId bits = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                                            Bitcast(U16Type(), sum), false);
+            return shift == 0
+                       ? bits
+                       : Bin(instruction, IL::BinaryOp::Shl, bits, m_builder.ConstantU32(shift));
+        };
+
+        const IL::ValueId low = laneAdd(0);
+        const IL::ValueId high = laneAdd(16);
+        const IL::ValueId merged = Bin(instruction, IL::BinaryOp::Or,
+                                       Bin(instruction, IL::BinaryOp::And, low, m_builder.ConstantU32(0xFFFF)),
+                                       high);
+        DsPutDword(instruction, *index, merged);
+        if (rtn)
+            return DsWriteDest(instruction, old);
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftDsByteAccess(const DecodedInstruction& instruction)
+    {
+        const bool store = instruction.op == Op::DsStoreB8 || instruction.op == Op::DsStoreB16 ||
+                           instruction.op == Op::DsStoreB8D16Hi ||
+                           instruction.op == Op::DsStoreB16D16Hi;
+        const std::uint32_t width =
+            (instruction.op == Op::DsStoreB8 || instruction.op == Op::DsLoadU8 ||
+             instruction.op == Op::DsLoadI8 || instruction.op == Op::DsStoreB8D16Hi ||
+             instruction.op == Op::DsLoadU8D16 || instruction.op == Op::DsLoadU8D16Hi ||
+             instruction.op == Op::DsLoadI8D16 || instruction.op == Op::DsLoadI8D16Hi)
+                ? 8u
+                : 16u;
+        const bool highHalf = instruction.op == Op::DsStoreB8D16Hi ||
+                              instruction.op == Op::DsStoreB16D16Hi ||
+                              instruction.op == Op::DsLoadU8D16Hi || instruction.op == Op::DsLoadI8D16Hi ||
+                              instruction.op == Op::DsLoadU16D16Hi;
+
+        const auto bytes = DsByteAddress(instruction, instruction.dsOffset0);
+        if (!bytes)
+            return std::unexpected(bytes.error());
+        const auto index = DsIndexFromBytes(instruction, *bytes);
+        if (!index)
+            return std::unexpected(index.error());
+
+        const IL::ValueId shift =
+            DsLaneShift(instruction, *bytes, width == 8 ? 3u : 2u);
+        const std::uint32_t fieldMask = width == 8 ? 0xFFu : 0xFFFFu;
+        const IL::ValueId mask =
+            Bin(instruction, IL::BinaryOp::Shl, m_builder.ConstantU32(fieldMask), shift);
+
+        if (store)
+        {
+            const auto data = DsData(instruction, OperandKind::DsData0, false);
+            if (!data)
+                return std::unexpected(data.error());
+            IL::ValueId value = *data;
+            if (highHalf)
+                value = Bin(instruction, IL::BinaryOp::LShr, value, m_builder.ConstantU32(16));
+            const IL::ValueId field =
+                Bin(instruction, IL::BinaryOp::Shl,
+                    Bin(instruction, IL::BinaryOp::And, value, m_builder.ConstantU32(fieldMask)), shift);
+            const IL::ValueId old = DsDword(instruction, *index);
+            const IL::ValueId cleared =
+                Bin(instruction, IL::BinaryOp::And, old,
+                    m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.U32(), mask, false));
+            DsPutDword(instruction, *index, Bin(instruction, IL::BinaryOp::Or, cleared, field));
+            return {};
+        }
+
+        const IL::ValueId old = DsDword(instruction, *index);
+        const IL::ValueId field =
+            Bin(instruction, IL::BinaryOp::And,
+                Bin(instruction, IL::BinaryOp::LShr, old, shift), m_builder.ConstantU32(fieldMask));
+
+        IL::ValueId value = field;
+        if (instruction.op == Op::DsLoadI8 || instruction.op == Op::DsLoadI8D16 ||
+            instruction.op == Op::DsLoadI8D16Hi)
+        {
+            value = SignExtend8Value(field);
+        }
+        else if (instruction.op == Op::DsLoadI16)
+        {
+            value = SignExtend16Value(field);
+        }
+
+        if (highHalf)
+        {
+            // The D16_HI forms replace only the high half of the destination.
+            const std::uint32_t destination = DsOperand(instruction, OperandKind::DsDest).value;
+            const auto current = ReadVgpr(destination, instruction.pc);
+            if (!current)
+                return std::unexpected(current.error());
+            const IL::ValueId narrowed =
+                width == 8 ? value
+                           : Bin(instruction, IL::BinaryOp::And, value, m_builder.ConstantU32(0xFFFF));
+            const IL::ValueId merged =
+                Bin(instruction, IL::BinaryOp::Or,
+                    Bin(instruction, IL::BinaryOp::And, *current, m_builder.ConstantU32(0xFFFF)),
+                    Bin(instruction, IL::BinaryOp::Shl, narrowed, m_builder.ConstantU32(16)));
+            DsWriteVgpr(instruction, destination, merged);
+            return {};
+        }
+
+        if (instruction.op == Op::DsLoadU8D16 || instruction.op == Op::DsLoadI8D16 ||
+            instruction.op == Op::DsLoadU16D16 || instruction.op == Op::DsLoadU8D16Hi ||
+            instruction.op == Op::DsLoadI8D16Hi || instruction.op == Op::DsLoadU16D16Hi)
+        {
+            const std::uint32_t destination = DsOperand(instruction, OperandKind::DsDest).value;
+            const auto current = ReadVgpr(destination, instruction.pc);
+            if (!current)
+                return std::unexpected(current.error());
+            const IL::ValueId merged =
+                Bin(instruction, IL::BinaryOp::Or,
+                    Bin(instruction, IL::BinaryOp::And, *current, m_builder.ConstantU32(0xFFFF0000)),
+                    Bin(instruction, IL::BinaryOp::And, value, m_builder.ConstantU32(0xFFFF)));
+            DsWriteVgpr(instruction, destination, merged);
+            return {};
+        }
+
+        return DsWriteDest(instruction, value);
+    }
+
+    [[nodiscard]] Result<void> LiftDs(const DecodedInstruction& instruction)
+    {
+        if (instruction.dsGds)
+        {
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-060", "GDS addressing is not implemented", instruction.pc));
+        }
+
+        switch (instruction.op)
+        {
+        case Op::DsNop:
+            return {};
+        case Op::DsLoadB32:
+        case Op::DsLoadB64:
+        case Op::DsLoad2addrB32:
+        case Op::DsLoad2addrB64:
+        case Op::DsLoad2addrStride64B32:
+        case Op::DsLoad2addrStride64B64:
+        case Op::DsStoreB32:
+        case Op::DsStoreB64:
+        case Op::DsStore2addrB32:
+        case Op::DsStore2addrB64:
+        case Op::DsStore2addrStride64B32:
+        case Op::DsStore2addrStride64B64:
+            return LiftDsLoadStore(instruction);
+        case Op::DsLoadB96:
+            return LiftDsBlock(instruction, 3);
+        case Op::DsLoadB128:
+            return LiftDsBlock(instruction, 4);
+        case Op::DsStoreB96:
+            return LiftDsBlock(instruction, 3);
+        case Op::DsStoreB128:
+            return LiftDsBlock(instruction, 4);
+        case Op::DsLoadU8:
+        case Op::DsLoadI8:
+        case Op::DsLoadU16:
+        case Op::DsLoadI16:
+        case Op::DsLoadU8D16:
+        case Op::DsLoadU8D16Hi:
+        case Op::DsLoadI8D16:
+        case Op::DsLoadI8D16Hi:
+        case Op::DsLoadU16D16:
+        case Op::DsLoadU16D16Hi:
+        case Op::DsStoreB8:
+        case Op::DsStoreB16:
+        case Op::DsStoreB8D16Hi:
+        case Op::DsStoreB16D16Hi:
+            return LiftDsByteAccess(instruction);
+
+        case Op::DsAddU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Add, false, false);
+        case Op::DsAddRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Add, false, true);
+        case Op::DsSubU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Sub, false, false);
+        case Op::DsSubRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Sub, false, true);
+        case Op::DsRsubU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Rsub, false, false);
+        case Op::DsRsubRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Rsub, false, true);
+        case Op::DsIncU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Inc, false, false);
+        case Op::DsIncRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Inc, false, true);
+        case Op::DsDecU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Dec, false, false);
+        case Op::DsDecRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Dec, false, true);
+        case Op::DsMinI32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinI, false, false);
+        case Op::DsMinRtnI32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinI, false, true);
+        case Op::DsMaxI32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxI, false, false);
+        case Op::DsMaxRtnI32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxI, false, true);
+        case Op::DsMinU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinU, false, false);
+        case Op::DsMinRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinU, false, true);
+        case Op::DsMaxU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxU, false, false);
+        case Op::DsMaxRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxU, false, true);
+        case Op::DsAndB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::And, false, false);
+        case Op::DsAndRtnB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::And, false, true);
+        case Op::DsOrB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Or, false, false);
+        case Op::DsOrRtnB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Or, false, true);
+        case Op::DsXorB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Xor, false, false);
+        case Op::DsXorRtnB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Xor, false, true);
+        case Op::DsMskorB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Mskor, false, false);
+        case Op::DsMskorRtnB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Mskor, false, true);
+        case Op::DsStorexchgRtnB32:
+        case Op::DsStorexchg2addrRtnB32:
+        case Op::DsStorexchg2addrStride64RtnB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::Exchange, false, true);
+        case Op::DsCmpstoreB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::CompareStore, false, false);
+        case Op::DsCmpstoreRtnB32:
+            return LiftDsAtomic(instruction, DsAtomicKind::CompareStore, false, true);
+        case Op::DsAddF32:
+            return LiftDsAtomic(instruction, DsAtomicKind::AddFloat, false, false);
+        case Op::DsAddRtnF32:
+            return LiftDsAtomic(instruction, DsAtomicKind::AddFloat, false, true);
+        case Op::DsMinNumF32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinNum, false, false);
+        case Op::DsMinNumRtnF32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinNum, false, true);
+        case Op::DsMaxNumF32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxNum, false, false);
+        case Op::DsMaxNumRtnF32:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxNum, false, true);
+        case Op::DsCondSubU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::CondSub, false, false);
+        case Op::DsCondSubRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::CondSub, false, true);
+        case Op::DsSubClampU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::SubClamp, false, false);
+        case Op::DsSubClampRtnU32:
+            return LiftDsAtomic(instruction, DsAtomicKind::SubClamp, false, true);
+
+        case Op::DsAddU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Add, true, false);
+        case Op::DsAddRtnU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Add, true, true);
+        case Op::DsSubU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Sub, true, false);
+        case Op::DsSubRtnU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Sub, true, true);
+        case Op::DsRsubU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Rsub, true, false);
+        case Op::DsRsubRtnU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Rsub, true, true);
+        case Op::DsIncU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Inc, true, false);
+        case Op::DsIncRtnU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Inc, true, true);
+        case Op::DsDecU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Dec, true, false);
+        case Op::DsDecRtnU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Dec, true, true);
+        case Op::DsMinI64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinI, true, false);
+        case Op::DsMinRtnI64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinI, true, true);
+        case Op::DsMaxI64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxI, true, false);
+        case Op::DsMaxRtnI64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxI, true, true);
+        case Op::DsMinU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinU, true, false);
+        case Op::DsMinRtnU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinU, true, true);
+        case Op::DsMaxU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxU, true, false);
+        case Op::DsMaxRtnU64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxU, true, true);
+        case Op::DsAndB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::And, true, false);
+        case Op::DsAndRtnB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::And, true, true);
+        case Op::DsOrB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Or, true, false);
+        case Op::DsOrRtnB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Or, true, true);
+        case Op::DsXorB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Xor, true, false);
+        case Op::DsXorRtnB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Xor, true, true);
+        case Op::DsMskorB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Mskor, true, false);
+        case Op::DsMskorRtnB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Mskor, true, true);
+        case Op::DsStorexchgRtnB64:
+        case Op::DsStorexchg2addrRtnB64:
+        case Op::DsStorexchg2addrStride64RtnB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::Exchange, true, true);
+        case Op::DsCmpstoreB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::CompareStore, true, false);
+        case Op::DsCmpstoreRtnB64:
+            return LiftDsAtomic(instruction, DsAtomicKind::CompareStore, true, true);
+        case Op::DsMinNumF64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinNum, true, false);
+        case Op::DsMinNumRtnF64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MinNum, true, true);
+        case Op::DsMaxNumF64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxNum, true, false);
+        case Op::DsMaxNumRtnF64:
+            return LiftDsAtomic(instruction, DsAtomicKind::MaxNum, true, true);
+
+        case Op::DsPkAddF16:
+            return LiftDsPkAdd(instruction, false, false);
+        case Op::DsPkAddRtnF16:
+            return LiftDsPkAdd(instruction, false, true);
+        case Op::DsPkAddBf16:
+            return LiftDsPkAdd(instruction, true, false);
+        case Op::DsPkAddRtnBf16:
+            return LiftDsPkAdd(instruction, true, true);
+
+        default:
+            break;
+        }
+
+        return std::unexpected(LiftError("SR-GFX-LIFT-061",
+                                         std::string("unsupported data-share instruction: ") +
+                                             std::string(ToString(instruction.op)),
+                                         instruction.pc));
+    }
+
     [[nodiscard]] IL::ValueId BuildBitMask(IL::ValueId width, bool uniform)
     {
         const IL::ValueId one64 = m_builder.ConstantU64(1);
@@ -3764,6 +4597,9 @@ private:
                                              instruction.pc));
         }
 
+        if (instruction.encoding == Encoding::Ds)
+            return LiftDs(instruction);
+
         switch (instruction.op)
         {
         case Op::S_MovB64:
@@ -3783,7 +4619,8 @@ private:
         }
         case Op::S_AddU32:
         case Op::S_AddI32:
-            return LiftCarry(instruction, false);        case Op::S_SubU32:
+            return LiftCarry(instruction, false);
+        case Op::S_SubU32:
         case Op::S_SubI32:
             return LiftCarry(instruction, true);
         case Op::S_AddcU32:
@@ -4469,7 +5306,8 @@ private:
         case Op::V_PkMaxF16:
             return LiftPacked(instruction, PackedKind::MaxF16);
         case Op::V_BfeU32:
-            return LiftBitFieldExtract(instruction, false, false);        case Op::V_BfeI32:
+            return LiftBitFieldExtract(instruction, false, false);
+        case Op::V_BfeI32:
             return LiftBitFieldExtract(instruction, true, false);
         case Op::V_BfiB32:
             return LiftBitFieldInsert(instruction);
@@ -4557,6 +5395,8 @@ private:
         case Op::S_Barrier:
             return std::unexpected(LiftError("SR-GFX-LIFT-020", "s_barrier is not implemented yet", instruction.pc));
         case Op::Invalid:
+            break;
+        default:
             break;
         }
 

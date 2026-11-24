@@ -55,6 +55,8 @@ enum class IntrinsicId : std::uint16_t
     Trap,
     TestBufferStore,
     TestBufferLoad,
+    LocalStore,
+    LocalLoad,
 };
 
 enum class SpecialRegId : std::uint16_t

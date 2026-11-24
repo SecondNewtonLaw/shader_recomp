@@ -533,6 +533,529 @@ std::optional<std::uint32_t> BufferIndex(const IsaState& state,
 
 } // namespace
 
+namespace {
+
+[[nodiscard]] std::optional<std::uint32_t> DsOperandValue(const DecodedInstruction& instruction,
+                                                           OperandKind kind)
+{
+    const Operand* found = FindOperand(instruction, kind);
+    if (found == nullptr)
+        return std::nullopt;
+    return found->value;
+}
+
+[[nodiscard]] std::optional<std::uint32_t> DsReadDword(const IsaState& state, std::uint32_t index)
+{
+    const auto it = state.local.find(index);
+    return it == state.local.end() ? 0u : it->second;
+}
+
+[[nodiscard]] std::optional<std::uint64_t> DsReadQword(const IsaState& state, std::uint32_t index)
+{
+    const auto low = DsReadDword(state, index);
+    const auto high = DsReadDword(state, index + 1);
+    if (!low || !high)
+        return std::nullopt;
+    return static_cast<std::uint64_t>(*low) | (static_cast<std::uint64_t>(*high) << 32);
+}
+
+[[nodiscard]] Result<void> ExecuteDs(IsaState& state, const DecodedInstruction& instruction,
+                                     std::uint32_t pc)
+{
+    const auto address = DsOperandValue(instruction, OperandKind::DsAddr);
+    if (!address)
+        return std::unexpected(Error("SR-GFX-ISA-200", "DS instruction has no address", pc));
+
+    const std::uint32_t base = static_cast<std::uint32_t>(state.vgpr[*address] + instruction.dsOffset0);
+    const std::uint32_t index = base >> 2;
+    const std::uint32_t lane = base & 3u;
+
+    const auto data = [&](OperandKind kind) -> std::optional<std::uint32_t> {
+        const auto found = DsOperandValue(instruction, kind);
+        if (!found)
+            return std::nullopt;
+        return state.vgpr[*found];
+    };
+
+    const auto writeVgpr = [&](std::uint32_t registerIndex, std::uint32_t value) {
+        state.vgpr[registerIndex] = value;
+    };
+
+    switch (instruction.op)
+    {
+    case Op::DsNop:
+        return {};
+
+    case Op::DsLoadB32:
+        writeVgpr(*DsOperandValue(instruction, OperandKind::DsDest), *DsReadDword(state, index));
+        return {};
+    case Op::DsLoadB64:
+    {
+        const std::uint32_t destination = *DsOperandValue(instruction, OperandKind::DsDest);
+        const auto value = DsReadQword(state, index);
+        if (!value)
+            return std::unexpected(Error("SR-GFX-ISA-201", "invalid ds_load_b64", pc));
+        writeVgpr(destination, static_cast<std::uint32_t>(*value));
+        writeVgpr(destination + 1, static_cast<std::uint32_t>(*value >> 32));
+        return {};
+    }
+    case Op::DsStoreB64:
+    {
+        const auto sourceIndex = DsOperandValue(instruction, OperandKind::DsData0);
+        if (!sourceIndex)
+            return std::unexpected(Error("SR-GFX-ISA-210", "invalid ds_store_b64 operand", pc));
+        state.local[index] = state.vgpr[*sourceIndex];
+        state.local[index + 1] = state.vgpr[*sourceIndex + 1];
+        return {};
+    }
+    case Op::DsStore2addrB32:
+    case Op::DsStore2addrStride64B32:
+    case Op::DsStore2addrB64:
+    case Op::DsStore2addrStride64B64:
+    {
+        const bool wide = (instruction.op == Op::DsStore2addrB64 ||
+                           instruction.op == Op::DsStore2addrStride64B64);
+        const bool strided = (instruction.op == Op::DsStore2addrStride64B32 ||
+                              instruction.op == Op::DsStore2addrStride64B64);
+        const std::uint32_t firstBase =
+            static_cast<std::uint32_t>(state.vgpr[*address] +
+                                       (strided ? instruction.dsOffset0 * 256u : instruction.dsOffset0));
+        const std::uint32_t secondBase =
+            static_cast<std::uint32_t>(state.vgpr[*address] +
+                                       (strided ? instruction.dsOffset1 * 256u : instruction.dsOffset1));
+        const auto firstIndex = DsOperandValue(instruction, OperandKind::DsData0);
+        const auto secondIndex = DsOperandValue(instruction, OperandKind::DsData1);
+        if (!firstIndex || !secondIndex)
+            return std::unexpected(Error("SR-GFX-ISA-211", "invalid DS two-address store", pc));
+        state.local[firstBase >> 2] = state.vgpr[*firstIndex];
+        state.local[secondBase >> 2] = state.vgpr[*secondIndex];
+        if (wide)
+        {
+            state.local[(firstBase >> 2) + 1] = state.vgpr[*firstIndex + 1];
+            state.local[(secondBase >> 2) + 1] = state.vgpr[*secondIndex + 1];
+        }
+        return {};
+    }
+    case Op::DsLoad2addrB32:
+    case Op::DsLoad2addrStride64B32:
+    case Op::DsLoad2addrB64:
+    case Op::DsLoad2addrStride64B64:
+    {
+        const bool wide = (instruction.op == Op::DsLoad2addrB64 ||
+                           instruction.op == Op::DsLoad2addrStride64B64);
+        const bool strided = (instruction.op == Op::DsLoad2addrStride64B32 ||
+                              instruction.op == Op::DsLoad2addrStride64B64);
+        const std::uint32_t firstBase =
+            static_cast<std::uint32_t>(state.vgpr[*address] +
+                                       (strided ? instruction.dsOffset0 * 256u : instruction.dsOffset0));
+        const std::uint32_t secondBase =
+            static_cast<std::uint32_t>(state.vgpr[*address] +
+                                       (strided ? instruction.dsOffset1 * 256u : instruction.dsOffset1));
+        const auto destination = DsOperandValue(instruction, OperandKind::DsDest);
+        if (!destination)
+            return std::unexpected(Error("SR-GFX-ISA-212", "invalid DS two-address load", pc));
+        writeVgpr(*destination, *DsReadDword(state, firstBase >> 2));
+        writeVgpr(*destination + (wide ? 2u : 1u), *DsReadDword(state, secondBase >> 2));
+        if (wide)
+        {
+            writeVgpr(*destination + 1, *DsReadDword(state, (firstBase >> 2) + 1));
+            writeVgpr(*destination + 3, *DsReadDword(state, (secondBase >> 2) + 1));
+        }
+        return {};
+    }
+    case Op::DsStoreB32:
+    case Op::DsAddU32:
+    case Op::DsSubU32:
+    case Op::DsRsubU32:
+    case Op::DsIncU32:
+    case Op::DsDecU32:
+    case Op::DsMinI32:
+    case Op::DsMaxI32:
+    case Op::DsMinU32:
+    case Op::DsMaxU32:
+    case Op::DsAndB32:
+    case Op::DsOrB32:
+    case Op::DsXorB32:
+    case Op::DsMskorB32:
+    case Op::DsCmpstoreB32:
+    case Op::DsAddF32:
+    case Op::DsMinNumF32:
+    case Op::DsMaxNumF32:
+    case Op::DsCondSubU32:
+    case Op::DsSubClampU32:
+    case Op::DsAddRtnU32:
+    case Op::DsSubRtnU32:
+    case Op::DsRsubRtnU32:
+    case Op::DsIncRtnU32:
+    case Op::DsDecRtnU32:
+    case Op::DsMinRtnI32:
+    case Op::DsMaxRtnI32:
+    case Op::DsMinRtnU32:
+    case Op::DsMaxRtnU32:
+    case Op::DsAndRtnB32:
+    case Op::DsOrRtnB32:
+    case Op::DsXorRtnB32:
+    case Op::DsMskorRtnB32:
+    case Op::DsStorexchgRtnB32:
+    case Op::DsCmpstoreRtnB32:
+    case Op::DsAddRtnF32:
+    case Op::DsMinNumRtnF32:
+    case Op::DsMaxNumRtnF32:
+    case Op::DsCondSubRtnU32:
+    case Op::DsSubClampRtnU32:
+    case Op::DsStorexchg2addrRtnB32:
+    case Op::DsStorexchg2addrStride64RtnB32:
+    {
+        const auto first = data(OperandKind::DsData0);
+        if (!first)
+            return std::unexpected(Error("SR-GFX-ISA-202", "invalid DS data operand", pc));
+        const std::uint32_t old = *DsReadDword(state, index);
+        std::uint32_t result = old;
+
+        const bool rtn = instruction.op == Op::DsAddRtnU32 || instruction.op == Op::DsSubRtnU32 ||
+                         instruction.op == Op::DsRsubRtnU32 || instruction.op == Op::DsIncRtnU32 ||
+                         instruction.op == Op::DsDecRtnU32 || instruction.op == Op::DsMinRtnI32 ||
+                         instruction.op == Op::DsMaxRtnI32 || instruction.op == Op::DsMinRtnU32 ||
+                         instruction.op == Op::DsMaxRtnU32 || instruction.op == Op::DsAndRtnB32 ||
+                         instruction.op == Op::DsOrRtnB32 || instruction.op == Op::DsXorRtnB32 ||
+                         instruction.op == Op::DsMskorRtnB32 ||
+                         instruction.op == Op::DsStorexchgRtnB32 ||
+                         instruction.op == Op::DsStorexchg2addrRtnB32 ||
+                         instruction.op == Op::DsStorexchg2addrStride64RtnB32 ||
+                         instruction.op == Op::DsCmpstoreRtnB32 || instruction.op == Op::DsAddRtnF32 ||
+                         instruction.op == Op::DsMinNumRtnF32 || instruction.op == Op::DsMaxNumRtnF32 ||
+                         instruction.op == Op::DsCondSubRtnU32 ||
+                         instruction.op == Op::DsSubClampRtnU32;
+
+        switch (instruction.op)
+        {
+        case Op::DsStoreB32:
+            result = *first;
+            break;
+        case Op::DsAddU32:
+        case Op::DsAddRtnU32:
+            result = old + *first;
+            break;
+        case Op::DsSubU32:
+        case Op::DsSubRtnU32:
+            result = old - *first;
+            break;
+        case Op::DsRsubU32:
+        case Op::DsRsubRtnU32:
+            result = *first - old;
+            break;
+        case Op::DsIncU32:
+        case Op::DsIncRtnU32:
+            result = old >= *first ? 0u : old + 1u;
+            break;
+        case Op::DsDecU32:
+        case Op::DsDecRtnU32:
+            result = old == 0u ? *first : old - 1u;
+            break;
+        case Op::DsMinI32:
+        case Op::DsMinRtnI32:
+            result = static_cast<std::uint32_t>(
+                std::min(static_cast<std::int32_t>(old), static_cast<std::int32_t>(*first)));
+            break;
+        case Op::DsMaxI32:
+        case Op::DsMaxRtnI32:
+            result = static_cast<std::uint32_t>(
+                std::max(static_cast<std::int32_t>(old), static_cast<std::int32_t>(*first)));
+            break;
+        case Op::DsMinU32:
+        case Op::DsMinRtnU32:
+            result = std::min(old, *first);
+            break;
+        case Op::DsMaxU32:
+        case Op::DsMaxRtnU32:
+            result = std::max(old, *first);
+            break;
+        case Op::DsAndB32:
+        case Op::DsAndRtnB32:
+            result = old & *first;
+            break;
+        case Op::DsOrB32:
+        case Op::DsOrRtnB32:
+            result = old | *first;
+            break;
+        case Op::DsXorB32:
+        case Op::DsXorRtnB32:
+            result = old ^ *first;
+            break;
+        case Op::DsMskorB32:
+        case Op::DsMskorRtnB32:
+        case Op::DsCmpstoreB32:
+        case Op::DsCmpstoreRtnB32:
+        {
+            const auto second = data(OperandKind::DsData1);
+            if (!second)
+                return std::unexpected(Error("SR-GFX-ISA-203", "invalid DS second data operand", pc));
+            if (instruction.op == Op::DsCmpstoreB32 || instruction.op == Op::DsCmpstoreRtnB32)
+                result = old == *first ? *second : old;
+            else
+                result = (old & *first) | *second;
+            break;
+        }
+        case Op::DsStorexchgRtnB32:
+        case Op::DsStorexchg2addrRtnB32:
+        case Op::DsStorexchg2addrStride64RtnB32:
+            result = *first;
+            break;
+        case Op::DsAddF32:
+        case Op::DsAddRtnF32:
+            result = std::bit_cast<std::uint32_t>(std::bit_cast<float>(old) + std::bit_cast<float>(*first));
+            break;
+        case Op::DsMinNumF32:
+        case Op::DsMinNumRtnF32:
+            result = std::bit_cast<std::uint32_t>(
+                std::fmin(std::bit_cast<float>(old), std::bit_cast<float>(*first)));
+            break;
+        case Op::DsMaxNumF32:
+        case Op::DsMaxNumRtnF32:
+            result = std::bit_cast<std::uint32_t>(
+                std::fmax(std::bit_cast<float>(old), std::bit_cast<float>(*first)));
+            break;
+        case Op::DsCondSubU32:
+        case Op::DsCondSubRtnU32:
+            result = old >= *first ? old - *first : old;
+            break;
+        case Op::DsSubClampU32:
+        case Op::DsSubClampRtnU32:
+            result = old >= *first ? 0u : *first - old;
+            break;
+        default:
+            break;
+        }
+
+        state.local[index] = result;
+        if (rtn)
+            writeVgpr(*DsOperandValue(instruction, OperandKind::DsDest), old);
+        return {};
+    }
+
+    case Op::DsLoadB96:
+    case Op::DsLoadB128:
+    case Op::DsStoreB96:
+    case Op::DsStoreB128:
+    {
+        const std::uint32_t count =
+            (instruction.op == Op::DsLoadB96 || instruction.op == Op::DsStoreB96) ? 3u : 4u;
+        const bool store = instruction.op == Op::DsStoreB96 || instruction.op == Op::DsStoreB128;
+        if (store)
+        {
+            const auto base = DsOperandValue(instruction, OperandKind::DsData0);
+            if (!base)
+                return std::unexpected(Error("SR-GFX-ISA-206", "invalid DS block store operand", pc));
+            for (std::uint32_t i = 0; i < count; ++i)
+                state.local[index + i] = state.vgpr[*base + i];
+            return {};
+        }
+        const auto base = DsOperandValue(instruction, OperandKind::DsDest);
+        if (!base)
+            return std::unexpected(Error("SR-GFX-ISA-207", "invalid DS block load operand", pc));
+        for (std::uint32_t i = 0; i < count; ++i)
+            writeVgpr(*base + i, *DsReadDword(state, index + i));
+        return {};
+    }
+
+    case Op::DsAddU64:
+    case Op::DsSubU64:
+    case Op::DsRsubU64:
+    case Op::DsIncU64:
+    case Op::DsDecU64:
+    case Op::DsMinI64:
+    case Op::DsMaxI64:
+    case Op::DsMinU64:
+    case Op::DsMaxU64:
+    case Op::DsAndB64:
+    case Op::DsOrB64:
+    case Op::DsXorB64:
+    case Op::DsMskorB64:
+    case Op::DsCmpstoreB64:
+    case Op::DsStorexchgRtnB64:
+    case Op::DsStorexchg2addrRtnB64:
+    case Op::DsStorexchg2addrStride64RtnB64:
+    case Op::DsMinNumF64:
+    case Op::DsMaxNumF64:
+    case Op::DsAddRtnU64:
+    case Op::DsSubRtnU64:
+    case Op::DsRsubRtnU64:
+    case Op::DsIncRtnU64:
+    case Op::DsDecRtnU64:
+    case Op::DsMinRtnI64:
+    case Op::DsMaxRtnI64:
+    case Op::DsMinRtnU64:
+    case Op::DsMaxRtnU64:
+    case Op::DsAndRtnB64:
+    case Op::DsOrRtnB64:
+    case Op::DsXorRtnB64:
+    case Op::DsMskorRtnB64:
+    case Op::DsCmpstoreRtnB64:
+    case Op::DsMinNumRtnF64:
+    case Op::DsMaxNumRtnF64:
+    {
+        const auto firstIndex = DsOperandValue(instruction, OperandKind::DsData0);
+        if (!firstIndex)
+            return std::unexpected(Error("SR-GFX-ISA-208", "invalid DS 64-bit data operand", pc));
+        const std::uint64_t first = static_cast<std::uint64_t>(state.vgpr[*firstIndex]) |
+                                    (static_cast<std::uint64_t>(state.vgpr[*firstIndex + 1]) << 32);
+        const std::uint64_t old = DsReadQword(state, index).value_or(0);
+        std::uint64_t result = old;
+
+        const bool rtn = instruction.op == Op::DsAddRtnU64 || instruction.op == Op::DsSubRtnU64 ||
+                         instruction.op == Op::DsRsubRtnU64 || instruction.op == Op::DsIncRtnU64 ||
+                         instruction.op == Op::DsDecRtnU64 || instruction.op == Op::DsMinRtnI64 ||
+                         instruction.op == Op::DsMaxRtnI64 || instruction.op == Op::DsMinRtnU64 ||
+                         instruction.op == Op::DsMaxRtnU64 || instruction.op == Op::DsAndRtnB64 ||
+                         instruction.op == Op::DsOrRtnB64 || instruction.op == Op::DsXorRtnB64 ||
+                         instruction.op == Op::DsMskorRtnB64 ||
+                         instruction.op == Op::DsCmpstoreRtnB64 ||
+                         instruction.op == Op::DsStorexchgRtnB64 ||
+                         instruction.op == Op::DsStorexchg2addrRtnB64 ||
+                         instruction.op == Op::DsStorexchg2addrStride64RtnB64 ||
+                         instruction.op == Op::DsMinNumRtnF64 || instruction.op == Op::DsMaxNumRtnF64;
+
+        switch (instruction.op)
+        {
+        case Op::DsAddU64:
+        case Op::DsAddRtnU64:
+            result = old + first;
+            break;
+        case Op::DsSubU64:
+        case Op::DsSubRtnU64:
+            result = old - first;
+            break;
+        case Op::DsRsubU64:
+        case Op::DsRsubRtnU64:
+            result = first - old;
+            break;
+        case Op::DsIncU64:
+        case Op::DsIncRtnU64:
+            result = old >= first ? 0 : old + 1;
+            break;
+        case Op::DsDecU64:
+        case Op::DsDecRtnU64:
+            result = old == 0 ? first : old - 1;
+            break;
+        case Op::DsMinI64:
+        case Op::DsMinRtnI64:
+            result = static_cast<std::uint64_t>(
+                std::min(static_cast<std::int64_t>(old), static_cast<std::int64_t>(first)));
+            break;
+        case Op::DsMaxI64:
+        case Op::DsMaxRtnI64:
+            result = static_cast<std::uint64_t>(
+                std::max(static_cast<std::int64_t>(old), static_cast<std::int64_t>(first)));
+            break;
+        case Op::DsMinU64:
+        case Op::DsMinRtnU64:
+            result = std::min(old, first);
+            break;
+        case Op::DsMaxU64:
+        case Op::DsMaxRtnU64:
+            result = std::max(old, first);
+            break;
+        case Op::DsAndB64:
+        case Op::DsAndRtnB64:
+            result = old & first;
+            break;
+        case Op::DsOrB64:
+        case Op::DsOrRtnB64:
+            result = old | first;
+            break;
+        case Op::DsXorB64:
+        case Op::DsXorRtnB64:
+            result = old ^ first;
+            break;
+        case Op::DsMskorB64:
+        case Op::DsMskorRtnB64:
+        case Op::DsCmpstoreB64:
+        case Op::DsCmpstoreRtnB64:
+        {
+            const auto secondIndex = DsOperandValue(instruction, OperandKind::DsData1);
+            if (!secondIndex)
+                return std::unexpected(Error("SR-GFX-ISA-209", "invalid DS 64-bit second operand", pc));
+            const std::uint64_t second =
+                static_cast<std::uint64_t>(state.vgpr[*secondIndex]) |
+                (static_cast<std::uint64_t>(state.vgpr[*secondIndex + 1]) << 32);
+            if (instruction.op == Op::DsCmpstoreB64 || instruction.op == Op::DsCmpstoreRtnB64)
+                result = old == first ? second : old;
+            else
+                result = (old & first) | second;
+            break;
+        }
+        case Op::DsStorexchgRtnB64:
+        case Op::DsStorexchg2addrRtnB64:
+        case Op::DsStorexchg2addrStride64RtnB64:
+            result = first;
+            break;
+        case Op::DsMinNumF64:
+        case Op::DsMinNumRtnF64:
+            result = std::bit_cast<std::uint64_t>(
+                std::fmin(std::bit_cast<double>(old), std::bit_cast<double>(first)));
+            break;
+        case Op::DsMaxNumF64:
+        case Op::DsMaxNumRtnF64:
+            result = std::bit_cast<std::uint64_t>(
+                std::fmax(std::bit_cast<double>(old), std::bit_cast<double>(first)));
+            break;
+        default:
+            break;
+        }
+
+        state.local[index] = static_cast<std::uint32_t>(result);
+        state.local[index + 1] = static_cast<std::uint32_t>(result >> 32);
+        if (rtn)
+        {
+            const std::uint32_t destination = *DsOperandValue(instruction, OperandKind::DsDest);
+            writeVgpr(destination, static_cast<std::uint32_t>(old));
+            writeVgpr(destination + 1, static_cast<std::uint32_t>(old >> 32));
+        }
+        return {};
+    }
+
+    case Op::DsLoadU8:
+    case Op::DsLoadI8:
+    case Op::DsLoadU16:
+    case Op::DsLoadI16:
+    {
+        const std::uint32_t word = *DsReadDword(state, index);
+        const std::uint32_t width = (instruction.op == Op::DsLoadU8 || instruction.op == Op::DsLoadI8) ? 8 : 16;
+        const std::uint32_t field =
+            (word >> (lane * 8u)) & (width == 8 ? 0xFFu : 0xFFFFu);
+        std::uint32_t value = field;
+        if (instruction.op == Op::DsLoadI8)
+            value = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int8_t>(field)));
+        else if (instruction.op == Op::DsLoadI16)
+            value = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(field)));
+        writeVgpr(*DsOperandValue(instruction, OperandKind::DsDest), value);
+        return {};
+    }
+    case Op::DsStoreB8:
+    case Op::DsStoreB16:
+    {
+        const auto value = data(OperandKind::DsData0);
+        if (!value)
+            return std::unexpected(Error("SR-GFX-ISA-204", "invalid DS byte store operand", pc));
+        const std::uint32_t width = instruction.op == Op::DsStoreB8 ? 8u : 16u;
+        const std::uint32_t mask = (width == 8 ? 0xFFu : 0xFFFFu) << (lane * 8u);
+        const std::uint32_t word = *DsReadDword(state, index);
+        state.local[index] = (word & ~mask) | ((*value << (lane * 8u)) & mask);
+        return {};
+    }
+
+    default:
+        break;
+    }
+
+    return std::unexpected(Error("SR-GFX-ISA-205",
+                                 "unsupported data-share instruction: " +
+                                     std::string(ToString(instruction.op)),
+                                 pc));
+}
+
+} // namespace
+
 Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                                   Arch arch,
                                   IsaState state,
@@ -564,8 +1087,16 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
         bool advance = true;
         bool finished = false;
 
-        if (const auto spec = CompareSpecOf(instruction.op))
+        if (instruction.encoding == Encoding::Ds)
         {
+            const auto status = ExecuteDs(result.state, instruction, pc);
+            if (!status)
+                return std::unexpected(status.error());
+            pc += instruction.wordCount * 4;
+            continue;
+        }
+
+        if (const auto spec = CompareSpecOf(instruction.op))        {
             const auto condition = EvaluateCompare(result.state, instruction, *spec);
             if (!condition)
                 return std::unexpected(Error("SR-GFX-ISA-165", "invalid typed compare operands", pc));

@@ -491,6 +491,254 @@ constexpr std::array kGfx10 = {
          {OperandKind::FlatVdst, OperandKind::FlatVaddr, OperandKind::FlatOffset12}),
     Make(Encoding::Flat, 28, Op::GlobalStoreB32, "global_store_dword",
          {OperandKind::FlatVaddr, OperandKind::FlatData, OperandKind::FlatOffset12}),
+    // Data-share (LDS).
+    Make(Encoding::Ds, 0, Op::DsAddU32, "ds_add_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 1, Op::DsSubU32, "ds_sub_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 2, Op::DsRsubU32, "ds_rsub_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 3, Op::DsIncU32, "ds_inc_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 4, Op::DsDecU32, "ds_dec_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 5, Op::DsMinI32, "ds_min_i32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 6, Op::DsMaxI32, "ds_max_i32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 7, Op::DsMinU32, "ds_min_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 8, Op::DsMaxU32, "ds_max_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 9, Op::DsAndB32, "ds_and_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 10, Op::DsOrB32, "ds_or_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 11, Op::DsXorB32, "ds_xor_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 12, Op::DsMskorB32, "ds_mskor_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 13, Op::DsStoreB32, "ds_write_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 14, Op::DsStore2addrB32, "ds_write2_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 15, Op::DsStore2addrStride64B32, "ds_write2st64_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 16, Op::DsCmpstoreB32, "ds_cmpst_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 17, Op::DsCmpstF32, "ds_cmpst_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 18, Op::DsMinNumF32, "ds_min_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 19, Op::DsMaxNumF32, "ds_max_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 20, Op::DsNop, "ds_nop",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 21, Op::DsAddF32, "ds_add_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 24, Op::DsGwsSemaReleaseAll, "ds_gws_sema_release_all",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 25, Op::DsGwsInit, "ds_gws_init",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 26, Op::DsGwsSemaV, "ds_gws_sema_v",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 27, Op::DsGwsSemaBr, "ds_gws_sema_br",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 28, Op::DsGwsSemaP, "ds_gws_sema_p",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 29, Op::DsGwsBarrier, "ds_gws_barrier",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 30, Op::DsStoreB8, "ds_write_b8",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 31, Op::DsStoreB16, "ds_write_b16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 32, Op::DsAddRtnU32, "ds_add_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 33, Op::DsSubRtnU32, "ds_sub_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 34, Op::DsRsubRtnU32, "ds_rsub_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 35, Op::DsIncRtnU32, "ds_inc_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 36, Op::DsDecRtnU32, "ds_dec_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 37, Op::DsMinRtnI32, "ds_min_rtn_i32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 38, Op::DsMaxRtnI32, "ds_max_rtn_i32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 39, Op::DsMinRtnU32, "ds_min_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 40, Op::DsMaxRtnU32, "ds_max_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 41, Op::DsAndRtnB32, "ds_and_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 42, Op::DsOrRtnB32, "ds_or_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 43, Op::DsXorRtnB32, "ds_xor_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 44, Op::DsMskorRtnB32, "ds_mskor_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 45, Op::DsStorexchgRtnB32, "ds_wrxchg_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 46, Op::DsStorexchg2addrRtnB32, "ds_wrxchg2_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 47, Op::DsStorexchg2addrStride64RtnB32, "ds_wrxchg2st64_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 48, Op::DsCmpstoreRtnB32, "ds_cmpst_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 49, Op::DsCmpstRtnF32, "ds_cmpst_rtn_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 50, Op::DsMinNumRtnF32, "ds_min_rtn_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 51, Op::DsMaxNumRtnF32, "ds_max_rtn_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 52, Op::DsWrapRtnB32, "ds_wrap_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 53, Op::DsSwizzleB32, "ds_swizzle_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 54, Op::DsLoadB32, "ds_read_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 55, Op::DsLoad2addrB32, "ds_read2_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 56, Op::DsLoad2addrStride64B32, "ds_read2st64_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 57, Op::DsLoadI8, "ds_read_i8",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 58, Op::DsLoadU8, "ds_read_u8",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 59, Op::DsLoadI16, "ds_read_i16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 60, Op::DsLoadU16, "ds_read_u16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 61, Op::DsConsume, "ds_consume",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 62, Op::DsAppend, "ds_append",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 63, Op::DsOrderedCount, "ds_ordered_count",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 64, Op::DsAddU64, "ds_add_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 65, Op::DsSubU64, "ds_sub_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 66, Op::DsRsubU64, "ds_rsub_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 67, Op::DsIncU64, "ds_inc_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 68, Op::DsDecU64, "ds_dec_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 69, Op::DsMinI64, "ds_min_i64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 70, Op::DsMaxI64, "ds_max_i64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 71, Op::DsMinU64, "ds_min_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 72, Op::DsMaxU64, "ds_max_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 73, Op::DsAndB64, "ds_and_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 74, Op::DsOrB64, "ds_or_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 75, Op::DsXorB64, "ds_xor_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 76, Op::DsMskorB64, "ds_mskor_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 77, Op::DsStoreB64, "ds_write_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 78, Op::DsStore2addrB64, "ds_write2_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 79, Op::DsStore2addrStride64B64, "ds_write2st64_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 80, Op::DsCmpstoreB64, "ds_cmpst_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 81, Op::DsCmpstF64, "ds_cmpst_f64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 82, Op::DsMinNumF64, "ds_min_f64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 83, Op::DsMaxNumF64, "ds_max_f64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 85, Op::DsAddRtnF32, "ds_add_rtn_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 96, Op::DsAddRtnU64, "ds_add_rtn_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 97, Op::DsSubRtnU64, "ds_sub_rtn_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 98, Op::DsRsubRtnU64, "ds_rsub_rtn_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 99, Op::DsIncRtnU64, "ds_inc_rtn_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 100, Op::DsDecRtnU64, "ds_dec_rtn_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 101, Op::DsMinRtnI64, "ds_min_rtn_i64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 102, Op::DsMaxRtnI64, "ds_max_rtn_i64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 103, Op::DsMinRtnU64, "ds_min_rtn_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 104, Op::DsMaxRtnU64, "ds_max_rtn_u64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 105, Op::DsAndRtnB64, "ds_and_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 106, Op::DsOrRtnB64, "ds_or_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 107, Op::DsXorRtnB64, "ds_xor_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 108, Op::DsMskorRtnB64, "ds_mskor_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 109, Op::DsStorexchgRtnB64, "ds_wrxchg_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 110, Op::DsStorexchg2addrRtnB64, "ds_wrxchg2_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 111, Op::DsStorexchg2addrStride64RtnB64, "ds_wrxchg2st64_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 112, Op::DsCmpstoreRtnB64, "ds_cmpst_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 113, Op::DsCmpstRtnF64, "ds_cmpst_rtn_f64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 114, Op::DsMinNumRtnF64, "ds_min_rtn_f64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 115, Op::DsMaxNumRtnF64, "ds_max_rtn_f64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 118, Op::DsLoadB64, "ds_read_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 119, Op::DsLoad2addrB64, "ds_read2_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 120, Op::DsLoad2addrStride64B64, "ds_read2st64_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 126, Op::DsCondxchg32RtnB64, "ds_condxchg32_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 160, Op::DsStoreB8D16Hi, "ds_write_b8_d16_hi",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 161, Op::DsStoreB16D16Hi, "ds_write_b16_d16_hi",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 162, Op::DsLoadU8D16, "ds_read_u8_d16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 163, Op::DsLoadU8D16Hi, "ds_read_u8_d16_hi",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 164, Op::DsLoadI8D16, "ds_read_i8_d16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 165, Op::DsLoadI8D16Hi, "ds_read_i8_d16_hi",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 166, Op::DsLoadU16D16, "ds_read_u16_d16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 167, Op::DsLoadU16D16Hi, "ds_read_u16_d16_hi",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 176, Op::DsStoreAddtidB32, "ds_write_addtid_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 177, Op::DsLoadAddtidB32, "ds_read_addtid_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 178, Op::DsPermuteB32, "ds_permute_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 179, Op::DsBpermuteB32, "ds_bpermute_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 222, Op::DsStoreB96, "ds_write_b96",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 223, Op::DsStoreB128, "ds_write_b128",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 254, Op::DsLoadB96, "ds_read_b96",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 255, Op::DsLoadB128, "ds_read_b128",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -901,6 +1149,46 @@ constexpr std::array kGfx12 = {
          {OperandKind::GlobalVdst, OperandKind::GlobalVaddr, OperandKind::GlobalIoffset}),
     Make(Encoding::Global, 26, Op::GlobalStoreB32, "global_store_b32",
          {OperandKind::GlobalVaddr, OperandKind::GlobalVsrc, OperandKind::GlobalIoffset}),
+    Remove(Encoding::Ds, 17),
+    Remove(Encoding::Ds, 24),
+    Remove(Encoding::Ds, 25),
+    Remove(Encoding::Ds, 26),
+    Remove(Encoding::Ds, 27),
+    Remove(Encoding::Ds, 28),
+    Remove(Encoding::Ds, 29),
+    Remove(Encoding::Ds, 49),
+    Remove(Encoding::Ds, 52),
+    Remove(Encoding::Ds, 63),
+    Remove(Encoding::Ds, 81),
+    Remove(Encoding::Ds, 85),
+    Remove(Encoding::Ds, 113),
+    Make(Encoding::Ds, 121, Op::DsAddRtnF32, "ds_add_rtn_f32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 152, Op::DsCondSubU32, "ds_cond_sub_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 153, Op::DsSubClampU32, "ds_sub_clamp_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 154, Op::DsPkAddF16, "ds_pk_add_f16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 155, Op::DsPkAddBf16, "ds_pk_add_bf16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 168, Op::DsCondSubRtnU32, "ds_cond_sub_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 169, Op::DsSubClampRtnU32, "ds_sub_clamp_rtn_u32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 170, Op::DsPkAddRtnF16, "ds_pk_add_rtn_f16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 171, Op::DsPkAddRtnBf16, "ds_pk_add_rtn_bf16",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 205, Op::DsBpermuteFiB32, "ds_bpermute_fi_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 224, Op::DsBvhStackPush4Pop1RtnB32, "ds_bvh_stack_push4_pop1_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 225, Op::DsBvhStackPush8Pop1RtnB32, "ds_bvh_stack_push8_pop1_rtn_b32",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+    Make(Encoding::Ds, 226, Op::DsBvhStackPush8Pop2RtnB64, "ds_bvh_stack_push8_pop2_rtn_b64",
+         {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
+
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -1203,6 +1491,276 @@ std::string_view ToString(Op op) noexcept
         return "s_xor_b64";
     case Op::S_CselectB64:
         return "s_cselect_b64";
+    case Op::DsAddF32:
+        return "ds_add_f32";
+    case Op::DsAddRtnF32:
+        return "ds_add_rtn_f32";
+    case Op::DsAddRtnU32:
+        return "ds_add_rtn_u32";
+    case Op::DsAddRtnU64:
+        return "ds_add_rtn_u64";
+    case Op::DsAddU32:
+        return "ds_add_u32";
+    case Op::DsAddU64:
+        return "ds_add_u64";
+    case Op::DsAndB32:
+        return "ds_and_b32";
+    case Op::DsAndB64:
+        return "ds_and_b64";
+    case Op::DsAndRtnB32:
+        return "ds_and_rtn_b32";
+    case Op::DsAndRtnB64:
+        return "ds_and_rtn_b64";
+    case Op::DsAppend:
+        return "ds_append";
+    case Op::DsBpermuteB32:
+        return "ds_bpermute_b32";
+    case Op::DsBpermuteFiB32:
+        return "ds_bpermute_fi_b32";
+    case Op::DsBvhStackPush4Pop1RtnB32:
+        return "ds_bvh_stack_push4_pop1_rtn_b32";
+    case Op::DsBvhStackPush8Pop1RtnB32:
+        return "ds_bvh_stack_push8_pop1_rtn_b32";
+    case Op::DsBvhStackPush8Pop2RtnB64:
+        return "ds_bvh_stack_push8_pop2_rtn_b64";
+    case Op::DsCmpstF32:
+        return "ds_cmpst_f32";
+    case Op::DsCmpstF64:
+        return "ds_cmpst_f64";
+    case Op::DsCmpstRtnF32:
+        return "ds_cmpst_rtn_f32";
+    case Op::DsCmpstRtnF64:
+        return "ds_cmpst_rtn_f64";
+    case Op::DsCmpstoreB32:
+        return "ds_cmpstore_b32";
+    case Op::DsCmpstoreB64:
+        return "ds_cmpstore_b64";
+    case Op::DsCmpstoreRtnB32:
+        return "ds_cmpstore_rtn_b32";
+    case Op::DsCmpstoreRtnB64:
+        return "ds_cmpstore_rtn_b64";
+    case Op::DsCondSubRtnU32:
+        return "ds_cond_sub_rtn_u32";
+    case Op::DsCondSubU32:
+        return "ds_cond_sub_u32";
+    case Op::DsCondxchg32RtnB64:
+        return "ds_condxchg32_rtn_b64";
+    case Op::DsConsume:
+        return "ds_consume";
+    case Op::DsDecRtnU32:
+        return "ds_dec_rtn_u32";
+    case Op::DsDecRtnU64:
+        return "ds_dec_rtn_u64";
+    case Op::DsDecU32:
+        return "ds_dec_u32";
+    case Op::DsDecU64:
+        return "ds_dec_u64";
+    case Op::DsGwsBarrier:
+        return "ds_gws_barrier";
+    case Op::DsGwsInit:
+        return "ds_gws_init";
+    case Op::DsGwsSemaBr:
+        return "ds_gws_sema_br";
+    case Op::DsGwsSemaP:
+        return "ds_gws_sema_p";
+    case Op::DsGwsSemaReleaseAll:
+        return "ds_gws_sema_release_all";
+    case Op::DsGwsSemaV:
+        return "ds_gws_sema_v";
+    case Op::DsIncRtnU32:
+        return "ds_inc_rtn_u32";
+    case Op::DsIncRtnU64:
+        return "ds_inc_rtn_u64";
+    case Op::DsIncU32:
+        return "ds_inc_u32";
+    case Op::DsIncU64:
+        return "ds_inc_u64";
+    case Op::DsLoad2addrB32:
+        return "ds_load_2addr_b32";
+    case Op::DsLoad2addrB64:
+        return "ds_load_2addr_b64";
+    case Op::DsLoad2addrStride64B32:
+        return "ds_load_2addr_stride64_b32";
+    case Op::DsLoad2addrStride64B64:
+        return "ds_load_2addr_stride64_b64";
+    case Op::DsLoadAddtidB32:
+        return "ds_load_addtid_b32";
+    case Op::DsLoadB128:
+        return "ds_load_b128";
+    case Op::DsLoadB32:
+        return "ds_load_b32";
+    case Op::DsLoadB64:
+        return "ds_load_b64";
+    case Op::DsLoadB96:
+        return "ds_load_b96";
+    case Op::DsLoadI16:
+        return "ds_load_i16";
+    case Op::DsLoadI8:
+        return "ds_load_i8";
+    case Op::DsLoadI8D16:
+        return "ds_load_i8_d16";
+    case Op::DsLoadI8D16Hi:
+        return "ds_load_i8_d16_hi";
+    case Op::DsLoadU16:
+        return "ds_load_u16";
+    case Op::DsLoadU16D16:
+        return "ds_load_u16_d16";
+    case Op::DsLoadU16D16Hi:
+        return "ds_load_u16_d16_hi";
+    case Op::DsLoadU8:
+        return "ds_load_u8";
+    case Op::DsLoadU8D16:
+        return "ds_load_u8_d16";
+    case Op::DsLoadU8D16Hi:
+        return "ds_load_u8_d16_hi";
+    case Op::DsMaxI32:
+        return "ds_max_i32";
+    case Op::DsMaxI64:
+        return "ds_max_i64";
+    case Op::DsMaxNumF32:
+        return "ds_max_num_f32";
+    case Op::DsMaxNumF64:
+        return "ds_max_num_f64";
+    case Op::DsMaxNumRtnF32:
+        return "ds_max_num_rtn_f32";
+    case Op::DsMaxNumRtnF64:
+        return "ds_max_num_rtn_f64";
+    case Op::DsMaxRtnI32:
+        return "ds_max_rtn_i32";
+    case Op::DsMaxRtnI64:
+        return "ds_max_rtn_i64";
+    case Op::DsMaxRtnU32:
+        return "ds_max_rtn_u32";
+    case Op::DsMaxRtnU64:
+        return "ds_max_rtn_u64";
+    case Op::DsMaxU32:
+        return "ds_max_u32";
+    case Op::DsMaxU64:
+        return "ds_max_u64";
+    case Op::DsMinI32:
+        return "ds_min_i32";
+    case Op::DsMinI64:
+        return "ds_min_i64";
+    case Op::DsMinNumF32:
+        return "ds_min_num_f32";
+    case Op::DsMinNumF64:
+        return "ds_min_num_f64";
+    case Op::DsMinNumRtnF32:
+        return "ds_min_num_rtn_f32";
+    case Op::DsMinNumRtnF64:
+        return "ds_min_num_rtn_f64";
+    case Op::DsMinRtnI32:
+        return "ds_min_rtn_i32";
+    case Op::DsMinRtnI64:
+        return "ds_min_rtn_i64";
+    case Op::DsMinRtnU32:
+        return "ds_min_rtn_u32";
+    case Op::DsMinRtnU64:
+        return "ds_min_rtn_u64";
+    case Op::DsMinU32:
+        return "ds_min_u32";
+    case Op::DsMinU64:
+        return "ds_min_u64";
+    case Op::DsMskorB32:
+        return "ds_mskor_b32";
+    case Op::DsMskorB64:
+        return "ds_mskor_b64";
+    case Op::DsMskorRtnB32:
+        return "ds_mskor_rtn_b32";
+    case Op::DsMskorRtnB64:
+        return "ds_mskor_rtn_b64";
+    case Op::DsNop:
+        return "ds_nop";
+    case Op::DsOrB32:
+        return "ds_or_b32";
+    case Op::DsOrB64:
+        return "ds_or_b64";
+    case Op::DsOrRtnB32:
+        return "ds_or_rtn_b32";
+    case Op::DsOrRtnB64:
+        return "ds_or_rtn_b64";
+    case Op::DsOrderedCount:
+        return "ds_ordered_count";
+    case Op::DsPermuteB32:
+        return "ds_permute_b32";
+    case Op::DsPkAddBf16:
+        return "ds_pk_add_bf16";
+    case Op::DsPkAddF16:
+        return "ds_pk_add_f16";
+    case Op::DsPkAddRtnBf16:
+        return "ds_pk_add_rtn_bf16";
+    case Op::DsPkAddRtnF16:
+        return "ds_pk_add_rtn_f16";
+    case Op::DsRsubRtnU32:
+        return "ds_rsub_rtn_u32";
+    case Op::DsRsubRtnU64:
+        return "ds_rsub_rtn_u64";
+    case Op::DsRsubU32:
+        return "ds_rsub_u32";
+    case Op::DsRsubU64:
+        return "ds_rsub_u64";
+    case Op::DsStore2addrB32:
+        return "ds_store_2addr_b32";
+    case Op::DsStore2addrB64:
+        return "ds_store_2addr_b64";
+    case Op::DsStore2addrStride64B32:
+        return "ds_store_2addr_stride64_b32";
+    case Op::DsStore2addrStride64B64:
+        return "ds_store_2addr_stride64_b64";
+    case Op::DsStoreAddtidB32:
+        return "ds_store_addtid_b32";
+    case Op::DsStoreB128:
+        return "ds_store_b128";
+    case Op::DsStoreB16:
+        return "ds_store_b16";
+    case Op::DsStoreB16D16Hi:
+        return "ds_store_b16_d16_hi";
+    case Op::DsStoreB32:
+        return "ds_store_b32";
+    case Op::DsStoreB64:
+        return "ds_store_b64";
+    case Op::DsStoreB8:
+        return "ds_store_b8";
+    case Op::DsStoreB8D16Hi:
+        return "ds_store_b8_d16_hi";
+    case Op::DsStoreB96:
+        return "ds_store_b96";
+    case Op::DsStorexchg2addrRtnB32:
+        return "ds_storexchg_2addr_rtn_b32";
+    case Op::DsStorexchg2addrRtnB64:
+        return "ds_storexchg_2addr_rtn_b64";
+    case Op::DsStorexchg2addrStride64RtnB32:
+        return "ds_storexchg_2addr_stride64_rtn_b32";
+    case Op::DsStorexchg2addrStride64RtnB64:
+        return "ds_storexchg_2addr_stride64_rtn_b64";
+    case Op::DsStorexchgRtnB32:
+        return "ds_storexchg_rtn_b32";
+    case Op::DsStorexchgRtnB64:
+        return "ds_storexchg_rtn_b64";
+    case Op::DsSubClampRtnU32:
+        return "ds_sub_clamp_rtn_u32";
+    case Op::DsSubClampU32:
+        return "ds_sub_clamp_u32";
+    case Op::DsSubRtnU32:
+        return "ds_sub_rtn_u32";
+    case Op::DsSubRtnU64:
+        return "ds_sub_rtn_u64";
+    case Op::DsSubU32:
+        return "ds_sub_u32";
+    case Op::DsSubU64:
+        return "ds_sub_u64";
+    case Op::DsSwizzleB32:
+        return "ds_swizzle_b32";
+    case Op::DsWrapRtnB32:
+        return "ds_wrap_rtn_b32";
+    case Op::DsXorB32:
+        return "ds_xor_b32";
+    case Op::DsXorB64:
+        return "ds_xor_b64";
+    case Op::DsXorRtnB32:
+        return "ds_xor_rtn_b32";
+    case Op::DsXorRtnB64:
+        return "ds_xor_rtn_b64";
     case Op::S_SextI32I8:
         return "s_sext_i32_i8";
     case Op::S_SextI32I16:
@@ -1976,6 +2534,15 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         baseWords = 2;
         wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
     }
+    else if (((word0 >> 26) & 0x3F) == 0x36)
+    {
+        encoding = Encoding::Ds;
+        if (words.size() < 2)
+            return std::unexpected(Error("SR-GFX-012", "truncated DS instruction", bytePc));
+        baseWords = 2;
+        wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
+        opcode = static_cast<std::uint16_t>((wide >> 18) & 0xFF);
+    }
     else if (((word0 >> 26) & 0x3F) == 0x35)
     {
         encoding = Encoding::Vop3;
@@ -2159,6 +2726,18 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             operand.kind = OperandKind::Sdst;
             operand.value = Extract(wide, 0, 7);
             break;
+        case OperandKind::DsAddr:
+            operand.value = Extract(wide, 32, 8);
+            break;
+        case OperandKind::DsData0:
+            operand.value = Extract(wide, 40, 8);
+            break;
+        case OperandKind::DsData1:
+            operand.value = Extract(wide, 48, 8);
+            break;
+        case OperandKind::DsDest:
+            operand.value = Extract(wide, 56, 8);
+            break;
         case OperandKind::Literal:
         case OperandKind::None:
             break;
@@ -2207,6 +2786,13 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         instruction.negHi = static_cast<std::uint8_t>((word0 >> 8) & 0x7);
         instruction.neg = static_cast<std::uint8_t>((words[1] >> 29) & 0x7);
         instruction.clamp = ((word0 >> 15) & 0x1) != 0;
+    }
+
+    else if (encoding == Encoding::Ds)
+    {
+        instruction.dsOffset0 = static_cast<std::uint32_t>(word0 & 0xFF);
+        instruction.dsOffset1 = static_cast<std::uint32_t>((word0 >> 8) & 0xFF);
+        instruction.dsGds = ((word0 >> 17) & 0x1) != 0;
     }
 
     if (words.size() < baseWords + literalWords)

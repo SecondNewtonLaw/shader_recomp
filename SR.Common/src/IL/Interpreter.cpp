@@ -189,6 +189,7 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
     ExecutionResult result;
     result.values.assign(function.values.size(), 0);
     result.buffer = options.testBuffer;
+    result.local = options.localMemory;
 
     for (std::size_t i = 0; i < function.values.size(); ++i)
     {
@@ -645,6 +646,21 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     const auto offset = static_cast<std::uint32_t>(read(instruction.operands[0]));
                     const auto it = result.buffer.find(offset);
                     values[id] = it == result.buffer.end() ? 0 : it->second;
+                    break;
+                }
+                if (id == IntrinsicId::LocalStore)
+                {
+                    const auto offset = static_cast<std::uint32_t>(read(instruction.operands[0]));
+                    const auto value = static_cast<std::uint32_t>(read(instruction.operands[1]));
+                    result.local[offset] = value;
+                    break;
+                }
+                if (id == IntrinsicId::LocalLoad)
+                {
+                    const ValueId id = resultId();
+                    const auto offset = static_cast<std::uint32_t>(read(instruction.operands[0]));
+                    const auto it = result.local.find(offset);
+                    values[id] = it == result.local.end() ? 0 : it->second;
                     break;
                 }
                 return std::unexpected(ExecutionError("SR-IL-INT-014",

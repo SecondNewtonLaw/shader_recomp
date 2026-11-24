@@ -34,6 +34,7 @@ enum SpvOp : std::uint16_t
     OpTypeInt = 21,
     OpTypeFloat = 22,
     OpTypeRuntimeArray = 29,
+    OpTypeArray = 28,
     OpTypeStruct = 30,
     OpTypePointer = 32,
     OpTypeFunction = 33,
@@ -256,6 +257,7 @@ public:
         m_typeIds.assign(m_module.types.size(), 0);
         m_useGlsl = UsesGlsl(m_module);
         m_useTestBuffer = UsesTestBuffer(m_module);
+        m_useLocal = UsesLocalMemory(m_module);
 
         // Validate the entry point before pre-emitting helper constants, so an
         // empty module reports its missing entry point rather than a missing
@@ -268,11 +270,20 @@ public:
 
         if (m_useTestBuffer)
             m_bufferVar = NewId();
+        if (m_useLocal)
+            m_localVar = NewId();
         EmitHeader();
 
         if (m_useTestBuffer)
         {
             const auto declarations = EmitTestBufferDeclarations();
+            if (!declarations)
+                return std::unexpected(declarations.error());
+        }
+
+        if (m_useLocal)
+        {
+            const auto declarations = EmitLocalDeclarations();
             if (!declarations)
                 return std::unexpected(declarations.error());
         }
@@ -353,6 +364,26 @@ private:
                     if (instruction.op == IL::Op::Intrinsic &&
                         (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::TestBufferStore) ||
                          instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::TestBufferLoad)))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] static bool UsesLocalMemory(const IL::Module& module)
+    {
+        for (const IL::Function& function : module.functions)
+        {
+            for (const IL::Block& block : function.blocks)
+            {
+                for (const IL::Instruction& instruction : block.body)
+                {
+                    if (instruction.op == IL::Op::Intrinsic &&
+                        (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::LocalStore) ||
+                         instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::LocalLoad)))
                     {
                         return true;
                     }
@@ -565,6 +596,8 @@ private:
         operands.push_back(word);
         if (m_useTestBuffer)
             operands.push_back(m_bufferVar);
+        if (m_useLocal)
+            operands.push_back(m_localVar);
         Op(OpEntryPoint, operands);
 
         Op(OpExecutionMode,
@@ -617,6 +650,48 @@ private:
 
         m_bufferPtrU32 = pointerU32;
         m_bufferZero = *zero;
+        return {};
+    }
+
+    [[nodiscard]] Result<void> EmitLocalDeclarations()
+    {
+        const IL::TypeId u32Type = m_module.types.FindInt(32, false);
+        if (u32Type == IL::InvalidType)
+            return std::unexpected(EmitError("SR-SPV-007", "module has no u32 type"));
+
+        std::uint32_t u32 = m_typeIds[u32Type];
+        const bool emitU32 = u32 == 0;
+        if (emitU32)
+        {
+            u32 = NewId();
+            m_typeIds[u32Type] = u32;
+        }
+
+        // Workgroup-scope scratch for LDS: 64 KiB of dwords, addressed by byte
+        // offset / 4. Real shaders use less, and the size stays within the
+        // minimum Vulkan limit for compute.
+        constexpr std::uint32_t dwordCount = 16384;
+
+        const std::uint32_t countId = NewId();
+        const std::uint32_t arrayType = NewId();
+        const std::uint32_t pointerArray = NewId();
+        const std::uint32_t pointerU32 = NewId();
+
+        if (emitU32)
+            Op(OpTypeInt, {u32, 32, 0});
+
+        Op(OpConstant, {u32, countId, dwordCount});
+        Op(OpTypeArray, {arrayType, u32, countId});
+        Op(OpTypePointer, {pointerArray, 4 /* Workgroup */, arrayType});
+        Op(OpTypePointer, {pointerU32, 4 /* Workgroup */, u32});
+        Op(OpVariable, {pointerArray, m_localVar, 4 /* Workgroup */});
+
+        const auto zero = U32Constant(0);
+        if (!zero)
+            return std::unexpected(zero.error());
+
+        m_localPtrU32 = pointerU32;
+        m_localZero = *zero;
         return {};
     }
 
@@ -1602,6 +1677,45 @@ private:
             return {};
         }
 
+        if (instruction.op == IL::Op::Intrinsic &&
+            instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::LocalStore))
+        {
+            const auto offset = ValueId(function, instruction.operands[0]);
+            const auto value = ValueId(function, instruction.operands[1]);
+            if (!offset || !value)
+                return std::unexpected(EmitError("SR-SPV-046", "invalid local store", instruction.sourcePc));
+
+            const std::uint32_t pointer = NewId();
+            Op(OpAccessChain, {m_localPtrU32, pointer, m_localVar, *offset});
+            Op(OpStore, {pointer, *value});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
+            instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::LocalLoad))
+        {
+            if (instruction.results.size() != 1)
+                return std::unexpected(EmitError("SR-SPV-047", "local load must have one result", instruction.sourcePc));
+            const auto offset = ValueId(function, instruction.operands[0]);
+            if (!offset)
+                return std::unexpected(EmitError("SR-SPV-048", "invalid local load offset", instruction.sourcePc));
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+
+            const std::uint32_t pointer = NewId();
+            Op(OpAccessChain, {m_localPtrU32, pointer, m_localVar, *offset});
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+            Op(OpLoad, {*resultType, resultId, pointer});
+            m_valueIds[resultValue] = resultId;
+            if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                Op(OpStore, {m_spillVars[resultValue], resultId});
+            return {};
+        }
+
         if (instruction.op == IL::Op::Store)
         {
             const auto pointer = ValueId(function, instruction.operands[0]);
@@ -2191,8 +2305,12 @@ private:
     std::uint32_t m_glslSet = 0;
     bool m_useGlsl = false;
     bool m_useTestBuffer = false;
+    bool m_useLocal = false;
     std::uint32_t m_bufferVar = 0;
     std::uint32_t m_bufferPtrU32 = 0;
+    std::uint32_t m_localVar = 0;
+    std::uint32_t m_localPtrU32 = 0;
+    std::uint32_t m_localZero = 0;
     std::uint32_t m_bufferZero = 0;
     std::uint32_t m_mainId = 0;
     std::uint32_t m_f32One = 0;

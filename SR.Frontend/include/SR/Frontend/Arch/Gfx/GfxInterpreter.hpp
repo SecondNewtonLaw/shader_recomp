@@ -22,6 +22,8 @@ struct IsaState
     bool exec = true;
     // Test ABI storage buffer: dword index -> value.
     std::unordered_map<std::uint32_t, std::uint32_t> buffer;
+    // Workgroup-scope (LDS) memory: dword index -> value.
+    std::unordered_map<std::uint32_t, std::uint32_t> local;
 };
 
 struct IsaExecutionResult
