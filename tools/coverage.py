@@ -53,7 +53,12 @@ LIFTED = {
     "S_CbranchExecnz", "S_CbranchVccz", "S_CbranchVccnz", "S_Endpgm",
     # 64-bit scalar.
     "S_MovB64", "S_NotB64", "S_AndB64", "S_OrB64", "S_XorB64",
-    "S_CselectB64",
+    "S_CselectB64", "S_SextI32I8", "S_SextI32I16", "S_BrevB64",
+    "S_Bcnt0I32B32", "S_Bcnt0I32B64", "S_Bcnt1I32B64", "S_Ff0I32B32",
+    "S_Ff1I32B64", "S_FlbitI32B64", "S_FlbitI32", "S_FlbitI32I64",
+    "S_Bitset0B32", "S_Bitset0B64", "S_Bitset1B32", "S_Bitset1B64",
+    "S_LshlB64", "S_LshrB64", "S_AshrI64", "S_BfmB64",
+    "S_BfeU64", "S_BfeI64", "S_MulHiI32", "S_MulHiU32",
     # Memory.
     "S_LoadB32", "S_BufferLoadB32", "GlobalLoadB32", "GlobalStoreB32",
     # Vector ALU.

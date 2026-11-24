@@ -98,6 +98,14 @@ std::uint32_t BitReverse(std::uint32_t value) noexcept
     return result;
 }
 
+std::uint64_t BitReverse64(std::uint64_t value) noexcept
+{
+    std::uint64_t result = 0;
+    for (unsigned bit = 0; bit < 64; ++bit)
+        result = (result << 1) | ((value >> bit) & 1u);
+    return result;
+}
+
 std::uint32_t BitMask(std::uint32_t width) noexcept
 {
     if (width >= 32)
@@ -1651,6 +1659,217 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 const auto value = source(1);
                 if (!value || !write(*value & 0xFFFFu))
                     return std::unexpected(Error("SR-GFX-ISA-105", "invalid cvt_u32_u16 operands", pc));
+                break;
+            }
+        case Op::S_SextI32I8:
+            {
+                const auto value = source(1);
+                if (!value || !write(static_cast<std::uint32_t>(static_cast<std::int32_t>(
+                        static_cast<std::int8_t>(*value & 0xFFu)))))
+                    return std::unexpected(Error("SR-GFX-ISA-169", "invalid sext_i32_i8 operands", pc));
+                break;
+            }
+        case Op::S_SextI32I16:
+            {
+                const auto value = source(1);
+                if (!value || !write(static_cast<std::uint32_t>(static_cast<std::int32_t>(
+                        static_cast<std::int16_t>(*value & 0xFFFFu)))))
+                    return std::unexpected(Error("SR-GFX-ISA-170", "invalid sext_i32_i16 operands", pc));
+                break;
+            }
+        case Op::S_BrevB64:
+            {
+                const auto value = ReadPair(result.state, instruction.operands[1]);
+                if (!value || !WritePair(result.state, instruction.operands[0], BitReverse64(*value)))
+                    return std::unexpected(Error("SR-GFX-ISA-171", "invalid brev_b64 operands", pc));
+                break;
+            }
+        case Op::S_Bcnt0I32B32:
+            {
+                const auto value = source(1);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-172", "invalid bcnt0_b32 operand", pc));
+                const std::uint32_t count = 32u - static_cast<std::uint32_t>(std::popcount(*value));
+                result.state.scc = count != 0;
+                if (!write(count))
+                    return std::unexpected(Error("SR-GFX-ISA-173", "invalid bcnt0_b32 destination", pc));
+                break;
+            }
+        case Op::S_Bcnt0I32B64:
+        case Op::S_Bcnt1I32B64:
+            {
+                const auto value = ReadPair(result.state, instruction.operands[1]);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-174", "invalid bcnt_b64 operand", pc));
+                const std::uint32_t ones = static_cast<std::uint32_t>(std::popcount(*value));
+                const std::uint32_t count = instruction.op == Op::S_Bcnt1I32B64 ? ones : 64u - ones;
+                result.state.scc = count != 0;
+                if (!write(count))
+                    return std::unexpected(Error("SR-GFX-ISA-175", "invalid bcnt_b64 destination", pc));
+                break;
+            }
+        case Op::S_Bitset0B32:
+        case Op::S_Bitset1B32:
+            {
+                const auto offset = source(1);
+                if (!offset)
+                    return std::unexpected(Error("SR-GFX-ISA-176", "invalid bitset_b32 operand", pc));
+                const std::uint32_t mask = 1u << (*offset & 31u);
+                const std::uint32_t base = result.state.sgpr[instruction.operands[0].value];
+                const std::uint32_t value = instruction.op == Op::S_Bitset1B32 ? (base | mask)
+                                                                               : (base & ~mask);
+                if (!write(value))
+                    return std::unexpected(Error("SR-GFX-ISA-177", "invalid bitset_b32 destination", pc));
+                break;
+            }
+        case Op::S_Bitset0B64:
+        case Op::S_Bitset1B64:
+            {
+                const auto offset = source(1);
+                const std::uint32_t index = instruction.operands[0].value;
+                if (!offset || index + 1 >= 256)
+                    return std::unexpected(Error("SR-GFX-ISA-178", "invalid bitset_b64 operands", pc));
+                const std::uint64_t base = static_cast<std::uint64_t>(result.state.sgpr[index]) |
+                                           (static_cast<std::uint64_t>(result.state.sgpr[index + 1]) << 32);
+                const std::uint64_t mask = std::uint64_t{1} << (*offset & 63u);
+                const std::uint64_t value = instruction.op == Op::S_Bitset1B64 ? (base | mask)
+                                                                              : (base & ~mask);
+                if (!WritePair(result.state, instruction.operands[0], value))
+                    return std::unexpected(Error("SR-GFX-ISA-179", "invalid bitset_b64 destination", pc));
+                break;
+            }
+        case Op::S_LshlB64:
+        case Op::S_LshrB64:
+        case Op::S_AshrI64:
+            {
+                const auto value = ReadPair(result.state, instruction.operands[1]);
+                const auto count = source(2);
+                if (!value || !count)
+                    return std::unexpected(Error("SR-GFX-ISA-180", "invalid 64-bit shift operands", pc));
+                std::uint64_t shifted = 0;
+                if (instruction.op == Op::S_LshlB64)
+                    shifted = *value << (*count & 63u);
+                else if (instruction.op == Op::S_LshrB64)
+                    shifted = *value >> (*count & 63u);
+                else
+                    shifted = static_cast<std::uint64_t>(static_cast<std::int64_t>(*value) >> (*count & 63u));
+                result.state.scc = shifted != 0;
+                if (!WritePair(result.state, instruction.operands[0], shifted))
+                    return std::unexpected(Error("SR-GFX-ISA-181", "invalid 64-bit shift destination", pc));
+                break;
+            }
+        case Op::S_BfmB64:
+            {
+                const auto offset = source(1);
+                const auto size = source(2);
+                if (!offset || !size)
+                    return std::unexpected(Error("SR-GFX-ISA-182", "invalid bfm_b64 operands", pc));
+                const std::uint64_t mask = *size >= 64 ? ~std::uint64_t{0}
+                                                       : ((std::uint64_t{1} << *size) - 1);
+                if (!WritePair(result.state, instruction.operands[0], mask << (*offset & 63u)))
+                    return std::unexpected(Error("SR-GFX-ISA-183", "invalid bfm_b64 destination", pc));
+                break;
+            }
+        case Op::S_BfeI64:
+        case Op::S_BfeU64:
+            {
+                const auto value = ReadPair(result.state, instruction.operands[1]);
+                const auto control = source(2);
+                if (!value || !control)
+                    return std::unexpected(Error("SR-GFX-ISA-184", "invalid bfe_b64 operands", pc));
+                const std::uint32_t offset = *control & 63u;
+                const std::uint32_t width = (*control >> 16) & 0x7Fu;
+                const std::uint64_t mask = width >= 64 ? ~std::uint64_t{0}
+                                                       : ((std::uint64_t{1} << width) - 1);
+                std::uint64_t extracted = (*value >> offset) & mask;
+                if (instruction.op == Op::S_BfeI64 && width != 0 && width < 64)
+                {
+                    const std::uint32_t amount = 64u - width;
+                    extracted = static_cast<std::uint64_t>(static_cast<std::int64_t>(extracted << amount) >> amount);
+                }
+                result.state.scc = extracted != 0;
+                if (!WritePair(result.state, instruction.operands[0], extracted))
+                    return std::unexpected(Error("SR-GFX-ISA-185", "invalid bfe_b64 destination", pc));
+                break;
+            }
+        case Op::S_MulHiI32:
+        case Op::S_MulHiU32:
+            {
+                const auto left = source(1);
+                const auto right = source(2);
+                if (!left || !right)
+                    return std::unexpected(Error("SR-GFX-ISA-186", "invalid mul_hi operands", pc));
+                std::uint32_t high = 0;
+                if (instruction.op == Op::S_MulHiI32)
+                {
+                    const std::int64_t product = static_cast<std::int64_t>(AsSigned(*left)) *
+                                                 static_cast<std::int64_t>(AsSigned(*right));
+                    high = static_cast<std::uint32_t>(static_cast<std::uint64_t>(product) >> 32);
+                }
+                else
+                {
+                    high = static_cast<std::uint32_t>((static_cast<std::uint64_t>(*left) *
+                                                       static_cast<std::uint64_t>(*right)) >> 32);
+                }
+                if (!write(high))
+                    return std::unexpected(Error("SR-GFX-ISA-187", "invalid mul_hi destination", pc));
+                break;
+            }
+        case Op::S_Ff0I32B32:
+            {
+                const auto value = source(1);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-188", "invalid ff0_b32 operand", pc));
+                const std::uint32_t inverted = ~*value;
+                const std::uint32_t count = inverted == 0 ? 0xFFFFFFFFu
+                                                          : static_cast<std::uint32_t>(std::countr_zero(inverted));
+                if (!write(count))
+                    return std::unexpected(Error("SR-GFX-ISA-189", "invalid ff0_b32 destination", pc));
+                break;
+            }
+        case Op::S_Ff1I32B64:
+        case Op::S_FlbitI32B64:
+            {
+                const auto value = ReadPair(result.state, instruction.operands[1]);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-190", "invalid 64-bit bit scan operand", pc));
+                std::uint32_t count = 0xFFFFFFFFu;
+                if (*value != 0)
+                {
+                    count = instruction.op == Op::S_Ff1I32B64
+                                ? static_cast<std::uint32_t>(std::countr_zero(*value))
+                                : static_cast<std::uint32_t>(std::countl_zero(*value));
+                }
+                if (!write(count))
+                    return std::unexpected(Error("SR-GFX-ISA-191", "invalid 64-bit bit scan destination", pc));
+                break;
+            }
+        case Op::S_FlbitI32:
+            {
+                const auto value = source(1);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-192", "invalid flbit_i32 operand", pc));
+                const std::uint32_t sign = static_cast<std::uint32_t>(AsSigned(*value) >> 31);
+                const std::uint32_t different = *value ^ sign;
+                const std::uint32_t count = different == 0
+                                                ? 0xFFFFFFFFu
+                                                : static_cast<std::uint32_t>(std::countl_zero(different));
+                if (!write(count))
+                    return std::unexpected(Error("SR-GFX-ISA-193", "invalid flbit_i32 destination", pc));
+                break;
+            }
+        case Op::S_FlbitI32I64:
+            {
+                const auto value = ReadPair(result.state, instruction.operands[1]);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-194", "invalid flbit_i32_i64 operand", pc));
+                const std::uint64_t sign = static_cast<std::uint64_t>(static_cast<std::int64_t>(*value) >> 63);
+                const std::uint64_t different = *value ^ sign;
+                const std::uint32_t count = different == 0
+                                                ? 0xFFFFFFFFu
+                                                : static_cast<std::uint32_t>(std::countl_zero(different));
+                if (!write(count))
+                    return std::unexpected(Error("SR-GFX-ISA-195", "invalid flbit_i32_i64 destination", pc));
                 break;
             }
         case Op::V_PkAddI16:
