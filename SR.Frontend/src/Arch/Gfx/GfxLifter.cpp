@@ -559,6 +559,18 @@ private:
         }
     }
 
+    [[nodiscard]] Result<void> WriteSgprIndex(std::uint32_t index, IL::ValueId value, std::uint32_t pc)
+    {
+        if (index > kLastSgpr)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-071",
+                                             "write to special scalar register " + std::to_string(index),
+                                             pc));
+        }
+        m_builder.Store(Slot(m_sgprSlots, index, IL::RegisterClass::Sgpr), value, pc);
+        return {};
+    }
+
     [[nodiscard]] Result<void> WriteVgpr64(const Operand& destination, IL::ValueId value, std::uint32_t pc)
     {
         if (destination.kind != OperandKind::Vgpr)
@@ -3071,6 +3083,132 @@ private:
                                                             instruction.pc,
                                                             scalar);
         return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    // Scalar memory: the base is an SGPR pair whose low word is the byte
+    // address in the test ABI, plus the encoded immediate offset.
+    [[nodiscard]] Result<IL::ValueId> ScalarByteAddress(const DecodedInstruction& instruction)
+    {
+        if (instruction.operandCount < 2)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-069", "scalar load has no base register", instruction.pc));
+        const auto base = ReadBits(instruction.operands[1], instruction.pc);
+        if (!base)
+            return std::unexpected(base.error());
+        if (instruction.operandCount < 3)
+            return *base;
+        const std::uint32_t immediate = instruction.operands[2].value;
+        if (immediate == 0)
+            return *base;
+        return Bin(instruction, IL::BinaryOp::IAdd, *base, m_builder.ConstantU32(immediate));
+    }
+
+    [[nodiscard]] Result<void> LiftScalarMemory(const DecodedInstruction& instruction)
+    {
+        switch (instruction.op)
+        {
+        case Op::S_Gl1Inv:
+        case Op::S_DcacheInv:
+        case Op::S_AtcProbe:
+        case Op::S_AtcProbeBuffer:
+        case Op::S_PrefetchInst:
+        case Op::S_PrefetchInstPcRel:
+        case Op::S_PrefetchData:
+        case Op::S_BufferPrefetchData:
+        case Op::S_PrefetchDataPcRel:
+            // Cache maintenance and prefetch leave the register file unchanged.
+            return {};
+        default:
+            break;
+        }
+
+        std::uint32_t bytes = 0;
+        bool singleByte = false;
+        bool singleHalf = false;
+        bool isSigned = false;
+        switch (instruction.op)
+        {
+        case Op::S_LoadB32:
+        case Op::S_BufferLoadB32:
+            bytes = 4;
+            break;
+        case Op::S_LoadB64:
+        case Op::S_BufferLoadB64:
+            bytes = 8;
+            break;
+        case Op::S_LoadB96:
+        case Op::S_BufferLoadB96:
+            bytes = 12;
+            break;
+        case Op::S_LoadB128:
+        case Op::S_BufferLoadB128:
+            bytes = 16;
+            break;
+        case Op::S_LoadB256:
+        case Op::S_BufferLoadB256:
+            bytes = 32;
+            break;
+        case Op::S_LoadB512:
+        case Op::S_BufferLoadB512:
+            bytes = 64;
+            break;
+        case Op::S_LoadI8:
+        case Op::S_BufferLoadI8:
+            singleByte = true;
+            isSigned = true;
+            break;
+        case Op::S_LoadU8:
+        case Op::S_BufferLoadU8:
+            singleByte = true;
+            break;
+        case Op::S_LoadI16:
+        case Op::S_BufferLoadI16:
+            singleHalf = true;
+            isSigned = true;
+            break;
+        case Op::S_LoadU16:
+        case Op::S_BufferLoadU16:
+            singleHalf = true;
+            break;
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-070",
+                                             std::string("unsupported scalar memory instruction: ") +
+                                                 std::string(ToString(instruction.op)),
+                                             instruction.pc));
+        }
+
+        const auto byteAddress = ScalarByteAddress(instruction);
+        if (!byteAddress)
+            return std::unexpected(byteAddress.error());
+        const auto index = DsIndexFromBytes(instruction, *byteAddress);
+        if (!index)
+            return std::unexpected(index.error());
+
+        const std::uint32_t destination = instruction.operands[0].value;
+
+        if (singleByte || singleHalf)
+        {
+            const std::uint32_t fieldMask = singleByte ? 0xFFu : 0xFFFFu;
+            const IL::ValueId shift = DsLaneShift(instruction, *byteAddress, singleByte ? 3u : 2u);
+            const IL::ValueId field =
+                Bin(instruction, IL::BinaryOp::And,
+                    Bin(instruction, IL::BinaryOp::LShr, BufferDword(instruction, *index), shift),
+                    m_builder.ConstantU32(fieldMask));
+            IL::ValueId value = field;
+            if (isSigned)
+                value = singleByte ? SignExtend8Value(field) : SignExtend16Value(field);
+            return WriteSgprIndex(instruction.operands[0].value, value, instruction.pc);
+        }
+
+        const std::uint32_t count = bytes / 4;
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            const IL::ValueId value = BufferDword(instruction, DsDwordAt(instruction, *index, i));
+            const auto status = WriteSgprIndex(destination + i, value, instruction.pc);
+            if (!status)
+                return status;
+        }
+        return {};
     }
 
     // ---- Flat, global and scratch memory ----
@@ -5839,9 +5977,35 @@ private:
             return {};
         }
         case Op::S_LoadB32:
+        case Op::S_LoadB64:
+        case Op::S_LoadB96:
+        case Op::S_LoadB128:
+        case Op::S_LoadB256:
+        case Op::S_LoadB512:
+        case Op::S_LoadI8:
+        case Op::S_LoadU8:
+        case Op::S_LoadI16:
+        case Op::S_LoadU16:
         case Op::S_BufferLoadB32:
-        case Op::GlobalLoadB32:
-            return LiftBufferLoad(instruction);
+        case Op::S_BufferLoadB64:
+        case Op::S_BufferLoadB96:
+        case Op::S_BufferLoadB128:
+        case Op::S_BufferLoadB256:
+        case Op::S_BufferLoadB512:
+        case Op::S_BufferLoadI8:
+        case Op::S_BufferLoadU8:
+        case Op::S_BufferLoadI16:
+        case Op::S_BufferLoadU16:
+        case Op::S_DcacheInv:
+        case Op::S_Gl1Inv:
+        case Op::S_AtcProbe:
+        case Op::S_AtcProbeBuffer:
+        case Op::S_PrefetchInst:
+        case Op::S_PrefetchInstPcRel:
+        case Op::S_PrefetchData:
+        case Op::S_BufferPrefetchData:
+        case Op::S_PrefetchDataPcRel:
+            return LiftScalarMemory(instruction);
         case Op::S_Branch:
         case Op::S_CbranchScc0:
         case Op::S_CbranchScc1:

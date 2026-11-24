@@ -1333,6 +1333,101 @@ namespace {
 
 } // namespace
 
+[[nodiscard]] Result<void> ExecuteScalarMemory(IsaState& state, const DecodedInstruction& instruction,
+                                                std::uint32_t pc)
+{
+    switch (instruction.op)
+    {
+    case Op::S_DcacheInv:
+    case Op::S_Gl1Inv:
+    case Op::S_AtcProbe:
+    case Op::S_AtcProbeBuffer:
+    case Op::S_PrefetchInst:
+    case Op::S_PrefetchInstPcRel:
+    case Op::S_PrefetchData:
+    case Op::S_BufferPrefetchData:
+    case Op::S_PrefetchDataPcRel:
+        return {};
+    default:
+        break;
+    }
+
+    if (instruction.operandCount < 2)
+        return std::unexpected(Error("SR-GFX-ISA-230", "scalar load has no base register", pc));
+
+    const std::uint32_t base = state.sgpr[instruction.operands[1].value];
+    const std::uint32_t immediate =
+        instruction.operandCount >= 3 ? instruction.operands[2].value : 0u;
+    const std::uint32_t byteAddress = static_cast<std::uint32_t>(base + immediate);
+    const std::uint32_t index = byteAddress >> 2;
+    const std::uint32_t lane = byteAddress & 3u;
+
+    const auto readDword = [&](std::uint32_t at) {
+        const auto it = state.buffer.find(at);
+        return it == state.buffer.end() ? 0u : it->second;
+    };
+
+    const std::uint32_t destination = instruction.operands[0].value;
+
+    const auto singleByte = [&](void) {
+        return instruction.op == Op::S_LoadI8 || instruction.op == Op::S_LoadU8 ||
+               instruction.op == Op::S_BufferLoadI8 || instruction.op == Op::S_BufferLoadU8;
+    };
+    const auto singleHalf = [&](void) {
+        return instruction.op == Op::S_LoadI16 || instruction.op == Op::S_LoadU16 ||
+               instruction.op == Op::S_BufferLoadI16 || instruction.op == Op::S_BufferLoadU16;
+    };
+
+    if (singleByte() || singleHalf())
+    {
+        const std::uint32_t fieldMask = singleByte() ? 0xFFu : 0xFFFFu;
+        const std::uint32_t field = (readDword(index) >> (lane * 8u)) & fieldMask;
+        std::uint32_t value = field;
+        if (instruction.op == Op::S_LoadI8 || instruction.op == Op::S_BufferLoadI8)
+            value = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int8_t>(field)));
+        else if (instruction.op == Op::S_LoadI16 || instruction.op == Op::S_BufferLoadI16)
+            value = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(field)));
+        state.sgpr[destination] = value;
+        return {};
+    }
+
+    std::uint32_t bytes = 0;
+    switch (instruction.op)
+    {
+    case Op::S_LoadB32:
+    case Op::S_BufferLoadB32:
+        bytes = 4;
+        break;
+    case Op::S_LoadB64:
+    case Op::S_BufferLoadB64:
+        bytes = 8;
+        break;
+    case Op::S_LoadB96:
+    case Op::S_BufferLoadB96:
+        bytes = 12;
+        break;
+    case Op::S_LoadB128:
+    case Op::S_BufferLoadB128:
+        bytes = 16;
+        break;
+    case Op::S_LoadB256:
+    case Op::S_BufferLoadB256:
+        bytes = 32;
+        break;
+    case Op::S_LoadB512:
+    case Op::S_BufferLoadB512:
+        bytes = 64;
+        break;
+    default:
+        return std::unexpected(Error("SR-GFX-ISA-231", "unsupported scalar memory instruction", pc));
+    }
+
+    const std::uint32_t count = bytes / 4;
+    for (std::uint32_t i = 0; i < count; ++i)
+        state.sgpr[destination + i] = readDword(index + i);
+    return {};
+}
+
 Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                                   Arch arch,
                                   IsaState state,
@@ -3406,17 +3501,39 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             result.state.buffer[*index] = *value;
             break;
         }
-        case Op::GlobalLoadB32:
         case Op::S_LoadB32:
+        case Op::S_LoadB64:
+        case Op::S_LoadB96:
+        case Op::S_LoadB128:
+        case Op::S_LoadB256:
+        case Op::S_LoadB512:
+        case Op::S_LoadI8:
+        case Op::S_LoadU8:
+        case Op::S_LoadI16:
+        case Op::S_LoadU16:
         case Op::S_BufferLoadB32:
+        case Op::S_BufferLoadB64:
+        case Op::S_BufferLoadB96:
+        case Op::S_BufferLoadB128:
+        case Op::S_BufferLoadB256:
+        case Op::S_BufferLoadB512:
+        case Op::S_BufferLoadI8:
+        case Op::S_BufferLoadU8:
+        case Op::S_BufferLoadI16:
+        case Op::S_BufferLoadU16:
+        case Op::S_DcacheInv:
+        case Op::S_Gl1Inv:
+        case Op::S_AtcProbe:
+        case Op::S_AtcProbeBuffer:
+        case Op::S_PrefetchInst:
+        case Op::S_PrefetchInstPcRel:
+        case Op::S_PrefetchData:
+        case Op::S_BufferPrefetchData:
+        case Op::S_PrefetchDataPcRel:
         {
-            const auto index = BufferIndex(result.state, instruction, 1);
-            if (!index)
-                return std::unexpected(Error("SR-GFX-ISA-072", "invalid load address", pc));
-            const auto it = result.state.buffer.find(*index);
-            const std::uint32_t value = it == result.state.buffer.end() ? 0u : it->second;
-            if (!write(value))
-                return std::unexpected(Error("SR-GFX-ISA-073", "invalid load destination", pc));
+            const auto status = ExecuteScalarMemory(result.state, instruction, pc);
+            if (!status)
+                return std::unexpected(status.error());
             break;
         }
         case Op::Invalid:

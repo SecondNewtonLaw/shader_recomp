@@ -739,6 +739,18 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Ds, 255, Op::DsLoadB128, "ds_read_b128",
          {OperandKind::DsDest, OperandKind::DsAddr, OperandKind::DsData0, OperandKind::DsData1}),
 
+    Make(Encoding::Smem, 1, Op::S_LoadB64, "s_load_dwordx2", {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 2, Op::S_LoadB128, "s_load_dwordx4", {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 3, Op::S_LoadB256, "s_load_dwordx8", {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 4, Op::S_LoadB512, "s_load_dwordx16", {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 9, Op::S_BufferLoadB64, "s_buffer_load_dwordx2", {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 10, Op::S_BufferLoadB128, "s_buffer_load_dwordx4", {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 11, Op::S_BufferLoadB256, "s_buffer_load_dwordx8", {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 12, Op::S_BufferLoadB512, "s_buffer_load_dwordx16", {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 31, Op::S_Gl1Inv, "s_gl1_inv", {OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 32, Op::S_DcacheInv, "s_dcache_inv", {OperandKind::SmemOffset}),
+    Make(Encoding::Smem, 36, Op::S_MemTime, "s_memtime", {OperandKind::SmemSdst}),
+    Make(Encoding::Smem, 37, Op::S_MemRealtime, "s_memrealtime", {OperandKind::SmemSdst}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -1659,6 +1671,58 @@ constexpr std::array kGfx12 = {
     Make(Encoding::Buffer, 143, Op::TbufferStoreD16FormatXyzw, "tbuffer_store_d16_format_xyzw",
          {OperandKind::BufferVaddr, OperandKind::BufferVsrc, OperandKind::BufferSoffset, OperandKind::BufferIoffset}),
 
+    Make(Encoding::Smem, 1, Op::S_LoadB64, "s_load_b64",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 2, Op::S_LoadB128, "s_load_b128",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 3, Op::S_LoadB256, "s_load_b256",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 4, Op::S_LoadB512, "s_load_b512",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 5, Op::S_LoadB96, "s_load_b96",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 8, Op::S_LoadI8, "s_load_i8",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 9, Op::S_LoadU8, "s_load_u8",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 10, Op::S_LoadI16, "s_load_i16",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 11, Op::S_LoadU16, "s_load_u16",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 17, Op::S_BufferLoadB64, "s_buffer_load_b64",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 18, Op::S_BufferLoadB128, "s_buffer_load_b128",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 19, Op::S_BufferLoadB256, "s_buffer_load_b256",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 20, Op::S_BufferLoadB512, "s_buffer_load_b512",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 21, Op::S_BufferLoadB96, "s_buffer_load_b96",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 24, Op::S_BufferLoadI8, "s_buffer_load_i8",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 25, Op::S_BufferLoadU8, "s_buffer_load_u8",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 26, Op::S_BufferLoadI16, "s_buffer_load_i16",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 27, Op::S_BufferLoadU16, "s_buffer_load_u16",
+         {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 33, Op::S_DcacheInv, "s_dcache_inv",
+         {OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 34, Op::S_AtcProbe, "s_atc_probe",
+         {OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 35, Op::S_AtcProbeBuffer, "s_atc_probe_buffer",
+         {OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 36, Op::S_PrefetchInst, "s_prefetch_inst",
+         {OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 37, Op::S_PrefetchInstPcRel, "s_prefetch_inst_pc_rel",
+         {OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 38, Op::S_PrefetchData, "s_prefetch_data",
+         {OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 39, Op::S_BufferPrefetchData, "s_buffer_prefetch_data",
+         {OperandKind::SmemOffset24}),
+    Make(Encoding::Smem, 40, Op::S_PrefetchDataPcRel, "s_prefetch_data_pc_rel",
+         {OperandKind::SmemOffset24}),
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -3309,6 +3373,64 @@ std::string_view ToString(Op op) noexcept
         return "v_alignbyte_b32";
     case Op::S_LoadB32:
         return "s_load_b32";
+    case Op::S_LoadB64:
+        return "s_load_b64";
+    case Op::S_LoadB96:
+        return "s_load_b96";
+    case Op::S_LoadB128:
+        return "s_load_b128";
+    case Op::S_LoadB256:
+        return "s_load_b256";
+    case Op::S_LoadB512:
+        return "s_load_b512";
+    case Op::S_LoadI8:
+        return "s_load_i8";
+    case Op::S_LoadU8:
+        return "s_load_u8";
+    case Op::S_LoadI16:
+        return "s_load_i16";
+    case Op::S_LoadU16:
+        return "s_load_u16";
+    case Op::S_BufferLoadB64:
+        return "s_buffer_load_b64";
+    case Op::S_BufferLoadB96:
+        return "s_buffer_load_b96";
+    case Op::S_BufferLoadB128:
+        return "s_buffer_load_b128";
+    case Op::S_BufferLoadB256:
+        return "s_buffer_load_b256";
+    case Op::S_BufferLoadB512:
+        return "s_buffer_load_b512";
+    case Op::S_BufferLoadI8:
+        return "s_buffer_load_i8";
+    case Op::S_BufferLoadU8:
+        return "s_buffer_load_u8";
+    case Op::S_BufferLoadI16:
+        return "s_buffer_load_i16";
+    case Op::S_BufferLoadU16:
+        return "s_buffer_load_u16";
+    case Op::S_DcacheInv:
+        return "s_dcache_inv";
+    case Op::S_Gl1Inv:
+        return "s_gl1_inv";
+    case Op::S_AtcProbe:
+        return "s_atc_probe";
+    case Op::S_AtcProbeBuffer:
+        return "s_atc_probe_buffer";
+    case Op::S_PrefetchInst:
+        return "s_prefetch_inst";
+    case Op::S_PrefetchInstPcRel:
+        return "s_prefetch_inst_pc_rel";
+    case Op::S_PrefetchData:
+        return "s_prefetch_data";
+    case Op::S_BufferPrefetchData:
+        return "s_buffer_prefetch_data";
+    case Op::S_PrefetchDataPcRel:
+        return "s_prefetch_data_pc_rel";
+    case Op::S_MemTime:
+        return "s_memtime";
+    case Op::S_MemRealtime:
+        return "s_memrealtime";
     case Op::S_BufferLoadB32:
         return "s_buffer_load_b32";
     }
