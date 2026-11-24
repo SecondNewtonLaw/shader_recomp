@@ -35,6 +35,10 @@ struct LiftOptions
     IL::InputTopology geometryInputTopology = IL::InputTopology::Triangles;
     IL::OutputTopology geometryOutputTopology = IL::OutputTopology::TriangleStrip;
     std::uint32_t geometryOutputVertices = 3;
+    // A geometry shader that stages its vertices in local memory names one
+    // four-component register per vertex; the count sizes the staging area and
+    // the slot stride, so it is required for that path.
+    std::uint32_t geometryOutputRegisters = 0;
 };
 
 // Lifts a code object into COMMON_SHADER. Control flow and effects are

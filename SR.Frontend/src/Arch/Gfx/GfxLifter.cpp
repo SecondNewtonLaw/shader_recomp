@@ -278,6 +278,18 @@ private:
         return slot;
     }
 
+    // Which staged vertex the next message publishes.
+    [[nodiscard]] IL::ValueId GeometryEmittedSlot()
+    {
+        if (m_geometryEmitted == IL::InvalidValue)
+        {
+            const IL::TypeId pointer = m_module.types.Pointer(IL::Space::Private, m_module.types.U32());
+            m_geometryEmitted = m_builder.Alloca(pointer, m_entry);
+            m_builder.Store(m_geometryEmitted, m_builder.ConstantU32(0), 0);
+        }
+        return m_geometryEmitted;
+    }
+
     [[nodiscard]] IL::ValueId SccSlot()
     {
         if (m_sccSlot == IL::InvalidValue)
@@ -4620,18 +4632,181 @@ private:
         return {};
     }
 
+    // Publishes the staged vertex `emitted`: copy each staged register to the
+    // output variables, emit, and move to the next slot.
+    [[nodiscard]] Result<void> EmitStagedGeometryVertex(const DecodedInstruction& instruction,
+                                                        bool endPrimitive)
+    {
+        const std::uint32_t registers = m_options.geometryOutputRegisters;
+        if (registers == 0)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-065",
+                          "a staged geometry emit needs the output register count (--gs-output-registers)",
+                          instruction.pc));
+
+        const IL::TypeId f32 = m_module.types.F32();
+        const IL::TypeId vec4 = m_module.types.Vector(f32, 4);
+        const IL::ValueId emitted = m_builder.Load(m_module.types.U32(), GeometryEmittedSlot(), instruction.pc);
+
+        for (std::uint32_t reg = 0; reg < registers; ++reg)
+        {
+            const IL::Builtin builtin = reg == 0 ? IL::Builtin::Position : IL::Builtin::None;
+            const std::uint32_t location = reg == 0 ? 0 : reg - 1;
+            (void)EnsureSignature(IL::Space::Output, builtin, location, vec4);
+
+            for (std::uint32_t component = 0; component < 4; ++component)
+            {
+                const IL::ValueId index = StagedIndex(instruction, emitted, reg, component, registers);
+                const IL::ValueId value =
+                    m_builder.IntrinsicValue(f32,
+                                             IL::IntrinsicId::GeometryStageLoad,
+                                             {index},
+                                             IL::NoPayload,
+                                             instruction.pc,
+                                             false);
+                const IL::PayloadId payload = StageIoPayload(IL::Space::Output,
+                                                             builtin,
+                                                             location,
+                                                             component,
+                                                             IL::Interpolation::None);
+                m_builder.EmitVoid(IL::Op::Intrinsic,
+                                   static_cast<std::uint16_t>(IL::IntrinsicId::StageOutput),
+                                   {value},
+                                   {},
+                                   payload,
+                                   instruction.pc,
+                                   static_cast<std::uint16_t>(instruction.op));
+            }
+        }
+
+        m_primitiveOpen = true;
+        m_builder.EmitVoid(IL::Op::Intrinsic,
+                           static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex),
+                           {},
+                           {},
+                           IL::NoPayload,
+                           instruction.pc,
+                           static_cast<std::uint16_t>(instruction.op));
+        if (endPrimitive)
+        {
+            const auto primitive = EndPrimitive(instruction.pc, static_cast<std::uint16_t>(instruction.op));
+            if (!primitive)
+                return std::unexpected(primitive.error());
+        }
+
+        m_builder.Store(GeometryEmittedSlot(),
+                        Bin(instruction, IL::BinaryOp::IAdd, emitted, m_builder.ConstantU32(1)),
+                        instruction.pc);
+        return {};
+    }
+
+    // One staged component: emitted slot * one vertex + register * 4 + component.
+    [[nodiscard]] IL::ValueId StagedIndex(const DecodedInstruction& instruction,
+                                          IL::ValueId emitted,
+                                          std::uint32_t reg,
+                                          std::uint32_t component,
+                                          std::uint32_t registers)
+    {
+        const IL::ValueId base = Bin(instruction,
+                                     IL::BinaryOp::IMul,
+                                     emitted,
+                                     m_builder.ConstantU32(4 * registers));
+        return Bin(instruction,
+                   IL::BinaryOp::IAdd,
+                   base,
+                   m_builder.ConstantU32(reg * 4 + component));
+    }
+
+    // A staged store names its dword with the immediate offset; the slot is
+    // the dword divided by one vertex, so the address register is not part of
+    // the staging index.
+    [[nodiscard]] Result<void> StoreStagedGeometryDword(const DecodedInstruction& instruction,
+                                                        std::uint32_t byteOffset,
+                                                        IL::ValueId value)
+    {
+        const std::uint32_t registers = m_options.geometryOutputRegisters;
+        if (registers == 0)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-065",
+                          "a staged geometry store needs the output register count (--gs-output-registers)",
+                          instruction.pc));
+        if (byteOffset % 4 != 0)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-062", "geometry LDS store is not dword aligned", instruction.pc));
+
+        const std::uint32_t dword = byteOffset / 4;
+        const std::uint32_t slot = dword / (4 * registers);
+        if (slot >= m_options.geometryOutputVertices)
+            return std::unexpected(LiftError("SR-GFX-LIFT-066",
+                                             "geometry staged vertex " + std::to_string(slot) +
+                                                 " is outside the vertex budget",
+                                             instruction.pc));
+
+        // The staging area holds f32 components, so the dword's bits become a
+        // float and the emit reads them back the same way.
+        const IL::ValueId component =
+            m_builder.Emit(m_module.types.F32(),
+                           IL::Op::Bitcast,
+                           {},
+                           {value},
+                           {},
+                           IL::NoPayload,
+                           instruction.pc,
+                           static_cast<std::uint16_t>(instruction.op));
+        const IL::ValueId index = m_builder.ConstantU32(dword);
+        m_builder.IntrinsicVoid(IL::IntrinsicId::GeometryStageStore,
+                                {index, component},
+                                IL::NoPayload,
+                                instruction.pc);
+        return {};
+    }
+
     [[nodiscard]] Result<void> LiftGeometryDs(const DecodedInstruction& instruction)
     {
         switch (instruction.op)
         {
         case Op::DsStoreB32:
+        {
+            const auto value = DsData(instruction, OperandKind::DsData0, false);
+            if (!value)
+                return std::unexpected(value.error());
+            return StoreStagedGeometryDword(instruction, instruction.dsOffset0, *value);
+        }
         case Op::DsStoreB64:
+        {
+            const auto value = DsData(instruction, OperandKind::DsData0, true);
+            if (!value)
+                return std::unexpected(value.error());
+            const IL::ValueId low =
+                m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, *value, false);
+            const IL::ValueId high64 =
+                Bin(instruction, IL::BinaryOp::LShr, *value, m_builder.ConstantU64(32), m_module.types.U64());
+            const IL::ValueId high =
+                m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, high64, false);
+            const auto first = StoreStagedGeometryDword(instruction, instruction.dsOffset0, low);
+            if (!first)
+                return first;
+            return StoreStagedGeometryDword(instruction, instruction.dsOffset0 + 4, high);
+        }
         case Op::DsStore2addrB32:
+        {
+            const auto first = DsData(instruction, OperandKind::DsData0, false);
+            if (!first)
+                return std::unexpected(first.error());
+            const auto second = DsData(instruction, OperandKind::DsData1, false);
+            if (!second)
+                return std::unexpected(second.error());
+            const auto status = StoreStagedGeometryDword(instruction, instruction.dsOffset0, *first);
+            if (!status)
+                return status;
+            return StoreStagedGeometryDword(instruction, instruction.dsOffset1, *second);
+        }
         case Op::DsStore2addrB64:
         case Op::DsStore2addrStride64B32:
         case Op::DsStore2addrStride64B64:
-            return std::unexpected(LiftError("SR-GFX-LIFT-060",
-                                             "geometry LDS stores stage NGG output, which is not modeled yet",
+            return std::unexpected(LiftError("SR-GFX-LIFT-061",
+                                             "unsupported geometry LDS store " +
+                                                 std::string(ToString(instruction.op)),
                                              instruction.pc));
         case Op::DsLoadB32:
         case Op::DsLoadB64:
@@ -6113,11 +6288,13 @@ private:
                 if (stream != 0)
                     return std::unexpected(
                         LiftError("SR-GFX-LIFT-063", "geometry streams are not modeled", instruction.pc));
-                if (gsOp != 0)
-                    return std::unexpected(LiftError("SR-GFX-LIFT-060",
-                                                     "s_sendmsg GS_OP_EMIT stages vertices in LDS, which is "
-                                                     "not modeled yet",
-                                                     instruction.pc));
+                if (gsOp == 2 || gsOp == 3) // GS_OP_EMIT, GS_OP_EMIT_CUT
+                    return EmitStagedGeometryVertex(instruction, gsOp == 3);
+                if (gsOp == 1) // GS_OP_CUT
+                {
+                    m_primitiveOpen = true;
+                    return EndPrimitive(instruction.pc, static_cast<std::uint16_t>(instruction.op));
+                }
                 return {};
             }
 
@@ -9590,6 +9767,11 @@ private:
         case Op::S_WaitStorecntDscnt:
         case Op::S_CodeEnd:
         case Op::S_EndpgmSaved:
+        case Op::S_Sendmsg:
+        case Op::S_Sendmsghalt:
+        case Op::S_Sethalt:
+        case Op::S_Setkill:
+        case Op::S_Sleep:
             return LiftScalarControl(instruction);
         case Op::V_CmpClassF16:
             return LiftClassCompare(instruction, CompareValueKind::F16, false);
@@ -9952,6 +10134,8 @@ private:
 
     // A geometry vertex has been written and is waiting for its emit.
     bool m_pendingVertex = false;
+    // The staged slot the next geometry message publishes.
+    IL::ValueId m_geometryEmitted = IL::InvalidValue;
     // Emitted vertices that the current strip has not closed yet.
     bool m_primitiveOpen = false;
 
@@ -10018,6 +10202,7 @@ Result<IL::Module> Lift(const DecodedShader& shader, Arch arch, std::string_view
     module.executionModes.inputTopology = options.geometryInputTopology;
     module.executionModes.outputTopology = options.geometryOutputTopology;
     module.executionModes.outputVertices = options.geometryOutputVertices;
+    module.executionModes.outputRegisters = options.geometryOutputRegisters;
     module.testAbi = options.testAbi;
 
     IL::Function& function = IL::CreateFunction(module, std::string(entryPoint), module.types.Void());

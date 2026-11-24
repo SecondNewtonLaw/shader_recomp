@@ -63,6 +63,7 @@ foreach ($case in $cases) {
         "imagestore" = @("--test-abi", "--user-data-push", "8")
         "tbuffer"    = @("--test-abi", "--user-data-push", "4")
         "image"      = @("--test-abi", "--user-data-push", "12")
+        "geometry_staged" = @("--gs-output-registers", "2")
     }
 
     # Fixtures whose translation is expected to be refused today: they are
@@ -74,7 +75,7 @@ foreach ($case in $cases) {
         $stage = "compute"
         if ($name -eq "triangle" -or $name -eq "empty") { $stage = "vertex" }
         if ($name -eq "solid") { $stage = "fragment" }
-        if ($name -eq "geometry" -or $name -eq "geometry_read") { $stage = "geometry" }
+        if ($name -eq "geometry" -or $name -eq "geometry_read" -or $name -eq "geometry_staged") { $stage = "geometry" }
 
         $jobs += [pscustomobject]@{
             Target = "$($case.Directory)/$name"
@@ -202,6 +203,22 @@ if ((Test-Path $geometryRead) -and (Test-Path $vertex) -and (Test-Path $fragment
     $centre = $drawOutput | Select-String -Pattern "centre rgba: (.*)"
     $results += [pscustomobject]@{
         Target = "gfx1030/triangle+geometry_read+solid"
+        Stage = "vs+gs+ps"
+        Spirv = "yes"
+        DriverIsa = "via draw"
+        Note = if ($rendered) { "$($rendered.Matches[0].Value); $($centre.Matches[0].Value)" } else { "draw failed" }
+    }
+}
+
+# The staged geometry fixture publishes its vertices by message, so it draws
+# with a vertex stage that emits nothing.
+$geometryStaged = Join-Path $work "gfx1030-geometry_staged.spv"
+if ((Test-Path $geometryStaged) -and (Test-Path $emptyVertex) -and (Test-Path $fragment) -and (Test-Path $draw)) {
+    $drawOutput = & $draw $emptyVertex $fragment --gs $geometryStaged 2>&1
+    $rendered = $drawOutput | Select-String -Pattern "pixels written: (\d+)"
+    $centre = $drawOutput | Select-String -Pattern "centre rgba: (.*)"
+    $results += [pscustomobject]@{
+        Target = "gfx1030/empty+geometry_staged+solid"
         Stage = "vs+gs+ps"
         Spirv = "yes"
         DriverIsa = "via draw"

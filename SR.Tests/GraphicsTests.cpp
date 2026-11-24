@@ -349,6 +349,89 @@ TEST_CASE("geometry stage reads the input vertices", "[gfx][graphics][geometry]"
 #endif
 }
 
+TEST_CASE("geometry stage publishes staged vertices by message", "[gfx][graphics][geometry]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("geometry_staged.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("geometry fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Geometry;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.geometryOutputVertices = 3;
+    options.geometryOutputRegisters = 2;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(module->executionModes.outputRegisters == 2);
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    // Two four-component registers per vertex: position and location 0.
+    REQUIRE(module->outputs.size() == 2);
+
+    const auto execution = SR::IL::Interpret(*module);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+
+    // The fixture stages a full-screen triangle and emits three vertices; the
+    // last message also ends the strip.
+    REQUIRE(execution->vertices.size() == 3);
+    const std::array<std::array<std::uint32_t, 2>, 3> positions = {
+        std::array<std::uint32_t, 2>{FloatBits(-1.0f), FloatBits(-1.0f)},
+        std::array<std::uint32_t, 2>{FloatBits(3.0f), FloatBits(-1.0f)},
+        std::array<std::uint32_t, 2>{FloatBits(-1.0f), FloatBits(3.0f)},
+    };
+
+    for (std::uint32_t vertex = 0; vertex < 3; ++vertex)
+    {
+        INFO("vertex " << vertex);
+        const auto& emitted = execution->vertices[vertex];
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::Position, 0, 0)) == positions[vertex][0]);
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::Position, 0, 1)) == positions[vertex][1]);
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::Position, 0, 3)) == FloatBits(1.0f));
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::None, 0, 0)) == FloatBits(1.0f));
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::None, 0, 1)) == 0u);
+    }
+
+    const auto emission = SR::Backend::Reemit(*module);
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+
+    std::size_t emitted = 0;
+    std::size_t primitives = 0;
+    std::size_t arrays = 0;
+    for (std::size_t index = 5; index < emission->words.size();)
+    {
+        const std::uint32_t word = emission->words[index];
+        const std::uint16_t opcode = static_cast<std::uint16_t>(word & 0xFFFFu);
+        if (opcode == 218)
+            ++emitted;
+        else if (opcode == 219)
+            ++primitives;
+        else if (opcode == 28)
+            ++arrays;
+        index += word >> 16;
+    }
+    REQUIRE(emitted == 3);
+    REQUIRE(primitives == 1);
+    // The staging is a Function array; the outputs themselves stay plain.
+    REQUIRE(arrays == 1);
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

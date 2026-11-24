@@ -32,7 +32,8 @@ void PrintUsage()
               << "Stages: compute (default for code objects), vertex, fragment, geometry.\n"
               << "Options: --test-abi, --wave64, --user-data <d0,d1,...>, --user-data-push <count>, --interpret,\n"
               << "         --gs-input <points|lines|lines-adj|triangles|triangles-adj>,\n"
-              << "         --gs-output <points|line-strip|triangle-strip>, --gs-vertices <n>.\n";
+              << "         --gs-output <points|line-strip|triangle-strip>, --gs-vertices <n>,\n"
+              << "         --gs-output-registers <n>.\n";
 }
 
 std::vector<std::uint8_t> ReadFile(const std::string& path, bool& ok)
@@ -88,6 +89,7 @@ int main(int argc, char** argv)
     SR::IL::InputTopology geometryInput = SR::IL::InputTopology::Triangles;
     SR::IL::OutputTopology geometryOutput = SR::IL::OutputTopology::TriangleStrip;
     std::uint32_t geometryVertices = 3;
+    std::uint32_t geometryRegisters = 0;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -188,6 +190,12 @@ int main(int argc, char** argv)
         if (argument == "--gs-vertices" && i + 1 < argc)
         {
             geometryVertices = static_cast<std::uint32_t>(std::stoul(argv[++i]));
+            continue;
+        }
+
+        if (argument == "--gs-output-registers" && i + 1 < argc)
+        {
+            geometryRegisters = static_cast<std::uint32_t>(std::stoul(argv[++i]));
             continue;
         }
 
@@ -306,6 +314,7 @@ int main(int argc, char** argv)
     liftOptions.geometryInputTopology = geometryInput;
     liftOptions.geometryOutputTopology = geometryOutput;
     liftOptions.geometryOutputVertices = geometryVertices;
+    liftOptions.geometryOutputRegisters = geometryRegisters;
     auto module = SR::Frontend::Gfx::Lift(*shader, arch->arch, "main", liftOptions);
     if (!module)
     {
