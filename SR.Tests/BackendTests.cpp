@@ -175,3 +175,40 @@ TEST_CASE("Backend maps every geometry topology to a valid execution mode", "[ba
         }
     }
 }
+
+TEST_CASE("Backend refuses a geometry input it cannot shape", "[backend][geometry]")
+{
+    // A geometry input is an array indexed by the input vertex; emitting a
+    // plain input variable would quietly change the interface, so the gap is a
+    // diagnostic until the array form is built.
+    IL::Module module;
+    module.stage = IL::Stage::Geometry;
+    module.entryPoint = "main";
+    module.architecture = "gfx1030";
+
+    (void)module.types.U32();
+    (void)module.types.Bool();
+    (void)module.types.I32();
+
+    IL::SignatureDecl input;
+    input.space = IL::Space::Input;
+    input.location = 0;
+    input.type = module.types.Vector(module.types.F32(), 4);
+    module.inputs.push_back(input);
+
+    IL::Function& function = IL::CreateFunction(module, "main", module.types.Void());
+    function.isEntry = true;
+    module.entryFunction = function.id;
+
+    IL::FunctionBuilder builder(module, function);
+    const IL::BlockId entry = builder.CreateBlock("entry");
+    builder.SetEntry(entry);
+    builder.SetCurrentBlock(entry);
+    IL::Terminator terminator;
+    terminator.kind = IL::TerminatorKind::Ret;
+    builder.Terminate(builder.CurrentBlock(), terminator);
+
+    const auto emission = Backend::Reemit(module);
+    REQUIRE_FALSE(emission.has_value());
+    REQUIRE(emission.error().code == "SR-SPV-094");
+}

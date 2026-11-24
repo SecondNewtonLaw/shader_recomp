@@ -3578,6 +3578,12 @@ Result<Emission> Reemit(const IL::Module& module, const TargetProfile& profile)
 {
     (void)profile;
 
+    // A geometry input is an array indexed by the input vertex. The emitter
+    // does not build that interface yet, so a plain input variable would be
+    // silently wrong; name the gap instead.
+    if (module.stage == IL::Stage::Geometry && !module.inputs.empty())
+        return std::unexpected(EmitError("SR-SPV-094", "geometry input variables are not modeled"));
+
     // Prefer structured control flow for reducible functions; if the result
     // does not validate, retry with the dispatcher, which handles any CFG.
     {
