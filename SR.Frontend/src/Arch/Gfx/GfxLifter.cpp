@@ -3789,15 +3789,62 @@ private:
             return std::unexpected(
                 LiftError("SR-GFX-LIFT-080", "buffer instruction has too few operands", instruction.pc));
 
-        const bool isStore = instruction.op == Op::BufferStoreB8 || instruction.op == Op::BufferStoreB16 ||
-                             instruction.op == Op::BufferStoreB32 || instruction.op == Op::BufferStoreB64 ||
-                             instruction.op == Op::BufferStoreB96 || instruction.op == Op::BufferStoreB128 ||
-                             instruction.op == Op::BufferStoreFormatX || instruction.op == Op::BufferStoreFormatXy ||
-                             instruction.op == Op::BufferStoreFormatXyz ||
-                             instruction.op == Op::BufferStoreFormatXyzw;
-
-        if (instruction.op != Op::BufferLoadB32 && instruction.op != Op::BufferStoreB32)
+        // Which access shape the opcode names: a run of dwords, or one narrow
+        // element read out of a dword.
+        struct Shape
         {
+            std::uint32_t dwords = 0;
+            std::uint32_t elementBytes = 0; // 1 or 2 for a narrow load
+            bool sign = false;
+            bool store = false;
+        };
+
+        Shape shape;
+        switch (instruction.op)
+        {
+        case Op::BufferLoadB32:
+            shape.dwords = 1;
+            break;
+        case Op::BufferLoadB64:
+            shape.dwords = 2;
+            break;
+        case Op::BufferLoadB96:
+            shape.dwords = 3;
+            break;
+        case Op::BufferLoadB128:
+            shape.dwords = 4;
+            break;
+        case Op::BufferLoadU8:
+            shape.elementBytes = 1;
+            break;
+        case Op::BufferLoadI8:
+            shape.elementBytes = 1;
+            shape.sign = true;
+            break;
+        case Op::BufferLoadU16:
+            shape.elementBytes = 2;
+            break;
+        case Op::BufferLoadI16:
+            shape.elementBytes = 2;
+            shape.sign = true;
+            break;
+        case Op::BufferStoreB32:
+            shape.dwords = 1;
+            shape.store = true;
+            break;
+        case Op::BufferStoreB64:
+            shape.dwords = 2;
+            shape.store = true;
+            break;
+        case Op::BufferStoreB96:
+            shape.dwords = 3;
+            shape.store = true;
+            break;
+        case Op::BufferStoreB128:
+            shape.dwords = 4;
+            shape.store = true;
+            break;
+        default:
             return std::unexpected(LiftError("SR-GFX-LIFT-081",
                                              std::string("buffer access is not modeled yet: ") +
                                                  std::string(ToString(instruction.op)),
@@ -3889,21 +3936,102 @@ private:
                              static_cast<std::uint16_t>(instruction.op),
                              false);
 
-        if (isStore)
+        if (shape.store)
         {
-            const auto value = ReadBits(instruction.operands[0], instruction.pc);
-            if (!value)
-                return std::unexpected(value.error());
+            const auto first = ReadBits(instruction.operands[0], instruction.pc);
+            if (!first)
+                return std::unexpected(first.error());
+
             const IL::ValueId guard = CurrentGuard(instruction.pc);
-            m_builder.IntrinsicVoid(IL::IntrinsicId::DeviceStore, {sum, *value}, IL::NoPayload, instruction.pc);
+            for (std::uint32_t dword = 0; dword < shape.dwords; ++dword)
+            {
+                IL::ValueId value = *first;
+                if (dword != 0)
+                {
+                    Operand next = instruction.operands[0];
+                    next.value += dword;
+                    const auto component = ReadBits(next, instruction.pc);
+                    if (!component)
+                        return std::unexpected(component.error());
+                    value = *component;
+                }
+                const IL::ValueId address =
+                    dword == 0 ? sum
+                               : Bin(instruction, IL::BinaryOp::IAdd, sum, m_builder.ConstantU64(4 * dword),
+                                     m_module.types.U64());
+                m_builder.IntrinsicVoid(IL::IntrinsicId::DeviceStore, {address, value}, IL::NoPayload,
+                                        instruction.pc);
+            }
             ApplyGuard(instruction.pc, guard);
             return {};
         }
 
-        const IL::ValueId result =
-            m_builder.IntrinsicValue(m_module.types.U32(), IL::IntrinsicId::DeviceLoad, {sum}, IL::NoPayload,
-                                     instruction.pc, false);
-        return WriteDest(instruction.operands[0], result, instruction.pc);
+        if (shape.elementBytes != 0)
+        {
+            // A narrow element lives inside one dword: load the aligned dword,
+            // shift the element into place and extend it.
+            const std::uint32_t alignMask = shape.elementBytes == 1 ? 3u : 3u;
+            const IL::ValueId aligned = Bin(instruction,
+                                            IL::BinaryOp::And,
+                                            sum,
+                                            m_builder.ConstantU64(~static_cast<std::uint64_t>(alignMask)),
+                                            m_module.types.U64());
+            const IL::ValueId dword = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                               IL::IntrinsicId::DeviceLoad,
+                                                               {aligned},
+                                                               IL::NoPayload,
+                                                               instruction.pc,
+                                                               false);
+            const IL::ValueId offset = Bin(instruction,
+                                           IL::BinaryOp::And,
+                                           sum,
+                                           m_builder.ConstantU64(alignMask),
+                                           m_module.types.U64());
+            const IL::ValueId offset32 =
+                m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, offset, false);
+            const IL::ValueId shift =
+                Bin(instruction, IL::BinaryOp::Shl, offset32, m_builder.ConstantU32(3));
+            IL::ValueId value = Bin(instruction, IL::BinaryOp::LShr, dword, shift);
+            if (shape.elementBytes == 1)
+            {
+                value = Bin(instruction, IL::BinaryOp::And, value, m_builder.ConstantU32(0xFFu));
+                if (shape.sign)
+                    value = Bin(instruction, IL::BinaryOp::Shl, value, m_builder.ConstantU32(24));
+            }
+            else
+            {
+                value = Bin(instruction, IL::BinaryOp::And, value, m_builder.ConstantU32(0xFFFFu));
+                if (shape.sign)
+                    value = Bin(instruction, IL::BinaryOp::Shl, value, m_builder.ConstantU32(16));
+            }
+            // The element was shifted into the top of the dword above, so the
+            // arithmetic shift that sign-extends it moves it back down.
+            if (shape.sign)
+                value = Bin(instruction,
+                            IL::BinaryOp::AShr,
+                            value,
+                            m_builder.ConstantU32((4 - shape.elementBytes) * 8));
+            return WriteDest(instruction.operands[0], value, instruction.pc);
+        }
+
+        for (std::uint32_t dword = 0; dword < shape.dwords; ++dword)
+        {
+            const IL::ValueId address =
+                dword == 0 ? sum
+                           : Bin(instruction, IL::BinaryOp::IAdd, sum, m_builder.ConstantU64(4 * dword),
+                                 m_module.types.U64());
+            const IL::ValueId result = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                                IL::IntrinsicId::DeviceLoad,
+                                                                {address},
+                                                                IL::NoPayload,
+                                                                instruction.pc,
+                                                                false);
+            Operand destination = instruction.operands[0];
+            destination.value += dword;
+            if (const auto written = WriteDest(destination, result, instruction.pc); !written)
+                return written;
+        }
+        return {};
     }
 
     [[nodiscard]] Result<void> LiftBufferLoad(const DecodedInstruction& instruction)

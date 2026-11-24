@@ -586,6 +586,64 @@ TEST_CASE("image queries, gather and atomics lift and execute", "[gfx][graphics]
 #endif
 }
 
+TEST_CASE("buffer loads move runs of dwords and narrow elements", "[gfx][buffers]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("bufferwide.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("buffer fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData.assign(4, 0u);
+    options.userDataFromPush = true;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    std::string liftError;
+    if (!module)
+        liftError = SR::ToString(module.error());
+    INFO(liftError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    std::string executionError;
+    if (!execution)
+        executionError = SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    // The fixture seeds dword 0 with 0x0000FF81 and dwords 1..3 with a pattern,
+    // then copies the wide load, the narrow loads and the dwordx2 round trip
+    // into dwords 4..13.
+    REQUIRE(execution->buffer.at(4) == 0x0000FF81u);
+    REQUIRE(execution->buffer.at(5) == 0x11111111u);
+    REQUIRE(execution->buffer.at(6) == 0x22222222u);
+    REQUIRE(execution->buffer.at(7) == 0x33333333u);
+    REQUIRE(execution->buffer.at(8) == 0x81u);        // ubyte
+    REQUIRE(execution->buffer.at(9) == 0xFFFFFF81u);  // sbyte
+    REQUIRE(execution->buffer.at(10) == 0x0000FF81u); // ushort
+    REQUIRE(execution->buffer.at(11) == 0xFFFFFF81u); // sshort
+    REQUIRE(execution->buffer.at(12) == 0x0000FF81u); // dwordx2 round trip
+    REQUIRE(execution->buffer.at(13) == 0x11111111u);
+
+    const auto emission = SR::Backend::Reemit(*module);
+    std::string emissionError;
+    if (!emission)
+        emissionError = SR::ToString(emission.error());
+    INFO(emissionError);
+    REQUIRE(emission.has_value());
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)
