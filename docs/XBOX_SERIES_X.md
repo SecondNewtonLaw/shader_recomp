@@ -164,7 +164,7 @@ optimisation, not the contract.
 |---|---|---|
 | Container | PC DXBC (`SHDR`/`SHEX`), DXIL bitcode, SPIR-V, cubin, HSACO, Series X|S XDAT/XBCH/FSSM (`XboxShaderContainer`) | DXBC signature parts, root layout and used-resource tables |
 | ISA decode | gfx10 base table; gfx1013 and gfx103 inherit it with **no delta**; RDNA3/4 have their own tables | real RDNA2 delta, and the four encodings the decoder does not know: `VINTRP` (3 opcodes), `EXP`, `MIMG` (103), `MTBUF` (16) |
-| ISA lift | ALU, compare, conversion, branch, scalar, buffer/global/flat/scratch memory, `v_interp_p1/p2/mov`, `exp`, wave ballots, 92.7% of gfx1200 entries | image ops (`MIMG`), typed buffers (`MTBUF`), descriptor-driven loads |
+| ISA lift | ALU, compare, conversion, branch, scalar, buffer/global/flat/scratch memory, `v_interp_p1/p2/mov`, `exp`, wave ballots, image load/store/sample through T#/S#, typed buffers for raw 32-bit formats | converting typed-buffer formats, merged geometry stages, matrices |
 | Stages | `GLCompute`, `Vertex` and `Fragment` with IO variables, interpolation decorations and exports; multi-block functions still use the dispatcher fallback when the CFG is not reducible | geometry and NGG mesh |
 | Waves | thread ids as `LocalInvocationId`, compare masks as `OpGroupNonUniformBallot` (wave32 or wave64 masks), `v_readfirstlane` as `OpGroupNonUniformBroadcastFirst`, one-lane interpreter model | per-lane EXEC predication of stores, `v_readlane`/`v_writelane`, `ds_swizzle`, quad ops |
 | Resources | one test buffer at set 0 binding 0 (`--test-abi`) | T#/V#/S# decode, SRT/heap access, push constants |
@@ -202,9 +202,13 @@ Each phase ends with something executable, not with a table entry.
    `popcount(ballot(tid < 1000))`, which is 64 on the RX 9060 XT in wave64 mode
    and 1 in the one-lane interpreter, from the same module. Predicating stores
    on EXEC and `v_readlane`/`v_writelane`/`ds_swizzle` remain.
-5. **Resources (designed, open).** See section 5a. `MIMG` and `MTBUF` are the
-   remaining encodings the decoder refuses; both need the descriptor model, not
-   more opcode entries.
+5. **Resources (landed for the common cases).** User data as constants or a
+   host-filled push block; V# and T#/S# resolved to buffer device addresses and
+   image/sampler bindings; `image_load`, `image_store` and `image_sample`
+   verified on the device, and typed buffers for the raw 32-bit formats.
+   Converting formats (the data/number format table) and the tiled-surface
+   decode remain; they are a format system, not an opcode gap. See section 5a
+   for the plan taken from AnyPS5.
 6. **Merged stages (open).** ES/GS pairs and NGG mesh; the lifter refuses them
    with a diagnostic instead of lifting them as standalone stages.
 7. **Sweep (done for the corpus).** `tests/sweep.ps1` translates every
