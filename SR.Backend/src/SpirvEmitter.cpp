@@ -118,6 +118,7 @@ enum SpvOp : std::uint16_t
     OpLoopMerge = 246,
     OpSelectionMerge = 247,
     OpLabel = 248,
+    OpGroupNonUniformBroadcastFirst = 338,
     OpGroupNonUniformBallot = 339,
     OpBranch = 249,
     OpBranchConditional = 250,
@@ -369,6 +370,16 @@ public:
 
 
 
+        m_waveScope = 0;
+        if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveBallot) ||
+            UsesIntrinsic(m_module, IL::IntrinsicId::WaveBroadcastFirst))
+        {
+            const auto scope = U32Constant(3);
+            if (!scope)
+                return std::unexpected(scope.error());
+            m_waveScope = *scope;
+        }
+
         if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveBallot))
         {
             const IL::TypeId u32Type = m_module.types.FindInt(32, false);
@@ -382,12 +393,6 @@ public:
             Op(OpTypeVector, {m_ballotVecType, *u32, 4});
             m_ballotPairType = NewId();
             Op(OpTypeVector, {m_ballotPairType, *u32, 2});
-
-            // The scope operand is an id: Subgroup (3) as a u32 constant.
-            const auto scope = U32Constant(3);
-            if (!scope)
-                return std::unexpected(scope.error());
-            m_ballotScope = *scope;
         }
 
         {
@@ -931,10 +936,11 @@ private:
             Op(OpCapability, {22}); // Int16
         if (UsesFloat64(m_module))
             Op(OpCapability, {10}); // Float64
-        if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveBallot))
+        if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveBallot) ||
+            UsesIntrinsic(m_module, IL::IntrinsicId::WaveBroadcastFirst))
         {
             Op(OpCapability, {61}); // GroupNonUniform
-            Op(OpCapability, {64}); // GroupNonUniformBallot
+            Op(OpCapability, {64}); // GroupNonUniformBallot (BroadcastFirst needs it too)
         }
         if (m_useGlsl)
         {
@@ -2116,6 +2122,31 @@ private:
         }
 
         if (instruction.op == IL::Op::Intrinsic &&
+            instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::WaveBroadcastFirst))
+        {
+            if (instruction.results.size() != 1 || instruction.operands.size() != 1)
+                return std::unexpected(
+                    EmitError("SR-SPV-068", "broadcast-first takes one value and one result", instruction.sourcePc));
+
+            const auto value = ValueId(function, instruction.operands[0]);
+            if (!value)
+                return std::unexpected(EmitError("SR-SPV-069", "invalid broadcast operand", instruction.sourcePc));
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+            Op(OpGroupNonUniformBroadcastFirst, {*resultType, resultId, m_waveScope, *value});
+            m_valueIds[resultValue] = resultId;
+            if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                Op(OpStore, {m_spillVars[resultValue], resultId});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::WaveBallot))
         {
             if (instruction.results.size() != 1 || instruction.operands.size() != 1)
@@ -2136,7 +2167,7 @@ private:
                 return std::unexpected(u32.error());
 
             const std::uint32_t ballot = NewId();
-            Op(OpGroupNonUniformBallot, {m_ballotVecType, ballot, m_ballotScope, *predicate});
+            Op(OpGroupNonUniformBallot, {m_ballotVecType, ballot, m_waveScope, *predicate});
 
             const std::uint32_t resultId =
                 (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
@@ -2904,7 +2935,7 @@ private:
     std::vector<SpecialVariable> m_special;
     std::uint32_t m_ballotVecType = 0;
     std::uint32_t m_ballotPairType = 0;
-    std::uint32_t m_ballotScope = 0;
+    std::uint32_t m_waveScope = 0;
 
     bool m_structured = false;
     IL::FunctionAnalysis m_analysis;

@@ -85,6 +85,7 @@ Start with `docs/ARCHITECTURE.md` and `docs/IL_ARCHITECTURE.md`; they are the no
 | `tests/corpus/gfx<generation>/` | Real `llvm-mc` fixtures per generation; use the directory matching the detected GPU |
 | `tests/corpus/build_gfx.ps1` | Rebuild the gfx fixtures |
 | `tests/roundtrip.ps1` | ISA -> IL -> SPIR-V -> driver ISA structural check |
+| `tests/sweep.ps1` | Parallel translate-all, driver-probe and draw sweep with a pass/fail table |
 | `tests/isa_compare.ps1` | Numbered instruction-stream comparison and category counts |
 | `tools/coverage.py` | Coverage graph generator from the AMD XML and the tables |
 | `COMMIT_PLAN.md` | Draft commit stack, waiting for the commit guidelines |

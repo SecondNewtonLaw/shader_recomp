@@ -716,6 +716,14 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     break;
                 }
 
+                if (id == IntrinsicId::WaveBroadcastFirst)
+                {
+                    // One invocation is a one-lane wave: the value is its own.
+                    const ValueId slot = resultId();
+                    values[slot] = read(instruction.operands[0]);
+                    break;
+                }
+
                 if (id == IntrinsicId::WaveBallot)
                 {
                     // One invocation is a one-lane wave: the mask holds bit 0.

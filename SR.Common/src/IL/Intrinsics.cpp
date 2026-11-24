@@ -17,7 +17,7 @@ constexpr IntrinsicSpec Make(IntrinsicId id,
     return IntrinsicSpec{id, name, minOperands, maxOperands, minResults, maxResults, effects, uniform};
 }
 
-constexpr std::array<IntrinsicSpec, 48> kSpecs = {
+constexpr std::array<IntrinsicSpec, 49> kSpecs = {
     Make(IntrinsicId::None, "none", 0, 0, 0, 0, Effect::None),
     Make(IntrinsicId::WaveBallot, "wave.ballot", 1, 1, 1, 1, Effect::Wave),
     Make(IntrinsicId::WaveVote, "wave.vote", 1, 1, 1, 1, Effect::Wave, true),
@@ -27,6 +27,7 @@ constexpr std::array<IntrinsicSpec, 48> kSpecs = {
     Make(IntrinsicId::WaveReduce, "wave.reduce", 1, 1, 1, 1, Effect::Wave, true),
     Make(IntrinsicId::WavePrefix, "wave.prefix", 1, 1, 1, 1, Effect::Wave, true),
     Make(IntrinsicId::WaveLeader, "wave.leader", 0, 0, 1, 1, Effect::Wave, true),
+    Make(IntrinsicId::WaveBroadcastFirst, "wave.broadcast-first", 1, 1, 1, 1, Effect::Wave, true),
     Make(IntrinsicId::WaveActiveMask, "wave.active-mask", 0, 0, 1, 1, Effect::Wave, true),
     Make(IntrinsicId::MaskBit, "mask.bit", 1, 1, 1, 1, Effect::None),
     Make(IntrinsicId::WaveLaneId, "wave.lane-id", 0, 0, 1, 1, Effect::None),

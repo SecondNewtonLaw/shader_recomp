@@ -100,6 +100,16 @@ public:
             seed(IL::Builtin::InstanceIndex, 3);
         }
 
+        // User data arrives in the first scalar registers, in root order. A
+        // fixture or the container's root layout supplies it as constants until
+        // the descriptor model can read it from memory.
+        for (std::size_t index = 0; index < m_options.userData.size() && index <= kLastSgpr; ++index)
+        {
+            m_builder.Store(Slot(m_sgprSlots, static_cast<std::uint32_t>(index), IL::RegisterClass::Sgpr),
+                            m_builder.ConstantU32(m_options.userData[index]),
+                            0);
+        }
+
         // A compute program reads its thread id from the builtin; the workgroup
         // ids and the user data follow in the scalar registers, which the
         // descriptor model will supply.
@@ -8249,10 +8259,20 @@ private:
             return {};
         case Op::V_ReadfirstlaneB32:
         {
+            // Broadcast the first active lane's value to the whole wave.
             const auto value = ReadBits(instruction.operands[1], instruction.pc);
             if (!value)
                 return std::unexpected(value.error());
-            return WriteDest(instruction.operands[0], *value, instruction.pc);
+            const IL::ValueId broadcast = m_builder.Emit(m_module.types.U32(),
+                                                         IL::Op::Intrinsic,
+                                                         static_cast<std::uint16_t>(IL::IntrinsicId::WaveBroadcastFirst),
+                                                         {*value},
+                                                         {},
+                                                         IL::NoPayload,
+                                                         instruction.pc,
+                                                         static_cast<std::uint16_t>(instruction.op),
+                                                         true);
+            return WriteDest(instruction.operands[0], broadcast, instruction.pc);
         }
         case Op::V_CvtNearestI32F32:
             return LiftConvertRound(instruction, IL::UnaryOp::RoundEven);

@@ -29,7 +29,7 @@ void PrintUsage()
               << "Architectures: gfx10, gfx1013, gfx1030, gfx1100, gfx1150, gfx1200\n"
               << "An Xbox Series X|S container defaults to gfx1030.\n"
               << "Stages: compute (default for code objects), vertex, fragment.\n"
-              << "Options: --test-abi, --wave64.\n";
+              << "Options: --test-abi, --wave64, --user-data <d0,d1,...>, --interpret.\n";
 }
 
 std::vector<std::uint8_t> ReadFile(const std::string& path, bool& ok)
@@ -79,6 +79,7 @@ int main(int argc, char** argv)
     bool testAbi = false;
     bool wave64 = false;
     bool interpret = false;
+    std::vector<std::uint32_t> userData;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -135,6 +136,19 @@ int main(int argc, char** argv)
         if (argument == "--stage" && i + 1 < argc)
         {
             stageName = argv[++i];
+            continue;
+        }
+
+        if (argument == "--user-data" && i + 1 < argc)
+        {
+            std::string_view text = argv[++i];
+            while (!text.empty())
+            {
+                const std::size_t comma = text.find(',');
+                const std::string_view field = text.substr(0, comma);
+                userData.push_back(static_cast<std::uint32_t>(std::stoul(std::string(field), nullptr, 0)));
+                text = comma == std::string_view::npos ? std::string_view() : text.substr(comma + 1);
+            }
             continue;
         }
 
@@ -225,6 +239,7 @@ int main(int argc, char** argv)
     SR::Frontend::Gfx::LiftOptions liftOptions;
     liftOptions.testAbi = testAbi;
     liftOptions.wave64 = wave64;
+    liftOptions.userData = userData;
     auto module = SR::Frontend::Gfx::Lift(*shader, arch->arch, "main", liftOptions);
     if (!module)
     {

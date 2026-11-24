@@ -21,6 +21,7 @@ enum class IntrinsicId : std::uint16_t
     WaveReduce,
     WavePrefix,
     WaveLeader,
+    WaveBroadcastFirst,
     WaveActiveMask,
     MaskBit,
     WaveLaneId,
