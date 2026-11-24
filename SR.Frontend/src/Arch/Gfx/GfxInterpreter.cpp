@@ -1653,6 +1653,98 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                     return std::unexpected(Error("SR-GFX-ISA-105", "invalid cvt_u32_u16 operands", pc));
                 break;
             }
+        case Op::V_PkAddI16:
+        case Op::V_PkSubI16:
+        case Op::V_PkMulLoU16:
+        case Op::V_PkMadI16:
+        case Op::V_PkMinI16:
+        case Op::V_PkMaxI16:
+        case Op::V_PkAddU16:
+        case Op::V_PkSubU16:
+        case Op::V_PkMadU16:
+        case Op::V_PkMinU16:
+        case Op::V_PkMaxU16:
+        case Op::V_PkLshlrevB16:
+        case Op::V_PkLshrrevB16:
+        case Op::V_PkAshrrevI16:
+        case Op::V_PkAddF16:
+        case Op::V_PkMulF16:
+        case Op::V_PkFmaF16:
+        case Op::V_PkMinF16:
+        case Op::V_PkMaxF16:
+            {
+                const auto first = source(1);
+                const auto second = source(2);
+                if (!first || !second)
+                    return std::unexpected(Error("SR-GFX-ISA-166", "invalid packed operands", pc));
+                const bool ternary = instruction.op == Op::V_PkMadI16 ||
+                                     instruction.op == Op::V_PkMadU16 ||
+                                     instruction.op == Op::V_PkFmaF16;
+                std::uint32_t third = 0;
+                if (ternary)
+                {
+                    const auto value = source(3);
+                    if (!value)
+                        return std::unexpected(Error("SR-GFX-ISA-167", "invalid packed third operand", pc));
+                    third = *value;
+                }
+                const auto compute = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c) -> std::uint32_t {
+                    switch (instruction.op)
+                    {
+                    case Op::V_PkAddI16:
+                    case Op::V_PkAddU16:
+                        return (a + b) & 0xFFFFu;
+                    case Op::V_PkSubI16:
+                    case Op::V_PkSubU16:
+                        return (a - b) & 0xFFFFu;
+                    case Op::V_PkMulLoU16:
+                        return (a * b) & 0xFFFFu;
+                    case Op::V_PkMadI16:
+                    case Op::V_PkMadU16:
+                        return (a * b + c) & 0xFFFFu;
+                    case Op::V_PkMinI16:
+                        return static_cast<std::uint32_t>(std::min(static_cast<std::int16_t>(a),
+                                                                   static_cast<std::int16_t>(b)));
+                    case Op::V_PkMaxI16:
+                        return static_cast<std::uint32_t>(std::max(static_cast<std::int16_t>(a),
+                                                                   static_cast<std::int16_t>(b)));
+                    case Op::V_PkMinU16:
+                        return std::min(a & 0xFFFFu, b & 0xFFFFu);
+                    case Op::V_PkMaxU16:
+                        return std::max(a & 0xFFFFu, b & 0xFFFFu);
+                    case Op::V_PkLshlrevB16:
+                        return (b << (a & 15u)) & 0xFFFFu;
+                    case Op::V_PkLshrrevB16:
+                        return (b & 0xFFFFu) >> (a & 15u);
+                    case Op::V_PkAshrrevI16:
+                        return static_cast<std::uint32_t>(static_cast<std::int16_t>(b)) >>
+                               (a & 15u);
+                    case Op::V_PkAddF16:
+                        return FloatToHalf(HalfToFloat(static_cast<std::uint16_t>(a)) +
+                                           HalfToFloat(static_cast<std::uint16_t>(b)));
+                    case Op::V_PkMulF16:
+                        return FloatToHalf(HalfToFloat(static_cast<std::uint16_t>(a)) *
+                                           HalfToFloat(static_cast<std::uint16_t>(b)));
+                    case Op::V_PkFmaF16:
+                        return FloatToHalf(std::fma(HalfToFloat(static_cast<std::uint16_t>(a)),
+                                                    HalfToFloat(static_cast<std::uint16_t>(b)),
+                                                    HalfToFloat(static_cast<std::uint16_t>(c))));
+                    case Op::V_PkMinF16:
+                        return FloatToHalf(std::fmin(HalfToFloat(static_cast<std::uint16_t>(a)),
+                                                     HalfToFloat(static_cast<std::uint16_t>(b))));
+                    case Op::V_PkMaxF16:
+                        return FloatToHalf(std::fmax(HalfToFloat(static_cast<std::uint16_t>(a)),
+                                                     HalfToFloat(static_cast<std::uint16_t>(b))));
+                    default:
+                        return 0;
+                    }
+                };
+                const std::uint32_t low = compute(*first & 0xFFFFu, *second & 0xFFFFu, third & 0xFFFFu);
+                const std::uint32_t high = compute(*first >> 16, *second >> 16, third >> 16);
+                if (!write((high << 16) | (low & 0xFFFFu)))
+                    return std::unexpected(Error("SR-GFX-ISA-168", "invalid packed destination", pc));
+                break;
+            }
         case Op::V_CvtF64I32:
             {
                 const auto value = source(1);

@@ -2194,6 +2194,224 @@ private:
         return WriteF64(instruction.operands[0], result, instruction.pc);
     }
 
+    enum class PackedKind
+    {
+        AddI16,
+        SubI16,
+        MulLoU16,
+        MadI16,
+        MinI16,
+        MaxI16,
+        AddU16,
+        SubU16,
+        MadU16,
+        MinU16,
+        MaxU16,
+        LshlrevB16,
+        LshrrevB16,
+        AshrrevI16,
+        AddF16,
+        MulF16,
+        FmaF16,
+        MinF16,
+        MaxF16,
+    };
+
+    [[nodiscard]] IL::ValueId PackLanes(IL::ValueId low, IL::ValueId high)
+    {
+        const IL::ValueId highShifted = m_builder.Emit(m_module.types.U32(),
+                                                       IL::Op::Binary,
+                                                       static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                                       {high, m_builder.ConstantU32(16)},
+                                                       {},
+                                                       IL::NoPayload,
+                                                       0,
+                                                       0,
+                                                       false);
+        return m_builder.Emit(m_module.types.U32(),
+                              IL::Op::Binary,
+                              static_cast<std::uint16_t>(IL::BinaryOp::Or),
+                              {highShifted, low},
+                              {},
+                              IL::NoPayload,
+                              0,
+                              0,
+                              false);
+    }
+
+    [[nodiscard]] IL::ValueId F16Lane(IL::ValueId bits)
+    {
+        const IL::ValueId low = m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, bits, false);
+        return Bitcast(F16Type(), low);
+    }
+
+    [[nodiscard]] IL::ValueId F16LaneBits(IL::ValueId value)
+    {
+        return m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                      Bitcast(U16Type(), value), false);
+    }
+
+    [[nodiscard]] Result<void> LiftPacked(const DecodedInstruction& instruction, PackedKind kind)
+    {
+        if (instruction.neg != 0 || instruction.negHi != 0 || instruction.clamp)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-056",
+                                             "packed negate/clamp modifiers are not implemented yet",
+                                             instruction.pc));
+        }
+
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+
+        const bool ternary = kind == PackedKind::MadI16 || kind == PackedKind::MadU16 ||
+                             kind == PackedKind::FmaF16;
+        IL::ValueId third = IL::InvalidValue;
+        if (ternary)
+        {
+            const auto value = ReadBits(instruction.operands[3], instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+            third = *value;
+        }
+
+        const auto lane = [&](IL::ValueId value, std::uint32_t shift) {
+            if (shift == 0)
+                return m_builder.Emit(m_module.types.U32(),
+                                      IL::Op::Binary,
+                                      static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                      {value, m_builder.ConstantU32(0xFFFF)},
+                                      {},
+                                      IL::NoPayload,
+                                      instruction.pc,
+                                      static_cast<std::uint16_t>(instruction.op),
+                                      false);
+            return m_builder.Emit(m_module.types.U32(),
+                                  IL::Op::Binary,
+                                  static_cast<std::uint16_t>(IL::BinaryOp::LShr),
+                                  {value, m_builder.ConstantU32(shift)},
+                                  {},
+                                  IL::NoPayload,
+                                  instruction.pc,
+                                  static_cast<std::uint16_t>(instruction.op),
+                                  false);
+        };
+
+        const auto compute = [&](IL::ValueId a, IL::ValueId b, IL::ValueId c) -> IL::ValueId {
+            const auto mask = [&](IL::ValueId value) {
+                return m_builder.Emit(m_module.types.U32(),
+                                      IL::Op::Binary,
+                                      static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                      {value, m_builder.ConstantU32(0xFFFF)},
+                                      {},
+                                      IL::NoPayload,
+                                      instruction.pc,
+                                      static_cast<std::uint16_t>(instruction.op),
+                                      false);
+            };
+            const auto binary = [&](IL::BinaryOp subop, IL::ValueId left, IL::ValueId right) {
+                return mask(m_builder.Emit(m_module.types.U32(),
+                                           IL::Op::Binary,
+                                           static_cast<std::uint16_t>(subop),
+                                           {left, right},
+                                           {},
+                                           IL::NoPayload,
+                                           instruction.pc,
+                                           static_cast<std::uint16_t>(instruction.op),
+                                           false));
+            };
+
+            switch (kind)
+            {
+            case PackedKind::AddI16:
+            case PackedKind::AddU16:
+                return binary(IL::BinaryOp::IAdd, a, b);
+            case PackedKind::SubI16:
+            case PackedKind::SubU16:
+                return binary(IL::BinaryOp::ISub, a, b);
+            case PackedKind::MulLoU16:
+                return binary(IL::BinaryOp::IMul, a, b);
+            case PackedKind::MadI16:
+            case PackedKind::MadU16:
+            {
+                const IL::ValueId product = binary(IL::BinaryOp::IMul, a, b);
+                return binary(IL::BinaryOp::IAdd, product, c);
+            }
+            case PackedKind::MinI16:
+                return mask(SelectMin(SignExtend16Value(a), SignExtend16Value(b), true));
+            case PackedKind::MaxI16:
+                return mask(SelectMax(SignExtend16Value(a), SignExtend16Value(b), true));
+            case PackedKind::MinU16:
+                return mask(SelectMin(mask(a), mask(b), false));
+            case PackedKind::MaxU16:
+                return mask(SelectMax(mask(a), mask(b), false));
+            case PackedKind::LshlrevB16:
+                return binary(IL::BinaryOp::Shl, b, MaskShiftCount(a, 15, false));
+            case PackedKind::LshrrevB16:
+                return binary(IL::BinaryOp::LShr, b, MaskShiftCount(a, 15, false));
+            case PackedKind::AshrrevI16:
+            {
+                const IL::ValueId shifted = m_builder.Emit(m_module.types.I32(),
+                                                           IL::Op::Binary,
+                                                           static_cast<std::uint16_t>(IL::BinaryOp::AShr),
+                                                           {Bitcast(m_module.types.I32(), SignExtend16Value(b)),
+                                                            MaskShiftCount(a, 15, false)},
+                                                           {},
+                                                           IL::NoPayload,
+                                                           instruction.pc,
+                                                           static_cast<std::uint16_t>(instruction.op),
+                                                           false);
+                return mask(Bitcast(m_module.types.U32(), shifted));
+            }
+            case PackedKind::AddF16:
+            case PackedKind::MulF16:
+            case PackedKind::MinF16:
+            case PackedKind::MaxF16:
+            {
+                IL::BinaryOp subop = IL::BinaryOp::FAdd;
+                if (kind == PackedKind::MulF16)
+                    subop = IL::BinaryOp::FMul;
+                else if (kind == PackedKind::MinF16)
+                    subop = IL::BinaryOp::FMin;
+                else if (kind == PackedKind::MaxF16)
+                    subop = IL::BinaryOp::FMax;
+                const IL::ValueId result = m_builder.Emit(F16Type(),
+                                                          IL::Op::Binary,
+                                                          static_cast<std::uint16_t>(subop),
+                                                          {F16Lane(a), F16Lane(b)},
+                                                          {},
+                                                          IL::NoPayload,
+                                                          instruction.pc,
+                                                          static_cast<std::uint16_t>(instruction.op),
+                                                          false);
+                return F16LaneBits(result);
+            }
+            case PackedKind::FmaF16:
+            {
+                const IL::ValueId result = m_builder.Emit(F16Type(),
+                                                          IL::Op::Ternary,
+                                                          static_cast<std::uint16_t>(IL::TernaryOp::Fma),
+                                                          {F16Lane(a), F16Lane(b), F16Lane(c)},
+                                                          {},
+                                                          IL::NoPayload,
+                                                          instruction.pc,
+                                                          static_cast<std::uint16_t>(instruction.op),
+                                                          false);
+                return F16LaneBits(result);
+            }
+            }
+            return IL::InvalidValue;
+        };
+
+        const IL::ValueId low = compute(lane(*first, 0), lane(*second, 0), ternary ? lane(third, 0) : 0);
+        const IL::ValueId high =
+            compute(lane(*first, 16), lane(*second, 16), ternary ? lane(third, 16) : 0);
+        return WriteDest(instruction.operands[0], PackLanes(low, high), instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftUnaryFloat(const DecodedInstruction& instruction, IL::UnaryOp subop)
     {
         const auto source = ReadFloatSource(instruction, 1);
@@ -3631,6 +3849,44 @@ private:
             return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::UEq, VectorPredicate::False);
         case Op::V_CmpTrueU64:
             return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::UEq, VectorPredicate::True);
+        case Op::V_PkAddI16:
+            return LiftPacked(instruction, PackedKind::AddI16);
+        case Op::V_PkSubI16:
+            return LiftPacked(instruction, PackedKind::SubI16);
+        case Op::V_PkMulLoU16:
+            return LiftPacked(instruction, PackedKind::MulLoU16);
+        case Op::V_PkMadI16:
+            return LiftPacked(instruction, PackedKind::MadI16);
+        case Op::V_PkMinI16:
+            return LiftPacked(instruction, PackedKind::MinI16);
+        case Op::V_PkMaxI16:
+            return LiftPacked(instruction, PackedKind::MaxI16);
+        case Op::V_PkAddU16:
+            return LiftPacked(instruction, PackedKind::AddU16);
+        case Op::V_PkSubU16:
+            return LiftPacked(instruction, PackedKind::SubU16);
+        case Op::V_PkMadU16:
+            return LiftPacked(instruction, PackedKind::MadU16);
+        case Op::V_PkMinU16:
+            return LiftPacked(instruction, PackedKind::MinU16);
+        case Op::V_PkMaxU16:
+            return LiftPacked(instruction, PackedKind::MaxU16);
+        case Op::V_PkLshlrevB16:
+            return LiftPacked(instruction, PackedKind::LshlrevB16);
+        case Op::V_PkLshrrevB16:
+            return LiftPacked(instruction, PackedKind::LshrrevB16);
+        case Op::V_PkAshrrevI16:
+            return LiftPacked(instruction, PackedKind::AshrrevI16);
+        case Op::V_PkAddF16:
+            return LiftPacked(instruction, PackedKind::AddF16);
+        case Op::V_PkMulF16:
+            return LiftPacked(instruction, PackedKind::MulF16);
+        case Op::V_PkFmaF16:
+            return LiftPacked(instruction, PackedKind::FmaF16);
+        case Op::V_PkMinF16:
+            return LiftPacked(instruction, PackedKind::MinF16);
+        case Op::V_PkMaxF16:
+            return LiftPacked(instruction, PackedKind::MaxF16);
         case Op::V_BfeU32:
             return LiftBitFieldExtract(instruction, false, false);        case Op::V_BfeI32:
             return LiftBitFieldExtract(instruction, true, false);

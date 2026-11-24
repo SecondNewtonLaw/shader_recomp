@@ -107,6 +107,8 @@ LIFTED = {
     "V_CvtF64U32", "V_TruncF64", "V_CeilF64", "V_RndneF64", "V_FloorF64",
     "V_RcpF64", "V_RsqF64", "V_SqrtF64", "V_FractF64", "V_AddF64", "V_MulF64",
     "V_MinF64", "V_MaxF64", "V_FmaF64", "V_LdexpF64",
+    # VOP3P packed.
+    "V_PkMadI16", "V_PkMulLoU16", "V_PkAddI16", "V_PkSubI16", "V_PkLshlrevB16", "V_PkLshrrevB16", "V_PkAshrrevI16", "V_PkMaxI16", "V_PkMinI16", "V_PkMadU16", "V_PkAddU16", "V_PkSubU16", "V_PkMaxU16", "V_PkMinU16", "V_PkFmaF16", "V_PkAddF16", "V_PkMulF16", "V_PkMinF16", "V_PkMaxF16",
     # Wide compares.
     "V_CmpEqF16", "V_CmpEqF64", "V_CmpEqI16", "V_CmpEqI64", "V_CmpEqU16", "V_CmpEqU64", "V_CmpFalseF16", "V_CmpFalseF64", "V_CmpFalseI64", "V_CmpFalseU64", "V_CmpGeF16", "V_CmpGeF64", "V_CmpGeI16", "V_CmpGeI64", "V_CmpGeU16", "V_CmpGeU64", "V_CmpGtF16", "V_CmpGtF64", "V_CmpGtI16", "V_CmpGtI64", "V_CmpGtU16", "V_CmpGtU64", "V_CmpLeF16", "V_CmpLeF64", "V_CmpLeI16", "V_CmpLeI64", "V_CmpLeU16", "V_CmpLeU64", "V_CmpLgF16", "V_CmpLgF64", "V_CmpLtF16", "V_CmpLtF64", "V_CmpLtI16", "V_CmpLtI64", "V_CmpLtU16", "V_CmpLtU64", "V_CmpNeI16", "V_CmpNeI64", "V_CmpNeU16", "V_CmpNeU64", "V_CmpNeqF16", "V_CmpNeqF64", "V_CmpNgeF16", "V_CmpNgeF64", "V_CmpNgtF16", "V_CmpNgtF64", "V_CmpNleF16", "V_CmpNleF64", "V_CmpNlgF16", "V_CmpNlgF64", "V_CmpNltF16", "V_CmpNltF64", "V_CmpOrdF16", "V_CmpOrdF64", "V_CmpTrueF16", "V_CmpTrueF64", "V_CmpTrueI64", "V_CmpTrueU64", "V_CmpUnordF16", "V_CmpUnordF64",
 }

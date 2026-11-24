@@ -900,7 +900,7 @@ TEST_CASE("gfx ISA interpreter matches the IL interpreter", "[gfx][isa][divergen
     {
         for (const char* fixture : {"basic", "loop", "alu", "valu", "scc", "bitops", "vbits", "fpalu",
                                     "loadstore", "branch", "store", "modifiers", "bitfield", "b64",
-                                    "compares", "vop1", "vop2", "vop3", "f16", "f64", "cmpwide"})
+                                    "compares", "vop1", "vop2", "vop3", "f16", "f64", "cmpwide", "packed"})
         {
             INFO(testCase.directory << "/" << fixture);
             const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory /
@@ -1496,6 +1496,53 @@ TEST_CASE("gfx 16-bit and 64-bit compares interpret", "[gfx][compare][wide]")
     REQUIRE(execution.has_value());
 
     const std::uint32_t expected[] = {1u, 0u, 1u, 1u, 0u, 1u, 1u, 1u, 1u, 1u, 1u, 7u, 8u};
+    for (std::uint32_t index = 0; index < 13; ++index)
+        REQUIRE(execution->buffer.at(index) == expected[index]);
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::Backend::Reemit(*module).has_value());
+#endif
+}
+
+TEST_CASE("gfx packed VOP3P arithmetic interprets", "[gfx][packed][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / "gfx1200" / "packed.hsaco";
+    if (!std::filesystem::exists(path))
+    {
+        SUCCEED("packed fixture is not present");
+        return;
+    }
+
+    const auto bytes = ReadFile(path);
+    REQUIRE_FALSE(bytes.empty());
+
+    SR::Frontend::MasterReader reader;
+    const auto shader = reader.Read(bytes);
+    REQUIRE(shader.has_value());
+
+    auto module = SR::Frontend::Gfx::Lift(*shader,
+                                         SR::Frontend::Gfx::Arch::Gfx12,
+                                         "main",
+                                         SR::Frontend::Gfx::LiftOptions{true});
+    const std::string moduleError = module.has_value() ? std::string() : SR::ToString(module.error());
+    INFO(moduleError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    const std::string executionError =
+        execution.has_value() ? std::string() : SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    const std::uint32_t expected[] = {0x46004400u, 0x48004200u, 0x40003C00u, 0x44004200u,
+                                      0x49004400u, 0x00080006u, 0xFFFEFFFEu, 0x000F0008u,
+                                      0x00030002u, 0x00050004u, 0x00280010u, 0x0000FFFEu,
+                                      0x0012000Au};
     for (std::uint32_t index = 0; index < 13; ++index)
         REQUIRE(execution->buffer.at(index) == expected[index]);
 

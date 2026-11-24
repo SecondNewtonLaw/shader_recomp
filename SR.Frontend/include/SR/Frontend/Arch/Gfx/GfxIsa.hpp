@@ -260,6 +260,25 @@ enum class Op : std::uint16_t
     V_MaxF64,
     V_FmaF64,
     V_LdexpF64,
+    V_PkMadI16,
+    V_PkMulLoU16,
+    V_PkAddI16,
+    V_PkSubI16,
+    V_PkLshlrevB16,
+    V_PkLshrrevB16,
+    V_PkAshrrevI16,
+    V_PkMaxI16,
+    V_PkMinI16,
+    V_PkMadU16,
+    V_PkAddU16,
+    V_PkSubU16,
+    V_PkMaxU16,
+    V_PkMinU16,
+    V_PkFmaF16,
+    V_PkAddF16,
+    V_PkMulF16,
+    V_PkMinF16,
+    V_PkMaxF16,
     V_AddNcU32,
     V_SubNcU32,
     V_RcpF32,
@@ -440,6 +459,9 @@ struct DecodedInstruction
     std::uint8_t omod = 0;
     bool clamp = false;
     bool execMask = false; // V_CMPX updates EXEC in addition to VCC
+    std::uint8_t opSel = 0;    // VOP3P source-half selectors
+    std::uint8_t opSelHi = 0;  // VOP3P high selector bits
+    std::uint8_t negHi = 0;    // VOP3P high-half negate bits
 
     std::array<Operand, 4> operands{};
     std::uint8_t operandCount = 0;

@@ -421,6 +421,45 @@ constexpr std::array kGfx10 = {
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 360, Op::V_LdexpF64, "v_ldexp_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
 
+    Make(Encoding::Vop3P, 0, Op::V_PkMadI16, "v_pk_mad_i16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 1, Op::V_PkMulLoU16, "v_pk_mul_lo_u16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 2, Op::V_PkAddI16, "v_pk_add_i16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 3, Op::V_PkSubI16, "v_pk_sub_i16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 4, Op::V_PkLshlrevB16, "v_pk_lshlrev_b16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 5, Op::V_PkLshrrevB16, "v_pk_lshrrev_b16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 6, Op::V_PkAshrrevI16, "v_pk_ashrrev_i16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 7, Op::V_PkMaxI16, "v_pk_max_i16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 8, Op::V_PkMinI16, "v_pk_min_i16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 9, Op::V_PkMadU16, "v_pk_mad_u16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 10, Op::V_PkAddU16, "v_pk_add_u16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 11, Op::V_PkSubU16, "v_pk_sub_u16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 12, Op::V_PkMaxU16, "v_pk_max_u16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 13, Op::V_PkMinU16, "v_pk_min_u16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 14, Op::V_PkFmaF16, "v_pk_fma_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 15, Op::V_PkAddF16, "v_pk_add_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 16, Op::V_PkMulF16, "v_pk_mul_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 17, Op::V_PkMinF16, "v_pk_min_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 18, Op::V_PkMaxF16, "v_pk_max_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+
     Make(Encoding::Smem, 0, Op::S_LoadB32, "s_load_dword",
          {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
     Make(Encoding::Smem, 8, Op::S_BufferLoadB32, "s_buffer_load_dword",
@@ -731,6 +770,16 @@ constexpr std::array kGfx12 = {
     Remove(Encoding::Vop3, 808),
     Remove(Encoding::Vop3, 809),
     Remove(Encoding::Vop3, 810),
+    Remove(Encoding::Vop3P, 17),
+    Remove(Encoding::Vop3P, 18),
+    Make(Encoding::Vop3P, 27, Op::V_PkMinF16, "v_pk_min_num_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 28, Op::V_PkMaxF16, "v_pk_max_num_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 29, Op::V_PkMinF16, "v_pk_minimum_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3P, 30, Op::V_PkMaxF16, "v_pk_maximum_f16",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 258, Op::V_AddF64, "v_add_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 262, Op::V_MulF64, "v_mul_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 269, Op::V_MinF64, "v_min_num_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
@@ -1382,6 +1431,44 @@ std::string_view ToString(Op op) noexcept
         return "v_fma_f64";
     case Op::V_LdexpF64:
         return "v_ldexp_f64";
+    case Op::V_PkMadI16:
+        return "v_pk_mad_i16";
+    case Op::V_PkMulLoU16:
+        return "v_pk_mul_lo_u16";
+    case Op::V_PkAddI16:
+        return "v_pk_add_i16";
+    case Op::V_PkSubI16:
+        return "v_pk_sub_i16";
+    case Op::V_PkLshlrevB16:
+        return "v_pk_lshlrev_b16";
+    case Op::V_PkLshrrevB16:
+        return "v_pk_lshrrev_b16";
+    case Op::V_PkAshrrevI16:
+        return "v_pk_ashrrev_i16";
+    case Op::V_PkMaxI16:
+        return "v_pk_max_i16";
+    case Op::V_PkMinI16:
+        return "v_pk_min_i16";
+    case Op::V_PkMadU16:
+        return "v_pk_mad_u16";
+    case Op::V_PkAddU16:
+        return "v_pk_add_u16";
+    case Op::V_PkSubU16:
+        return "v_pk_sub_u16";
+    case Op::V_PkMaxU16:
+        return "v_pk_max_u16";
+    case Op::V_PkMinU16:
+        return "v_pk_min_u16";
+    case Op::V_PkFmaF16:
+        return "v_pk_fma_f16";
+    case Op::V_PkAddF16:
+        return "v_pk_add_f16";
+    case Op::V_PkMulF16:
+        return "v_pk_mul_f16";
+    case Op::V_PkMinF16:
+        return "v_pk_min_f16";
+    case Op::V_PkMaxF16:
+        return "v_pk_max_f16";
     case Op::V_AddNcU32:
         return "v_add_nc_u32";
     case Op::V_SubNcU32:
@@ -1778,6 +1865,15 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
         opcode = static_cast<std::uint16_t>((wide >> 16) & 0x3FF);
     }
+    else if (((word0 >> 26) & 0x3F) == 0x33)
+    {
+        encoding = Encoding::Vop3P;
+        if (words.size() < 2)
+            return std::unexpected(Error("SR-GFX-011", "truncated VOP3P instruction", bytePc));
+        baseWords = 2;
+        wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
+        opcode = static_cast<std::uint16_t>((wide >> 16) & 0x7F);
+    }
     else if (((word0 >> 25) & 0x7F) == 0x3E)
     {
         encoding = Encoding::VopC;
@@ -1836,12 +1932,12 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             break;
         case OperandKind::Vgpr:
             operand.value = Extract(wide, 17, 8); // VOP1/VOP2 VDST
-            if (encoding == Encoding::Vop3)
+            if (encoding == Encoding::Vop3 || encoding == Encoding::Vop3P)
                 operand.value = Extract(wide, 0, 8);
             break;
         case OperandKind::Src:
             operand.value = Extract(wide, 0, 9);
-            if (encoding == Encoding::Vop3)
+            if (encoding == Encoding::Vop3 || encoding == Encoding::Vop3P)
             {
                 // VOP3 sources follow the first word: 32, 41, 50.
                 operand.value = i == 1 ? Extract(wide, 32, 9)
@@ -1982,6 +2078,15 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         instruction.clamp = ((word0 >> 15) & 0x1) != 0;
         instruction.omod = static_cast<std::uint8_t>((words[1] >> 27) & 0x3);
         instruction.neg = static_cast<std::uint8_t>((words[1] >> 29) & 0x7);
+    }
+    else if (encoding == Encoding::Vop3P)
+    {
+        instruction.opSel = static_cast<std::uint8_t>((word0 >> 11) & 0x7);
+        instruction.opSelHi = static_cast<std::uint8_t>(((words[1] >> 27) & 0x3) |
+                                                       (((word0 >> 14) & 0x1) << 2));
+        instruction.negHi = static_cast<std::uint8_t>((word0 >> 8) & 0x7);
+        instruction.neg = static_cast<std::uint8_t>((words[1] >> 29) & 0x7);
+        instruction.clamp = ((word0 >> 15) & 0x1) != 0;
     }
 
     if (words.size() < baseWords + literalWords)
