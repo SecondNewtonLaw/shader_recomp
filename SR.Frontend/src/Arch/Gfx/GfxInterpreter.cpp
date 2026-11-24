@@ -1512,6 +1512,41 @@ namespace {
     return mask;
 }
 
+[[nodiscard]] inline std::int32_t ClampInt(std::int32_t value, std::int32_t low,
+                                           std::int32_t high) noexcept
+{
+    if (value < low)
+        return low;
+    if (value > high)
+        return high;
+    return value;
+}
+
+[[nodiscard]] inline float ClampFloat(float value, float low, float high) noexcept
+{
+    if (value < low)
+        return low;
+    if (value > high)
+        return high;
+    return value;
+}
+
+[[nodiscard]] std::uint32_t RoundToIntegerIsa(float value, std::int32_t low, std::int32_t high) noexcept
+{
+    const float magnitude = std::fabs(value);
+    std::uint32_t truncated = static_cast<std::uint32_t>(magnitude);
+    const float fraction = magnitude - static_cast<float>(truncated);
+    if (fraction > 0.5f || (fraction == 0.5f && (truncated & 1u) != 0))
+        ++truncated;
+    const std::int64_t signedValue =
+        value < 0.0f ? -static_cast<std::int64_t>(truncated) : static_cast<std::int64_t>(truncated);
+    if (signedValue > high)
+        return static_cast<std::uint32_t>(high) & 0xFFFFu;
+    if (signedValue < low)
+        return static_cast<std::uint32_t>(low) & 0xFFFFu;
+    return static_cast<std::uint32_t>(signedValue) & 0xFFFFu;
+}
+
 Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                                   Arch arch,
                                   IsaState state,
@@ -4198,6 +4233,455 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
         }
         case Op::V_Pipeflush:
             break;
+        case Op::V_AddNcU16:
+        case Op::V_SubNcU16:
+        case Op::V_MulLoU16:
+        case Op::V_AddNcI16:
+        case Op::V_SubNcI16:
+        case Op::V_MinU16:
+        case Op::V_MaxU16:
+        case Op::V_MinI16:
+        case Op::V_MaxI16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            if (!first || !second)
+                return std::unexpected(Error("SR-GFX-ISA-290", "invalid 16-bit operands", pc));
+            const std::uint32_t a = *first & 0xFFFFu;
+            const std::uint32_t b = *second & 0xFFFFu;
+            const std::int16_t sa = static_cast<std::int16_t>(a);
+            const std::int16_t sb = static_cast<std::int16_t>(b);
+            std::uint32_t result = 0;
+            switch (instruction.op)
+            {
+            case Op::V_AddNcU16:
+            case Op::V_AddNcI16:
+                result = (a + b) & 0xFFFFu;
+                break;
+            case Op::V_SubNcU16:
+            case Op::V_SubNcI16:
+                result = (a - b) & 0xFFFFu;
+                break;
+            case Op::V_MulLoU16:
+                result = (a * b) & 0xFFFFu;
+                break;
+            case Op::V_MinU16:
+                result = std::min(a, b);
+                break;
+            case Op::V_MaxU16:
+                result = std::max(a, b);
+                break;
+            case Op::V_MinI16:
+                result = static_cast<std::uint32_t>(std::min(sa, sb)) & 0xFFFFu;
+                break;
+            default:
+                result = static_cast<std::uint32_t>(std::max(sa, sb)) & 0xFFFFu;
+                break;
+            }
+            if (!write(result))
+                return std::unexpected(Error("SR-GFX-ISA-291", "invalid 16-bit destination", pc));
+            break;
+        }
+        case Op::V_LshlrevB16:
+        case Op::V_LshrrevB16:
+        case Op::V_AshrrevI16:
+        {
+            const auto count = source(1);
+            const auto value = source(2);
+            if (!count || !value)
+                return std::unexpected(Error("SR-GFX-ISA-292", "invalid 16-bit shift", pc));
+            const std::uint32_t shift = *count & 15u;
+            std::uint32_t result = 0;
+            if (instruction.op == Op::V_LshlrevB16)
+                result = (*value << shift) & 0xFFFFu;
+            else if (instruction.op == Op::V_LshrrevB16)
+                result = (*value & 0xFFFFu) >> shift;
+            else
+                result = static_cast<std::uint32_t>(static_cast<std::int16_t>(*value) >> shift) & 0xFFFFu;
+            if (!write(result))
+                return std::unexpected(Error("SR-GFX-ISA-293", "invalid 16-bit shift destination", pc));
+            break;
+        }
+        case Op::V_MadU16:
+        case Op::V_MadI16:
+        case Op::V_MadU32U16:
+        case Op::V_MadI32I16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-294", "invalid mad operands", pc));
+            const bool isSigned = instruction.op == Op::V_MadI16 || instruction.op == Op::V_MadI32I16;
+            const bool wide = instruction.op == Op::V_MadU32U16 || instruction.op == Op::V_MadI32I16;
+            const std::int64_t a = isSigned ? static_cast<std::int16_t>(*first) : (*first & 0xFFFFu);
+            const std::int64_t b = isSigned ? static_cast<std::int16_t>(*second) : (*second & 0xFFFFu);
+            const std::int64_t c = wide ? (isSigned ? AsSigned(*third) : *third) : (*third & 0xFFFFu);
+            const std::uint32_t result = static_cast<std::uint32_t>(a * b + c);
+            if (!write(wide ? result : (result & 0xFFFFu)))
+                return std::unexpected(Error("SR-GFX-ISA-295", "invalid mad destination", pc));
+            break;
+        }
+        case Op::V_Min3I16:
+        case Op::V_Min3U16:
+        case Op::V_Max3I16:
+        case Op::V_Max3U16:
+        case Op::V_Med3I16:
+        case Op::V_Med3U16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-296", "invalid ternary operands", pc));
+            const bool isSigned = instruction.op == Op::V_Min3I16 || instruction.op == Op::V_Max3I16 ||
+                                  instruction.op == Op::V_Med3I16;
+            std::int32_t a = static_cast<std::int32_t>(*first & 0xFFFFu);
+            std::int32_t b = static_cast<std::int32_t>(*second & 0xFFFFu);
+            std::int32_t c = static_cast<std::int32_t>(*third & 0xFFFFu);
+            if (isSigned)
+            {
+                a = static_cast<std::int16_t>(*first);
+                b = static_cast<std::int16_t>(*second);
+                c = static_cast<std::int16_t>(*third);
+            }
+            std::int32_t result = 0;
+            if (instruction.op == Op::V_Min3I16 || instruction.op == Op::V_Min3U16)
+                result = std::min({a, b, c});
+            else if (instruction.op == Op::V_Max3I16 || instruction.op == Op::V_Max3U16)
+                result = std::max({a, b, c});
+            else
+                result = std::max(std::min(a, b), std::min(std::max(a, b), c));
+            if (!write(static_cast<std::uint32_t>(result) & 0xFFFFu))
+                return std::unexpected(Error("SR-GFX-ISA-297", "invalid ternary destination", pc));
+            break;
+        }
+        case Op::V_MinmaxU32:
+        case Op::V_MaxminU32:
+        case Op::V_MinmaxI32:
+        case Op::V_MaxminI32:
+        case Op::V_MinimummaximumF32:
+        case Op::V_MaximumminimumF32:
+        case Op::V_MinmaxNumF32:
+        case Op::V_MaxminNumF32:
+        case Op::V_Minimum3F32:
+        case Op::V_Maximum3F32:
+        case Op::V_Min3NumF16:
+        case Op::V_Max3NumF16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-298", "invalid minmax operands", pc));
+            const bool isFloat = instruction.op == Op::V_MinimummaximumF32 ||
+                                 instruction.op == Op::V_MaximumminimumF32 ||
+                                 instruction.op == Op::V_MinmaxNumF32 ||
+                                 instruction.op == Op::V_MaxminNumF32 ||
+                                 instruction.op == Op::V_Minimum3F32 ||
+                                 instruction.op == Op::V_Maximum3F32 ||
+                                 instruction.op == Op::V_Min3NumF16 ||
+                                 instruction.op == Op::V_Max3NumF16;
+            const bool halfPrecision = instruction.op == Op::V_Min3NumF16 ||
+                                       instruction.op == Op::V_Max3NumF16;
+            const bool isSigned = instruction.op == Op::V_MinmaxI32 ||
+                                  instruction.op == Op::V_MaxminI32;
+            const auto toFloat = [&](std::uint32_t bits) {
+                return halfPrecision ? HalfToFloat(static_cast<std::uint16_t>(bits)) : AsFloat(bits);
+            };
+            const auto fromFloat = [&](float value) {
+                return halfPrecision ? static_cast<std::uint32_t>(FloatToHalf(value)) : AsBits(value);
+            };
+            std::uint32_t result = *first;
+            if (isFloat)
+            {
+                const float a = toFloat(*first);
+                const float b = toFloat(*second);
+                const float c = toFloat(*third);
+                float value = 0.0f;
+                if (instruction.op == Op::V_Minimum3F32)
+                    value = std::fmin(a, std::fmin(b, c));
+                else if (instruction.op == Op::V_Maximum3F32)
+                    value = std::fmax(a, std::fmax(b, c));
+                else if (instruction.op == Op::V_Min3NumF16)
+                    value = std::fmin(a, std::fmin(b, c));
+                else if (instruction.op == Op::V_Max3NumF16)
+                    value = std::fmax(a, std::fmax(b, c));
+                else if (instruction.op == Op::V_MinimummaximumF32 ||
+                         instruction.op == Op::V_MinmaxNumF32)
+                    value = std::fmax(std::fmin(a, b), c);
+                else
+                    value = std::fmin(std::fmax(a, b), c);
+                result = fromFloat(value);
+            }
+            else if (isSigned)
+            {
+                const std::int32_t a = AsSigned(*first);
+                const std::int32_t b = AsSigned(*second);
+                const std::int32_t c = AsSigned(*third);
+                const std::int32_t value =
+                    (instruction.op == Op::V_MinmaxI32) ? std::max(std::min(a, b), c)
+                                                        : std::min(std::max(a, b), c);
+                result = static_cast<std::uint32_t>(value);
+            }
+            else
+            {
+                const std::uint32_t a = *first;
+                const std::uint32_t b = *second;
+                const std::uint32_t c = *third;
+                result = (instruction.op == Op::V_MinmaxU32) ? std::max(std::min(a, b), c)
+                                                             : std::min(std::max(a, b), c);
+            }
+            if (!write(result))
+                return std::unexpected(Error("SR-GFX-ISA-299", "invalid minmax destination", pc));
+            break;
+        }
+        case Op::V_CvtPkI16F32:
+        case Op::V_CvtPkU16F32:
+        case Op::V_CvtPkI16I32:
+        case Op::V_CvtPkU16U32:
+        case Op::V_CvtPkNormI16F32:
+        case Op::V_CvtPkNormU16F32:
+        case Op::V_CvtPkRtzF16F32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            if (!first || !second)
+                return std::unexpected(Error("SR-GFX-ISA-300", "invalid packed convert operands", pc));
+            const auto convert = [&](std::uint32_t bits) -> std::uint32_t {
+                switch (instruction.op)
+                {
+                case Op::V_CvtPkI16I32:
+                {
+                    const std::int32_t value = AsSigned(bits);
+                    return static_cast<std::uint32_t>(ClampInt(value, -32768, 32767)) & 0xFFFFu;
+                }
+                case Op::V_CvtPkU16U32:
+                    return std::min(bits, 0xFFFFu);
+                case Op::V_CvtPkI16F32:
+                    return RoundToIntegerIsa(AsFloat(bits), -32768, 32767);
+                case Op::V_CvtPkU16F32:
+                    return RoundToIntegerIsa(AsFloat(bits), 0, 65535);
+                case Op::V_CvtPkNormI16F32:
+                    return RoundToIntegerIsa(ClampFloat(AsFloat(bits), -1.0f, 1.0f) * 32767.0f, -32768, 32767);
+                case Op::V_CvtPkNormU16F32:
+                    return RoundToIntegerIsa(ClampFloat(AsFloat(bits), 0.0f, 1.0f) * 65535.0f, 0, 65535);
+                default:
+                {
+                    const float source_ = AsFloat(bits);
+                    std::uint32_t result = static_cast<std::uint32_t>(FloatToHalf(source_));
+                    const float truncated = HalfToFloat(static_cast<std::uint16_t>(result));
+                    if (std::fabs(truncated) > std::fabs(source_) && (result & 0x7FFFu) != 0)
+                        --result;
+                    return result & 0xFFFFu;
+                }
+                }
+            };
+            const std::uint32_t low = convert(*first);
+            const std::uint32_t high = convert(*second);
+            if (!write((high << 16) | (low & 0xFFFFu)))
+                return std::unexpected(Error("SR-GFX-ISA-301", "invalid packed convert destination", pc));
+            break;
+        }
+        case Op::V_PackB32F16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            if (!first || !second)
+                return std::unexpected(Error("SR-GFX-ISA-302", "invalid pack operands", pc));
+            if (!write(((*second & 0xFFFFu) << 16) | (*first & 0xFFFFu)))
+                return std::unexpected(Error("SR-GFX-ISA-303", "invalid pack destination", pc));
+            break;
+        }
+        case Op::V_SadU8:
+        case Op::V_SadHiU8:
+        case Op::V_MsadU8:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto addend = source(3);
+            if (!first || !second || !addend)
+                return std::unexpected(Error("SR-GFX-ISA-304", "invalid sad operands", pc));
+            std::uint32_t sum = 0;
+            for (std::uint32_t i = 0; i < 4; ++i)
+            {
+                const std::uint32_t a = (*first >> (8 * i)) & 0xFFu;
+                const std::uint32_t b = (*second >> (8 * i)) & 0xFFu;
+                if (instruction.op == Op::V_MsadU8 && b == 0)
+                    continue;
+                sum += a > b ? a - b : b - a;
+            }
+            if (instruction.op == Op::V_SadHiU8)
+                sum <<= 16;
+            if (!write(sum + *addend))
+                return std::unexpected(Error("SR-GFX-ISA-305", "invalid sad destination", pc));
+            break;
+        }
+        case Op::V_LerpU8:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto control = source(3);
+            if (!first || !second || !control)
+                return std::unexpected(Error("SR-GFX-ISA-306", "invalid lerp operands", pc));
+            std::uint32_t result = 0;
+            for (std::uint32_t i = 0; i < 4; ++i)
+            {
+                const std::uint32_t a = (*first >> (8 * i)) & 0xFFu;
+                const std::uint32_t b = (*second >> (8 * i)) & 0xFFu;
+                const std::uint32_t round = (*control >> (8 * i)) & 1u;
+                result |= ((a + b + round) >> 1) << (8 * i);
+            }
+            if (!write(result))
+                return std::unexpected(Error("SR-GFX-ISA-307", "invalid lerp destination", pc));
+            break;
+        }
+        case Op::V_CubeidF32:
+        case Op::V_CubemaF32:
+        case Op::V_CubescF32:
+        case Op::V_CubetcF32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-308", "invalid cube operands", pc));
+            const float x = AsFloat(*first);
+            const float y = AsFloat(*second);
+            const float z = AsFloat(*third);
+            const float ax = std::fabs(x);
+            const float ay = std::fabs(y);
+            const float az = std::fabs(z);
+            const bool xMajor = ax >= ay && ax >= az;
+            const bool yMajor = !xMajor && ay >= az;
+            const float major = xMajor ? x : (yMajor ? y : z);
+            if (instruction.op == Op::V_CubeidF32)
+            {
+                const std::uint32_t id = xMajor ? (x > 0.0f ? 0u : 1u)
+                                                : yMajor ? (y > 0.0f ? 2u : 3u)
+                                                         : (z > 0.0f ? 4u : 5u);
+                if (!write(id))
+                    return std::unexpected(Error("SR-GFX-ISA-309", "invalid cubeid destination", pc));
+            }
+            else if (instruction.op == Op::V_CubemaF32)
+            {
+                if (!write(AsBits(major * 2.0f)))
+                    return std::unexpected(Error("SR-GFX-ISA-310", "invalid cubema destination", pc));
+            }
+            else if (instruction.op == Op::V_CubescF32)
+            {
+                const float value = xMajor ? (x > 0.0f ? -z : z) : (yMajor ? x : (z > 0.0f ? x : -x));
+                if (!write(AsBits(value)))
+                    return std::unexpected(Error("SR-GFX-ISA-311", "invalid cubesc destination", pc));
+            }
+            else
+            {
+                const float value = xMajor ? -y : (yMajor ? (y > 0.0f ? z : -z) : -y);
+                if (!write(AsBits(value)))
+                    return std::unexpected(Error("SR-GFX-ISA-312", "invalid cubetc destination", pc));
+            }
+            break;
+        }
+        case Op::V_MullitF32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            if (!first || !second)
+                return std::unexpected(Error("SR-GFX-ISA-313", "invalid mullit operands", pc));
+            const float a = AsFloat(*first);
+            const float b = AsFloat(*second);
+            if (!write(AsBits((a == 0.0f || b == 0.0f) ? 0.0f : a * b)))
+                return std::unexpected(Error("SR-GFX-ISA-314", "invalid mullit destination", pc));
+            break;
+        }
+        case Op::V_FmaDx9ZeroF32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-315", "invalid fma operands", pc));
+            const float a = AsFloat(*first);
+            const float b = AsFloat(*second);
+            const float c = AsFloat(*third);
+            const float value = (a == 0.0f || b == 0.0f) ? c : std::fma(a, b, c);
+            if (!write(AsBits(value)))
+                return std::unexpected(Error("SR-GFX-ISA-316", "invalid fma destination", pc));
+            break;
+        }
+        case Op::V_DivFixupF32:
+        {
+            const auto quotient = source(1);
+            const auto denominator = source(2);
+            const auto numerator = source(3);
+            if (!quotient || !denominator || !numerator)
+                return std::unexpected(Error("SR-GFX-ISA-317", "invalid div_fixup operands", pc));
+            const float q = AsFloat(*quotient);
+            const float d = AsFloat(*denominator);
+            const float n = AsFloat(*numerator);
+            const float inf = std::numeric_limits<float>::infinity();
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            float value = q;
+            if (std::isnan(d) || std::isnan(n))
+                value = nan;
+            else if (d == 0.0f)
+                value = (n == 0.0f) ? nan : std::copysign(inf, n);
+            else if (std::isinf(d) && std::isinf(n))
+                value = nan;
+            else if (std::isinf(d))
+                value = std::copysign(0.0f, q);
+            else if (std::isinf(n))
+                value = std::copysign(inf, q);
+            if (!write(AsBits(value)))
+                return std::unexpected(Error("SR-GFX-ISA-318", "invalid div_fixup destination", pc));
+            break;
+        }
+        case Op::V_DivFmasF32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-319", "invalid div_fmas operands", pc));
+            const float value = std::fma(AsFloat(*first), AsFloat(*second), AsFloat(*third));
+            const float scaled = result.state.vcc ? value * 18446744073709551616.0f : value;
+            if (!write(AsBits(scaled)))
+                return std::unexpected(Error("SR-GFX-ISA-320", "invalid div_fmas destination", pc));
+            break;
+        }
+        case Op::V_MinimumF32:
+        case Op::V_MaximumF32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            if (!first || !second)
+                return std::unexpected(Error("SR-GFX-ISA-330", "invalid min/max operands", pc));
+            const float a = AsFloat(*first);
+            const float b = AsFloat(*second);
+            const bool maximum = instruction.op == Op::V_MaximumF32;
+            const float value =
+                (std::isnan(a) || std::isnan(b))
+                    ? std::numeric_limits<float>::quiet_NaN()
+                    : (maximum ? std::fmax(a, b) : std::fmin(a, b));
+            if (!write(AsBits(value)))
+                return std::unexpected(Error("SR-GFX-ISA-331", "invalid min/max destination", pc));
+            break;
+        }
+        case Op::V_Med3NumF32:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            const auto third = source(3);
+            if (!first || !second || !third)
+                return std::unexpected(Error("SR-GFX-ISA-332", "invalid med3 operands", pc));
+            const float a = AsFloat(*first);
+            const float b = AsFloat(*second);
+            const float c = AsFloat(*third);
+            const float value = std::fmax(std::fmin(a, b), std::fmin(std::fmax(a, b), c));
+            if (!write(AsBits(value)))
+                return std::unexpected(Error("SR-GFX-ISA-333", "invalid med3 destination", pc));
+            break;
+        }
         case Op::Invalid:
             return std::unexpected(Error("SR-GFX-ISA-074", "invalid instruction", pc));
         default:

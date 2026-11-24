@@ -5722,6 +5722,837 @@ private:
         return WriteDest(instruction.operands[0], packed, instruction.pc);
     }
 
+    // ---- Remaining VOP3 forms ----
+
+    [[nodiscard]] Result<IL::ValueId> ReadLow16(const Operand& operand, std::uint32_t pc)
+    {
+        const auto value = ReadBits(operand, pc);
+        if (!value)
+            return std::unexpected(value.error());
+        return m_builder.Emit(m_module.types.U32(),
+                              IL::Op::Binary,
+                              static_cast<std::uint16_t>(IL::BinaryOp::And),
+                              {*value, m_builder.ConstantU32(0xFFFF)},
+                              {},
+                              IL::NoPayload,
+                              pc,
+                              0,
+                              false);
+    }
+
+    [[nodiscard]] IL::ValueId MaskLow16(IL::ValueId value, std::uint32_t pc)
+    {
+        return m_builder.Emit(m_module.types.U32(),
+                              IL::Op::Binary,
+                              static_cast<std::uint16_t>(IL::BinaryOp::And),
+                              {value, m_builder.ConstantU32(0xFFFF)},
+                              {},
+                              IL::NoPayload,
+                              pc,
+                              0,
+                              false);
+    }
+
+    [[nodiscard]] IL::ValueId SignExtendLow16(IL::ValueId value)
+    {
+        const IL::ValueId shifted = m_builder.Emit(m_module.types.U32(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                                   {value, m_builder.ConstantU32(16)},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   0,
+                                                   0,
+                                                   false);
+        return Bitcast(m_module.types.U32(),
+                       m_builder.Emit(m_module.types.I32(),
+                                      IL::Op::Binary,
+                                      static_cast<std::uint16_t>(IL::BinaryOp::AShr),
+                                      {Bitcast(m_module.types.I32(), shifted),
+                                       m_builder.ConstantU32(16)},
+                                      {},
+                                      IL::NoPayload,
+                                      0,
+                                      0,
+                                      false));
+    }
+
+    // 16-bit integer arithmetic keeps the operands in the low halves of the
+    // source registers and writes the zero-extended 16-bit result.
+    [[nodiscard]] Result<void> LiftU16Binary(const DecodedInstruction& instruction,
+                                             IL::BinaryOp subop,
+                                             bool isSigned)
+    {
+        const auto first = ReadLow16(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadLow16(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+
+        IL::ValueId left = *first;
+        IL::ValueId right = *second;
+        if (isSigned)
+        {
+            left = SignExtendLow16(left);
+            right = SignExtendLow16(right);
+        }
+        const IL::ValueId result = Bin(instruction, subop, left, right);
+        return WriteDest(instruction.operands[0], MaskLow16(result, instruction.pc), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftU16MinMax(const DecodedInstruction& instruction, bool minimum,
+                                             bool isSigned)
+    {
+        const auto first = ReadLow16(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadLow16(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+
+        IL::ValueId left = *first;
+        IL::ValueId right = *second;
+        if (isSigned)
+        {
+            left = SignExtendLow16(left);
+            right = SignExtendLow16(right);
+        }
+        const IL::CompareOp less = isSigned ? (minimum ? IL::CompareOp::ILt : IL::CompareOp::IGt)
+                                           : (minimum ? IL::CompareOp::ULt : IL::CompareOp::UGt);
+        const IL::ValueId condition = m_builder.CompareValue(less, left, right, false);
+        const IL::ValueId selected =
+            m_builder.SelectValue(m_module.types.U32(), condition, left, right, false);
+        return WriteDest(instruction.operands[0], MaskLow16(selected, instruction.pc),
+                         instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftU16Shift(const DecodedInstruction& instruction, bool left,
+                                            bool arithmetic)
+    {
+        const auto count = ReadLow16(instruction.operands[1], instruction.pc);
+        if (!count)
+            return std::unexpected(count.error());
+        const auto value = ReadLow16(instruction.operands[2], instruction.pc);
+        if (!value)
+            return std::unexpected(value.error());
+
+        IL::ValueId input = *value;
+        if (arithmetic)
+            input = SignExtendLow16(input);
+        const IL::ValueId shift = MaskShiftCount(*count, 15, false);
+        const IL::BinaryOp subop = left ? IL::BinaryOp::Shl
+                                        : (arithmetic ? IL::BinaryOp::AShr : IL::BinaryOp::LShr);
+        const IL::ValueId result =
+            Bin(instruction, subop, input, shift, arithmetic ? m_module.types.I32() : IL::InvalidType);
+        return WriteDest(instruction.operands[0], MaskLow16(result, instruction.pc), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftMad16(const DecodedInstruction& instruction, bool isSigned,
+                                         bool wideResult)
+    {
+        const auto a = ReadLow16(instruction.operands[1], instruction.pc);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadLow16(instruction.operands[2], instruction.pc);
+        if (!b)
+            return std::unexpected(b.error());
+        const auto c = wideResult ? ReadBits(instruction.operands[3], instruction.pc)
+                                  : ReadLow16(instruction.operands[3], instruction.pc);
+        if (!c)
+            return std::unexpected(c.error());
+
+        IL::ValueId left = *a;
+        IL::ValueId right = *b;
+        if (isSigned)
+        {
+            left = SignExtendLow16(left);
+            right = SignExtendLow16(right);
+        }
+        const IL::ValueId product = Bin(instruction, IL::BinaryOp::IMul, left, right);
+        const IL::ValueId sum = Bin(instruction, IL::BinaryOp::IAdd, product, *c);
+        return WriteDest(instruction.operands[0],
+                         wideResult ? sum : MaskLow16(sum, instruction.pc), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftMinMax3(const DecodedInstruction& instruction, bool innerMin,
+                                           bool outerMin, bool median, bool isFloat,
+                                           bool isSigned)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto third = ReadBits(instruction.operands[3], instruction.pc);
+        if (!third)
+            return std::unexpected(third.error());
+
+        const auto compare = [&](bool minimum, IL::ValueId left, IL::ValueId right) {
+            if (isFloat)
+            {
+                return m_builder.CompareValue(
+                    minimum ? IL::CompareOp::FOrdLt : IL::CompareOp::FOrdGt,
+                    Bitcast(m_module.types.F32(), left), Bitcast(m_module.types.F32(), right),
+                    false);
+            }
+            return m_builder.CompareValue(
+                minimum ? (isSigned ? IL::CompareOp::ILt : IL::CompareOp::ULt)
+                        : (isSigned ? IL::CompareOp::IGt : IL::CompareOp::UGt),
+                left, right, false);
+        };
+        const auto choose = [&](bool minimum, IL::ValueId left, IL::ValueId right) {
+            return m_builder.SelectValue(m_module.types.U32(), compare(minimum, left, right), left,
+                                         right, false);
+        };
+
+        const IL::ValueId a = *first;
+        const IL::ValueId b = *second;
+        const IL::ValueId c = *third;
+
+        IL::ValueId result = a;
+        if (median)
+        {
+            const IL::ValueId low = choose(true, a, b);
+            const IL::ValueId high = choose(false, a, b);
+            result = choose(true, choose(false, low, c), high);
+        }
+        else
+        {
+            const IL::ValueId inner = choose(innerMin, a, b);
+            result = choose(outerMin, inner, c);
+        }
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    // Rounds a float to an integer using round-to-nearest-even, then clamps.
+    [[nodiscard]] IL::ValueId RoundToInteger(const DecodedInstruction& instruction,
+                                             IL::ValueId value,
+                                             std::int64_t low,
+                                             std::int64_t high)
+    {
+        const IL::TypeId f32 = m_module.types.F32();
+        const IL::ValueId absValue = m_builder.UnaryValue(IL::UnaryOp::FAbs, f32, value, false);
+        const IL::ValueId truncated =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::FPToUI, absValue, false);
+        const IL::ValueId truncatedFloat =
+            m_builder.ConvertValue(f32, IL::ConvertOp::UIToFP, truncated, false);
+        const IL::ValueId fraction =
+            Bin(instruction, IL::BinaryOp::FSub, absValue, truncatedFloat, f32);
+        const IL::ValueId half = m_builder.ConstantF32(0.5f);
+        const IL::ValueId aboveHalf =
+            m_builder.CompareValue(IL::CompareOp::FOrdGt, fraction, half, false);
+        const IL::ValueId atHalf =
+            m_builder.CompareValue(IL::CompareOp::FOrdEq, fraction, half, false);
+        const IL::ValueId odd = m_builder.CompareValue(
+            IL::CompareOp::UNe,
+            Bin(instruction, IL::BinaryOp::And, truncated, m_builder.ConstantU32(1)),
+            m_builder.ConstantU32(0), false);
+        const IL::ValueId roundUp =
+            m_builder.Emit(m_module.types.Bool(),
+                           IL::Op::Binary,
+                           static_cast<std::uint16_t>(IL::BinaryOp::Or),
+                           {aboveHalf,
+                            m_builder.Emit(m_module.types.Bool(),
+                                           IL::Op::Binary,
+                                           static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                           {atHalf, odd},
+                                           {},
+                                           IL::NoPayload,
+                                           0,
+                                           0,
+                                           false)},
+                           {},
+                           IL::NoPayload,
+                           0,
+                           0,
+                           false);
+        const IL::ValueId rounded =
+            m_builder.SelectValue(m_module.types.U32(), roundUp,
+                                  Bin(instruction, IL::BinaryOp::IAdd, truncated,
+                                      m_builder.ConstantU32(1)),
+                                  truncated, false);
+        const IL::ValueId signedValue = Bitcast(m_module.types.I32(), rounded);
+        const IL::ValueId negative =
+            m_builder.CompareValue(IL::CompareOp::FOrdLt, value, m_builder.ConstantF32(0.0f), false);
+        const IL::ValueId signedRounded = m_builder.SelectValue(
+            m_module.types.I32(), negative,
+            Bin(instruction, IL::BinaryOp::ISub, m_builder.ConstantU32(0), rounded,
+                m_module.types.I32()),
+            signedValue, false);
+        const IL::ValueId clampedLow = m_builder.SelectValue(
+            m_module.types.I32(),
+            m_builder.CompareValue(IL::CompareOp::ILt, signedRounded,
+                                   m_builder.ConstantI32(static_cast<std::int32_t>(low)), false),
+            m_builder.ConstantI32(static_cast<std::int32_t>(low)), signedRounded, false);
+        (void)high;
+        return clampedLow;
+    }
+
+    enum class PkConvert
+    {
+        I16F32,
+        U16F32,
+        I16I32,
+        U16U32,
+        NormI16F32,
+        NormU16F32,
+        NormI16F16,
+        NormU16F16,
+        RtzF16F32,
+    };
+
+    [[nodiscard]] Result<void> LiftPkConvert(const DecodedInstruction& instruction, PkConvert kind)
+    {
+        const bool halfSource = kind == PkConvert::NormI16F16 || kind == PkConvert::NormU16F16;
+
+        const auto lane = [&](std::uint8_t index) -> Result<IL::ValueId> {
+            const Operand& operand = instruction.operands[index];
+            switch (kind)
+            {
+            case PkConvert::I16I32:
+                return ReadSigned(operand, instruction.pc);
+            case PkConvert::U16U32:
+                return ReadBits(operand, instruction.pc);
+            case PkConvert::RtzF16F32:
+            case PkConvert::I16F32:
+            case PkConvert::U16F32:
+            case PkConvert::NormI16F32:
+            case PkConvert::NormU16F32:
+                return ReadFloatSource(instruction, index);
+            default:
+                break;
+            }
+            const auto bits = ReadBits(operand, instruction.pc);
+            if (!bits)
+                return std::unexpected(bits.error());
+            const IL::ValueId low =
+                m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, *bits, false);
+            return Bitcast(F16Type(), low);
+        };
+
+        const auto first = lane(1);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = lane(2);
+        if (!second)
+            return std::unexpected(second.error());
+
+        const auto convert = [&](IL::ValueId value) -> IL::ValueId {
+            switch (kind)
+            {
+            case PkConvert::I16I32:
+            {
+                const IL::ValueId clamped = m_builder.SelectValue(
+                    m_module.types.I32(),
+                    m_builder.CompareValue(IL::CompareOp::IGt, value,
+                                           m_builder.ConstantI32(32767), false),
+                    m_builder.ConstantI32(32767),
+                    m_builder.SelectValue(
+                        m_module.types.I32(),
+                        m_builder.CompareValue(IL::CompareOp::ILt, value,
+                                               m_builder.ConstantI32(-32768), false),
+                        m_builder.ConstantI32(-32768), value, false),
+                    false);
+                return MaskLow16(Bitcast(m_module.types.U32(), clamped), instruction.pc);
+            }
+            case PkConvert::U16U32:
+            {
+                const IL::ValueId clamped = m_builder.SelectValue(
+                    m_module.types.U32(),
+                    m_builder.CompareValue(IL::CompareOp::UGt, value,
+                                           m_builder.ConstantU32(0xFFFF), false),
+                    m_builder.ConstantU32(0xFFFF), value, false);
+                return MaskLow16(clamped, instruction.pc);
+            }
+            case PkConvert::I16F32:
+            case PkConvert::U16F32:
+            {
+                const bool isSigned = kind == PkConvert::I16F32;
+                const IL::ValueId rounded = RoundToInteger(
+                    instruction, value, isSigned ? -32768 : 0, isSigned ? 32767 : 65535);
+                const IL::ValueId clamped = m_builder.SelectValue(
+                    m_module.types.I32(),
+                    m_builder.CompareValue(
+                        IL::CompareOp::IGt, rounded,
+                        m_builder.ConstantI32(isSigned ? 32767 : 65535), false),
+                    m_builder.ConstantI32(isSigned ? 32767 : 65535),
+                    m_builder.SelectValue(
+                        m_module.types.I32(),
+                        m_builder.CompareValue(IL::CompareOp::ILt, rounded,
+                                               m_builder.ConstantI32(isSigned ? -32768 : 0), false),
+                        m_builder.ConstantI32(isSigned ? -32768 : 0), rounded, false),
+                    false);
+                return MaskLow16(Bitcast(m_module.types.U32(), clamped), instruction.pc);
+            }
+            case PkConvert::NormI16F32:
+            case PkConvert::NormU16F32:
+            case PkConvert::NormI16F16:
+            case PkConvert::NormU16F16:
+            {
+                const bool isSigned =
+                    kind == PkConvert::NormI16F32 || kind == PkConvert::NormI16F16;
+                const IL::TypeId type = halfSource ? F16Type() : m_module.types.F32();
+                const float multiplier = isSigned ? 32767.0f : 65535.0f;
+                const IL::ValueId scale = halfSource
+                                              ? Bitcast(F16Type(), m_builder.ConstantU32(0x3C00))
+                                              : m_builder.ConstantF32(1.0f);
+                IL::ValueId clamped = value;
+                const IL::ValueId upper = halfSource
+                                              ? Bitcast(F16Type(), m_builder.ConstantU32(0x3C00))
+                                              : m_builder.ConstantF32(1.0f);
+                const IL::ValueId lower = isSigned
+                                              ? (halfSource ? Bitcast(F16Type(), m_builder.ConstantU32(0xBC00))
+                                                            : m_builder.ConstantF32(-1.0f))
+                                              : (halfSource ? Bitcast(F16Type(), m_builder.ConstantU32(0))
+                                                            : m_builder.ConstantF32(0.0f));
+                clamped = m_builder.SelectValue(
+                    type,
+                    m_builder.CompareValue(IL::CompareOp::FOrdGt, clamped, upper, false),
+                    upper, clamped, false);
+                clamped = m_builder.SelectValue(
+                    type,
+                    m_builder.CompareValue(IL::CompareOp::FOrdLt, clamped, lower, false),
+                    lower, clamped, false);
+                const IL::ValueId widened =
+                    halfSource ? m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::FPExt,
+                                                        clamped, false)
+                               : clamped;
+                (void)scale;
+                const IL::ValueId scaled =
+                    Bin(instruction, IL::BinaryOp::FMul, widened,
+                        m_builder.ConstantF32(multiplier), m_module.types.F32());
+                const IL::ValueId rounded = RoundToInteger(
+                    instruction, scaled, isSigned ? -32768 : 0, isSigned ? 32767 : 65535);
+                const IL::ValueId clampedInt = m_builder.SelectValue(
+                    m_module.types.I32(),
+                    m_builder.CompareValue(IL::CompareOp::IGt, rounded,
+                                           m_builder.ConstantI32(isSigned ? 32767 : 65535), false),
+                    m_builder.ConstantI32(isSigned ? 32767 : 65535),
+                    m_builder.SelectValue(
+                        m_module.types.I32(),
+                        m_builder.CompareValue(IL::CompareOp::ILt, rounded,
+                                               m_builder.ConstantI32(isSigned ? -32768 : 0), false),
+                        m_builder.ConstantI32(isSigned ? -32768 : 0), rounded, false),
+                    false);
+                return MaskLow16(Bitcast(m_module.types.U32(), clampedInt), instruction.pc);
+            }
+            case PkConvert::RtzF16F32:
+            {
+                const IL::ValueId rounded =
+                    m_builder.ConvertValue(F16Type(), IL::ConvertOp::FPTrunc, value, false);
+                const IL::ValueId roundedWidened =
+                    m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::FPExt, rounded, false);
+                const IL::ValueId absSource =
+                    m_builder.UnaryValue(IL::UnaryOp::FAbs, m_module.types.F32(), value, false);
+                const IL::ValueId absRounded =
+                    m_builder.UnaryValue(IL::UnaryOp::FAbs, m_module.types.F32(), roundedWidened, false);
+                const IL::ValueId tooLarge = m_builder.CompareValue(
+                    IL::CompareOp::FOrdGt, absRounded, absSource, false);
+                const IL::ValueId bits =
+                    m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                           Bitcast(U16Type(), rounded), false);
+                const IL::ValueId magnitude =
+                    Bin(instruction, IL::BinaryOp::And, bits, m_builder.ConstantU32(0x7FFF));
+                const IL::ValueId stepped = m_builder.SelectValue(
+                    m_module.types.U32(), tooLarge,
+                    Bin(instruction, IL::BinaryOp::ISub, bits, m_builder.ConstantU32(1)), bits, false);
+                (void)magnitude;
+                return MaskLow16(stepped, instruction.pc);
+            }
+            }
+            return IL::InvalidValue;
+        };
+
+        const IL::ValueId low = convert(*first);
+        const IL::ValueId high = convert(*second);
+        const IL::ValueId packed = Bin(instruction, IL::BinaryOp::Or, low,
+                                       Bin(instruction, IL::BinaryOp::Shl, high,
+                                           m_builder.ConstantU32(16)));
+        return WriteDest(instruction.operands[0], packed, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftPackB32F16(const DecodedInstruction& instruction)
+    {
+        const auto first = ReadF16(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadF16(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const IL::ValueId low =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                   Bitcast(U16Type(), *first), false);
+        const IL::ValueId high =
+            m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                   Bitcast(U16Type(), *second), false);
+        return WriteDest(instruction.operands[0],
+                         Bin(instruction, IL::BinaryOp::Or, low,
+                             Bin(instruction, IL::BinaryOp::Shl, high,
+                                 m_builder.ConstantU32(16))),
+                         instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftSadU8(const DecodedInstruction& instruction, bool high,
+                                         bool masked)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto addend = ReadBits(instruction.operands[3], instruction.pc);
+        if (!addend)
+            return std::unexpected(addend.error());
+
+        IL::ValueId sum = m_builder.ConstantU32(0);
+        for (std::uint32_t i = 0; i < 4; ++i)
+        {
+            const IL::ValueId shift = m_builder.ConstantU32(8 * i);
+            const IL::ValueId a =
+                Bin(instruction, IL::BinaryOp::And,
+                    Bin(instruction, IL::BinaryOp::LShr, *first, shift), m_builder.ConstantU32(0xFF));
+            const IL::ValueId b =
+                Bin(instruction, IL::BinaryOp::And,
+                    Bin(instruction, IL::BinaryOp::LShr, *second, shift), m_builder.ConstantU32(0xFF));
+            const IL::ValueId difference = m_builder.SelectValue(
+                m_module.types.U32(),
+                m_builder.CompareValue(IL::CompareOp::UGe, a, b, false),
+                Bin(instruction, IL::BinaryOp::ISub, a, b), Bin(instruction, IL::BinaryOp::ISub, b, a),
+                false);
+            if (masked)
+            {
+                const IL::ValueId included = m_builder.CompareValue(
+                    IL::CompareOp::UNe, b, m_builder.ConstantU32(0), false);
+                sum = Bin(instruction, IL::BinaryOp::IAdd, sum,
+                          m_builder.SelectValue(m_module.types.U32(), included, difference,
+                                                m_builder.ConstantU32(0), false));
+            }
+            else
+            {
+                sum = Bin(instruction, IL::BinaryOp::IAdd, sum, difference);
+            }
+        }
+        IL::ValueId shifted = sum;
+        if (high)
+            shifted = Bin(instruction, IL::BinaryOp::Shl, sum, m_builder.ConstantU32(16));
+        return WriteDest(instruction.operands[0],
+                         Bin(instruction, IL::BinaryOp::IAdd, shifted, *addend), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftLerpU8(const DecodedInstruction& instruction)
+    {
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const auto control = ReadBits(instruction.operands[3], instruction.pc);
+        if (!control)
+            return std::unexpected(control.error());
+
+        IL::ValueId result = m_builder.ConstantU32(0);
+        for (std::uint32_t i = 0; i < 4; ++i)
+        {
+            const IL::ValueId shift = m_builder.ConstantU32(8 * i);
+            const auto byteAt = [&](IL::ValueId value) {
+                return Bin(instruction, IL::BinaryOp::And,
+                           Bin(instruction, IL::BinaryOp::LShr, value, shift),
+                           m_builder.ConstantU32(0xFF));
+            };
+            const IL::ValueId round =
+                Bin(instruction, IL::BinaryOp::And, byteAt(*control), m_builder.ConstantU32(1));
+            const IL::ValueId total = Bin(
+                instruction, IL::BinaryOp::IAdd,
+                Bin(instruction, IL::BinaryOp::IAdd, byteAt(*first), byteAt(*second)), round);
+            const IL::ValueId averaged =
+                Bin(instruction, IL::BinaryOp::LShr, total, m_builder.ConstantU32(1));
+            result = Bin(instruction, IL::BinaryOp::Or, result,
+                         Bin(instruction, IL::BinaryOp::Shl, averaged, shift));
+        }
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftCube(const DecodedInstruction& instruction, std::uint8_t mode)
+    {
+        const auto x = ReadFloat(instruction.operands[1], instruction.pc);
+        if (!x)
+            return std::unexpected(x.error());
+        const auto y = ReadFloat(instruction.operands[2], instruction.pc);
+        if (!y)
+            return std::unexpected(y.error());
+        const auto z = ReadFloat(instruction.operands[3], instruction.pc);
+        if (!z)
+            return std::unexpected(z.error());
+
+        const IL::TypeId f32 = m_module.types.F32();
+        const auto abs = [&](IL::ValueId value) {
+            return m_builder.UnaryValue(IL::UnaryOp::FAbs, f32, value, false);
+        };
+        const auto greaterOrEqual = [&](IL::ValueId left, IL::ValueId right) {
+            return m_builder.CompareValue(IL::CompareOp::FOrdGe, left, right, false);
+        };
+        const auto greater = [&](IL::ValueId left, IL::ValueId right) {
+            return m_builder.CompareValue(IL::CompareOp::FOrdGt, left, right, false);
+        };
+        const auto negate = [&](IL::ValueId value) {
+            return m_builder.UnaryValue(IL::UnaryOp::Neg, f32, value, false);
+        };
+
+        const IL::ValueId ax = abs(*x);
+        const IL::ValueId ay = abs(*y);
+        const IL::ValueId az = abs(*z);
+
+        const IL::ValueId xMajor = m_builder.Emit(
+            m_module.types.Bool(), IL::Op::Binary, static_cast<std::uint16_t>(IL::BinaryOp::And),
+            {greaterOrEqual(ax, ay), greaterOrEqual(ax, az)}, {}, IL::NoPayload, 0, 0, false);
+        const IL::ValueId yMajor = greaterOrEqual(ay, az);
+        const IL::ValueId xPositive = greater(*x, m_builder.ConstantF32(0.0f));
+        const IL::ValueId yPositive = greater(*y, m_builder.ConstantF32(0.0f));
+        const IL::ValueId zPositive = greater(*z, m_builder.ConstantF32(0.0f));
+
+        const IL::ValueId major = m_builder.SelectValue(
+            f32, xMajor, *x,
+            m_builder.SelectValue(f32, yMajor, *y, *z, false), false);
+
+        if (mode == 0)
+        {
+            const IL::ValueId id = m_builder.SelectValue(
+                m_module.types.U32(), xMajor,
+                m_builder.SelectValue(m_module.types.U32(), xPositive, m_builder.ConstantU32(0),
+                                      m_builder.ConstantU32(1), false),
+                m_builder.SelectValue(
+                    m_module.types.U32(), yMajor,
+                    m_builder.SelectValue(m_module.types.U32(), yPositive, m_builder.ConstantU32(2),
+                                          m_builder.ConstantU32(3), false),
+                    m_builder.SelectValue(m_module.types.U32(), zPositive,
+                                          m_builder.ConstantU32(4), m_builder.ConstantU32(5), false),
+                    false),
+                false);
+            return WriteDest(instruction.operands[0], id, instruction.pc);
+        }
+        if (mode == 1)
+        {
+            const IL::ValueId doubled = Bin(instruction, IL::BinaryOp::FMul, major,
+                                            m_builder.ConstantF32(2.0f), f32);
+            return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), doubled),
+                             instruction.pc);
+        }
+
+        // S and T are the two components that follow the major axis, with the
+        // sign convention of the classic cubemap lookup.
+        const IL::ValueId sc = m_builder.SelectValue(
+            f32, xMajor,
+            m_builder.SelectValue(f32,
+                                  m_builder.Emit(m_module.types.Bool(), IL::Op::Binary,
+                                                 static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                 {xMajor, xPositive}, {}, IL::NoPayload, 0, 0,
+                                                 false),
+                                  negate(*z), *z, false),
+            m_builder.SelectValue(f32, yMajor, *x,
+                                  m_builder.SelectValue(f32, zPositive, *x, negate(*x), false), false),
+            false);
+        const IL::ValueId tc = m_builder.SelectValue(
+            f32, xMajor, negate(*y),
+            m_builder.SelectValue(f32, yMajor,
+                                  m_builder.SelectValue(f32, yPositive, *z, negate(*z), false),
+                                  negate(*y), false),
+            false);
+        const IL::ValueId value = mode == 2 ? sc : tc;
+        return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), value),
+                         instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftDivFixup(const DecodedInstruction& instruction)
+    {
+        const IL::TypeId f32 = m_module.types.F32();
+        const auto quotient = ReadFloatSource(instruction, 1);
+        if (!quotient)
+            return std::unexpected(quotient.error());
+        const auto denominator = ReadFloatSource(instruction, 2);
+        if (!denominator)
+            return std::unexpected(denominator.error());
+        const auto numerator = ReadFloatSource(instruction, 3);
+        if (!numerator)
+            return std::unexpected(numerator.error());
+
+        const IL::ValueId zero = m_builder.ConstantF32(0.0f);
+        const IL::ValueId nan = m_builder.ConstantF32(std::numeric_limits<float>::quiet_NaN());
+        const IL::ValueId inf = m_builder.ConstantF32(std::numeric_limits<float>::infinity());
+        const auto isZero = [&](IL::ValueId value) {
+            return m_builder.CompareValue(IL::CompareOp::FOrdEq, value, zero, false);
+        };
+        const auto isInf = [&](IL::ValueId value) {
+            return m_builder.CompareValue(IL::CompareOp::FOrdEq, value, inf, false);
+        };
+        const auto isNan = [&](IL::ValueId value) {
+            return m_builder.UnaryValue(
+                IL::UnaryOp::Not,
+                m_module.types.Bool(),
+                m_builder.CompareValue(IL::CompareOp::FOrdEq, value, value, false), false);
+        };
+        const auto negative = [&](IL::ValueId value) {
+            return m_builder.CompareValue(IL::CompareOp::FOrdLt, value, zero, false);
+        };
+        const auto make = [&](IL::ValueId magnitude, IL::ValueId negativeSource) {
+            const IL::ValueId negativeMagnitude =
+                m_builder.UnaryValue(IL::UnaryOp::Neg, f32, magnitude, false);
+            return m_builder.SelectValue(f32, negative(negativeSource), negativeMagnitude, magnitude,
+                                         false);
+        };
+        const auto both = [&](IL::ValueId left, IL::ValueId right) {
+            return m_builder.Emit(m_module.types.Bool(), IL::Op::Binary,
+                                  static_cast<std::uint16_t>(IL::BinaryOp::And), {left, right}, {},
+                                  IL::NoPayload, 0, 0, false);
+        };
+        const auto either = [&](IL::ValueId left, IL::ValueId right) {
+            return m_builder.Emit(m_module.types.Bool(), IL::Op::Binary,
+                                  static_cast<std::uint16_t>(IL::BinaryOp::Or), {left, right}, {},
+                                  IL::NoPayload, 0, 0, false);
+        };
+
+        IL::ValueId result = *quotient;
+        // denominator zero: 0/0 is NaN, otherwise the quotient is an infinity
+        // with the sign of the numerator.
+        const IL::ValueId denominatorZero = isZero(*denominator);
+        const IL::ValueId zeroOverZero = both(denominatorZero, isZero(*numerator));
+        const IL::ValueId divideByZero = both(denominatorZero, isZero(*numerator) == 0
+                                                                  ? m_builder.ConstantBool(true)
+                                                                  : m_builder.ConstantBool(true));
+        (void)divideByZero;
+        result = m_builder.SelectValue(f32, denominatorZero,
+                                       m_builder.SelectValue(f32, isZero(*numerator), nan,
+                                                             make(inf, *numerator), false),
+                                       result, false);
+        // infinite inputs
+        const IL::ValueId infiniteDenominator = isInf(*denominator);
+        const IL::ValueId infiniteNumerator = isInf(*numerator);
+        result = m_builder.SelectValue(
+            f32, infiniteDenominator,
+            m_builder.SelectValue(f32, infiniteNumerator, nan, make(zero, *quotient), false),
+            result, false);
+        result = m_builder.SelectValue(f32, infiniteNumerator, make(inf, *quotient), result, false);
+        // NaN propagates.
+        result = m_builder.SelectValue(f32, either(isNan(*denominator), isNan(*numerator)), nan,
+                                       result, false);
+        (void)zeroOverZero;
+        return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result),
+                         instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftMulLit(const DecodedInstruction& instruction)
+    {
+        const IL::TypeId f32 = m_module.types.F32();
+        const auto first = ReadFloatSource(instruction, 1);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadFloatSource(instruction, 2);
+        if (!second)
+            return std::unexpected(second.error());
+        const IL::ValueId zero = m_builder.ConstantF32(0.0f);
+        const IL::ValueId product = Bin(instruction, IL::BinaryOp::FMul, *first, *second, f32);
+        const IL::ValueId eitherZero = m_builder.Emit(
+            m_module.types.Bool(), IL::Op::Binary, static_cast<std::uint16_t>(IL::BinaryOp::Or),
+            {m_builder.CompareValue(IL::CompareOp::FOrdEq, *first, zero, false),
+             m_builder.CompareValue(IL::CompareOp::FOrdEq, *second, zero, false)},
+            {}, IL::NoPayload, 0, 0, false);
+        const IL::ValueId result = m_builder.SelectValue(f32, eitherZero, zero, product, false);
+        return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result),
+                         instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftFmaDx9(const DecodedInstruction& instruction)
+    {
+        const IL::TypeId f32 = m_module.types.F32();
+        const auto a = ReadFloatSource(instruction, 1);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadFloatSource(instruction, 2);
+        if (!b)
+            return std::unexpected(b.error());
+        const auto c = ReadFloatSource(instruction, 3);
+        if (!c)
+            return std::unexpected(c.error());
+        const IL::ValueId zero = m_builder.ConstantF32(0.0f);
+        const IL::ValueId fused = m_builder.Emit(f32, IL::Op::Ternary,
+                                                 static_cast<std::uint16_t>(IL::TernaryOp::Fma),
+                                                 {*a, *b, *c}, {}, IL::NoPayload, 0, 0, false);
+        const IL::ValueId eitherZero = m_builder.Emit(
+            m_module.types.Bool(), IL::Op::Binary, static_cast<std::uint16_t>(IL::BinaryOp::Or),
+            {m_builder.CompareValue(IL::CompareOp::FOrdEq, *a, zero, false),
+             m_builder.CompareValue(IL::CompareOp::FOrdEq, *b, zero, false)},
+            {}, IL::NoPayload, 0, 0, false);
+        const IL::ValueId result = m_builder.SelectValue(f32, eitherZero, *c, fused, false);
+        return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result),
+                         instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftDivFmas(const DecodedInstruction& instruction)
+    {
+        const IL::TypeId f32 = m_module.types.F32();
+        const auto a = ReadFloatSource(instruction, 1);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadFloatSource(instruction, 2);
+        if (!b)
+            return std::unexpected(b.error());
+        const auto c = ReadFloatSource(instruction, 3);
+        if (!c)
+            return std::unexpected(c.error());
+        IL::ValueId fused = m_builder.Emit(f32, IL::Op::Ternary,
+                                           static_cast<std::uint16_t>(IL::TernaryOp::Fma),
+                                           {*a, *b, *c}, {}, IL::NoPayload, 0, 0, false);
+        const auto vcc = ReadVcc(instruction.pc);
+        if (!vcc)
+            return std::unexpected(vcc.error());
+        const IL::ValueId scaled =
+            Bin(instruction, IL::BinaryOp::FMul, fused,
+                m_builder.ConstantF32(18446744073709551616.0f), f32);
+        const IL::ValueId result = m_builder.SelectValue(f32, *vcc, scaled, fused, false);
+        return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result),
+                         instruction.pc);
+    }
+
+    // V_PK_FMAC_F16: destination = source0 * destination + destination, per
+    // half of the packed pair.
+    [[nodiscard]] Result<void> LiftPackedFmac(const DecodedInstruction& instruction)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+        const auto current = ReadVgpr(instruction.operands[0].value, instruction.pc);
+        if (!current)
+            return std::unexpected(current.error());
+
+        const auto lane = [&](std::uint32_t shift) {
+            const auto extract = [&](IL::ValueId value) {
+                const IL::ValueId shifted =
+                    shift == 0 ? value
+                               : Bin(instruction, IL::BinaryOp::LShr, value,
+                                     m_builder.ConstantU32(shift));
+                const IL::ValueId low =
+                    m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, shifted, false);
+                return Bitcast(F16Type(), low);
+            };
+            const IL::ValueId accumulator = extract(*current);
+            const IL::ValueId product =
+                Bin(instruction, IL::BinaryOp::FMul, extract(*source), accumulator, F16Type());
+            const IL::ValueId sum =
+                Bin(instruction, IL::BinaryOp::FAdd, product, accumulator, F16Type());
+            const IL::ValueId bits = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt,
+                                                            Bitcast(U16Type(), sum), false);
+            return shift == 0
+                       ? bits
+                       : Bin(instruction, IL::BinaryOp::Shl, bits, m_builder.ConstantU32(16));
+        };
+
+        const IL::ValueId result = Bin(instruction, IL::BinaryOp::Or, lane(0), lane(16));
+        return WriteDest(instruction.operands[0], result, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -7047,6 +7878,170 @@ private:
             return LiftSatPkU8(instruction);
         case Op::V_Pipeflush:
             return {};
+        case Op::V_MinNumF16:
+            return LiftF16Binary(instruction, IL::BinaryOp::FMin);
+        case Op::V_MaxNumF16:
+            return LiftF16Binary(instruction, IL::BinaryOp::FMax);
+        case Op::V_SExpF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Exp2, false);
+        case Op::V_SExpF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Exp2, true);
+        case Op::V_SLogF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Log2, false);
+        case Op::V_SLogF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Log2, true);
+        case Op::V_SRcpF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Rcp, false);
+        case Op::V_SRcpF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Rcp, true);
+        case Op::V_SRsqF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Rsq, false);
+        case Op::V_SRsqF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Rsq, true);
+        case Op::V_SSqrtF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Sqrt, false);
+        case Op::V_SSqrtF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Sqrt, true);
+        case Op::V_RcpIflagF32:
+            return LiftUnaryFloat(instruction, IL::UnaryOp::Rcp);
+        case Op::V_Min3NumF16:
+            return LiftMinMax3(instruction, true, true, false, true, false);
+        case Op::V_Max3NumF16:
+            return LiftMinMax3(instruction, false, false, false, true, false);
+        case Op::V_Min3I16:
+            return LiftMinMax3(instruction, true, true, false, false, true);
+        case Op::V_Min3U16:
+            return LiftMinMax3(instruction, true, true, false, false, false);
+        case Op::V_Max3I16:
+            return LiftMinMax3(instruction, false, false, false, false, true);
+        case Op::V_Max3U16:
+            return LiftMinMax3(instruction, false, false, false, false, false);
+        case Op::V_Med3I16:
+            return LiftMinMax3(instruction, false, false, true, false, true);
+        case Op::V_Med3U16:
+            return LiftMinMax3(instruction, false, false, true, false, false);
+        case Op::V_Med3NumF32:
+            return LiftMinMax3(instruction, false, false, true, true, false);
+        case Op::V_Med3NumF16:
+            return LiftMinMax3(instruction, false, false, true, true, false);
+        case Op::V_Minimum3F32:
+            return LiftMinMax3(instruction, true, true, false, true, false);
+        case Op::V_Maximum3F32:
+            return LiftMinMax3(instruction, false, false, false, true, false);
+        case Op::V_Minimum3F16:
+            return LiftMinMax3(instruction, true, true, false, true, false);
+        case Op::V_Maximum3F16:
+            return LiftMinMax3(instruction, false, false, false, true, false);
+        case Op::V_MinmaxU32:
+            return LiftMinMax3(instruction, true, false, false, false, false);
+        case Op::V_MaxminU32:
+            return LiftMinMax3(instruction, false, true, false, false, false);
+        case Op::V_MinmaxI32:
+            return LiftMinMax3(instruction, true, false, false, false, true);
+        case Op::V_MaxminI32:
+            return LiftMinMax3(instruction, false, true, false, false, true);
+        case Op::V_MinmaxNumF32:
+            return LiftMinMax3(instruction, true, false, false, true, false);
+        case Op::V_MaxminNumF32:
+            return LiftMinMax3(instruction, false, true, false, true, false);
+        case Op::V_MinmaxNumF16:
+            return LiftMinMax3(instruction, true, false, false, true, false);
+        case Op::V_MaxminNumF16:
+            return LiftMinMax3(instruction, false, true, false, true, false);
+        case Op::V_MinimummaximumF32:
+            return LiftMinMax3(instruction, true, false, false, true, false);
+        case Op::V_MaximumminimumF32:
+            return LiftMinMax3(instruction, false, true, false, true, false);
+        case Op::V_MinimummaximumF16:
+            return LiftMinMax3(instruction, true, false, false, true, false);
+        case Op::V_MaximumminimumF16:
+            return LiftMinMax3(instruction, false, true, false, true, false);
+        case Op::V_AddNcU16:
+            return LiftU16Binary(instruction, IL::BinaryOp::IAdd, false);
+        case Op::V_SubNcU16:
+            return LiftU16Binary(instruction, IL::BinaryOp::ISub, false);
+        case Op::V_MulLoU16:
+            return LiftU16Binary(instruction, IL::BinaryOp::IMul, false);
+        case Op::V_AddNcI16:
+            return LiftU16Binary(instruction, IL::BinaryOp::IAdd, true);
+        case Op::V_SubNcI16:
+            return LiftU16Binary(instruction, IL::BinaryOp::ISub, true);
+        case Op::V_MinU16:
+            return LiftU16MinMax(instruction, true, false);
+        case Op::V_MaxU16:
+            return LiftU16MinMax(instruction, false, false);
+        case Op::V_MinI16:
+            return LiftU16MinMax(instruction, true, true);
+        case Op::V_MaxI16:
+            return LiftU16MinMax(instruction, false, true);
+        case Op::V_LshlrevB16:
+            return LiftU16Shift(instruction, true, false);
+        case Op::V_LshrrevB16:
+            return LiftU16Shift(instruction, false, false);
+        case Op::V_AshrrevI16:
+            return LiftU16Shift(instruction, false, true);
+        case Op::V_MadU16:
+            return LiftMad16(instruction, false, false);
+        case Op::V_MadI16:
+            return LiftMad16(instruction, true, false);
+        case Op::V_MadU32U16:
+            return LiftMad16(instruction, false, true);
+        case Op::V_MadI32I16:
+            return LiftMad16(instruction, true, true);
+        case Op::V_CvtPkI16F32:
+            return LiftPkConvert(instruction, PkConvert::I16F32);
+        case Op::V_CvtPkU16F32:
+            return LiftPkConvert(instruction, PkConvert::U16F32);
+        case Op::V_CvtPkI16I32:
+            return LiftPkConvert(instruction, PkConvert::I16I32);
+        case Op::V_CvtPkU16U32:
+            return LiftPkConvert(instruction, PkConvert::U16U32);
+        case Op::V_CvtPkNormI16F32:
+            return LiftPkConvert(instruction, PkConvert::NormI16F32);
+        case Op::V_CvtPkNormU16F32:
+            return LiftPkConvert(instruction, PkConvert::NormU16F32);
+        case Op::V_CvtPkNormI16F16:
+            return LiftPkConvert(instruction, PkConvert::NormI16F16);
+        case Op::V_CvtPkNormU16F16:
+            return LiftPkConvert(instruction, PkConvert::NormU16F16);
+        case Op::V_CvtPkRtzF16F32:
+            return LiftPkConvert(instruction, PkConvert::RtzF16F32);
+        case Op::V_MinimumF32:
+            return LiftScalarFloatMinimum(instruction, false, false);
+        case Op::V_MaximumF32:
+            return LiftScalarFloatMinimum(instruction, false, true);
+        case Op::V_MinimumF16:
+            return LiftScalarFloatMinimum(instruction, true, false);
+        case Op::V_MaximumF16:
+            return LiftScalarFloatMinimum(instruction, true, true);
+        case Op::V_PackB32F16:
+            return LiftPackB32F16(instruction);
+        case Op::V_PkFmacF16:
+            return LiftPackedFmac(instruction);
+        case Op::V_SadU8:
+            return LiftSadU8(instruction, false, false);
+        case Op::V_SadHiU8:
+            return LiftSadU8(instruction, true, false);
+        case Op::V_MsadU8:
+            return LiftSadU8(instruction, false, true);
+        case Op::V_LerpU8:
+            return LiftLerpU8(instruction);
+        case Op::V_CubeidF32:
+            return LiftCube(instruction, 0);
+        case Op::V_CubemaF32:
+            return LiftCube(instruction, 1);
+        case Op::V_CubescF32:
+            return LiftCube(instruction, 2);
+        case Op::V_CubetcF32:
+            return LiftCube(instruction, 3);
+        case Op::V_DivFixupF32:
+            return LiftDivFixup(instruction);
+        case Op::V_MullitF32:
+            return LiftMulLit(instruction);
+        case Op::V_FmaDx9ZeroF32:
+            return LiftFmaDx9(instruction);
+        case Op::V_DivFmasF32:
+            return LiftDivFmas(instruction);
         case Op::S_CmovkI32:
         case Op::S_AddkCoI32:
             return LiftScalarImmediate(instruction);

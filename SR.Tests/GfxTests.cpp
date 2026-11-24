@@ -903,7 +903,7 @@ TEST_CASE("gfx ISA interpreter matches the IL interpreter", "[gfx][isa][divergen
         for (const char* fixture : {"basic", "loop", "alu", "valu", "scc", "bitops", "vbits", "fpalu",
                                     "loadstore", "branch", "store", "modifiers", "bitfield", "b64",
                                     "compares", "vop1", "vop2", "vop3", "f16", "f64", "cmpwide", "packed",
-                                    "sop64", "lds", "flatmem", "buftest", "smem", "sopscalar", "sopctl", "vcmp64", "vclass"})
+                                    "sop64", "lds", "flatmem", "buftest", "smem", "sopscalar", "sopctl", "vcmp64", "vclass", "vop3ext"})
         {
             INFO(testCase.directory << "/" << fixture);
             const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory /
@@ -2002,6 +2002,61 @@ TEST_CASE("gfx class compares, swaps and saturate pack interpret", "[gfx][vclass
         INFO("pipelined index " << index);
         REQUIRE(actual == expected[index]);
     }
+#endif
+}
+
+TEST_CASE("gfx extended VOP3 ALU and conversion forms interpret", "[gfx][vop3ext][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / "gfx1200" / "vop3ext.hsaco";
+    if (!std::filesystem::exists(path))
+    {
+        SUCCEED("vop3ext fixture is not present");
+        return;
+    }
+
+    const auto bytes = ReadFile(path);
+    REQUIRE_FALSE(bytes.empty());
+
+    SR::Frontend::MasterReader reader;
+    const auto shader = reader.Read(bytes);
+    REQUIRE(shader.has_value());
+
+    auto module = SR::Frontend::Gfx::Lift(*shader,
+                                         SR::Frontend::Gfx::Arch::Gfx12,
+                                         "main",
+                                         SR::Frontend::Gfx::LiftOptions{true});
+    const std::string moduleError = module.has_value() ? std::string() : SR::ToString(module.error());
+    INFO(moduleError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    const std::string executionError =
+        execution.has_value() ? std::string() : SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    const std::uint32_t expected[] = {6u,          0xFFFEu,     8u,          2u,          4u,
+                                      8u,          0xFFFFu,     15u,         92u,         3u,
+                                      3u,          5u,          9u,          3u,          0x3F800000u,
+                                      0x40200000u, 0xBF800000u, 0x3F800000u, 0xFFFE0002u, 0x00040002u,
+                                      0x7FFF7FFFu, 0x80017FFFu, 0x2E663E00u, 0x40003C00u, 16u,
+                                      0x00100000u, 2u,          0x0306090Cu, 2u,          0x40A00000u,
+                                      0x3F800000u, 0xBF800000u, 0x40200000u, 0x3F800000u, 0x7F800000u};
+    for (std::uint32_t index = 0; index < 35; ++index)
+    {
+        const auto it = execution->buffer.find(index);
+        const std::uint32_t actual = it == execution->buffer.end() ? 0u : it->second;
+        INFO("index " << index);
+        REQUIRE(actual == expected[index]);
+    }
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::Backend::Reemit(*module).has_value());
 #endif
 }
 

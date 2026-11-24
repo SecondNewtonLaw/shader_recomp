@@ -59,6 +59,8 @@ LIFTED = {
     "S_Bitset0B32", "S_Bitset0B64", "S_Bitset1B32", "S_Bitset1B64",
     "S_LshlB64", "S_LshrB64", "S_AshrI64", "S_BfmB64",
     "S_BfeU64", "S_BfeI64", "S_MulHiI32", "S_MulHiU32",
+    # Extended VOP3 ALU and conversion forms.
+"V_AddNcU16", "V_SubNcU16", "V_MulLoU16", "V_MinU16", "V_MaxU16", "V_AddNcI16", "V_SubNcI16", "V_MinI16", "V_MaxI16", "V_LshlrevB16", "V_LshrrevB16", "V_AshrrevI16", "V_MadU16", "V_MadI16", "V_MadU32U16", "V_MadI32I16", "V_Min3U16", "V_Min3I16", "V_Max3U16", "V_Max3I16", "V_Med3U16", "V_Med3I16", "V_Min3NumF16", "V_Max3NumF16", "V_Med3NumF32", "V_Med3NumF16", "V_Minimum3F32", "V_Maximum3F32", "V_Minimum3F16", "V_Maximum3F16", "V_MinmaxU32", "V_MaxminU32", "V_MinmaxI32", "V_MaxminI32", "V_MinmaxNumF32", "V_MaxminNumF32", "V_MinmaxNumF16", "V_MaxminNumF16", "V_MinimummaximumF32", "V_MaximumminimumF32", "V_MinimummaximumF16", "V_MaximumminimumF16", "V_MinimumF32", "V_MaximumF32", "V_MinimumF16", "V_MaximumF16", "V_MinNumF16", "V_MaxNumF16", "V_CvtPkI16F32", "V_CvtPkU16F32", "V_CvtPkI16I32", "V_CvtPkU16U32", "V_CvtPkNormI16F32", "V_CvtPkNormU16F32", "V_CvtPkNormI16F16", "V_CvtPkNormU16F16", "V_CvtPkRtzF16F32", "V_PackB32F16", "V_PkFmacF16", "V_SadU8", "V_SadHiU8", "V_MsadU8", "V_LerpU8", "V_CubeidF32", "V_CubemaF32", "V_CubescF32", "V_CubetcF32", "V_DivFixupF32", "V_MullitF32", "V_FmaDx9ZeroF32", "V_DivFmasF32", "V_SExpF32", "V_SExpF16", "V_SLogF32", "V_SLogF16", "V_SRcpF32", "V_SRcpF16", "V_SRsqF32", "V_SRsqF16", "V_SSqrtF32", "V_SSqrtF16", "V_RcpIflagF32",
     # Classification, exchange and frexp forms.
 "V_CmpClassF16", "V_CmpClassF32", "V_CmpClassF64", "V_SwapB32", "V_SwapB16", "V_SatPkU8I16", "V_Pipeflush", "V_FrexpExpI32F32", "V_FrexpMantF32", "V_FrexpExpI16F16", "V_FrexpMantF16",
     # VOP3-encoded compares.
