@@ -168,7 +168,7 @@ optimisation, not the contract.
 | Stages | `GLCompute`, `Vertex`, `Fragment` and legacy `Geometry` with IO variables, interpolation decorations, exports and vertex emission; multi-block functions still use the dispatcher fallback when the CFG is not reducible | NGG mesh, tessellation |
 | Waves | thread ids as `LocalInvocationId`, compare masks as `OpGroupNonUniformBallot` (wave32 or wave64 masks), `v_readfirstlane` as `OpGroupNonUniformBroadcastFirst`, one-lane interpreter model | per-lane EXEC predication of stores, `v_readlane`/`v_writelane`, `ds_swizzle`, quad ops |
 | Resources | one test buffer at set 0 binding 0 (`--test-abi`) | T#/V#/S# decode, SRT/heap access, push constants |
-| Verification | `tests/sweep.ps1`: 78 fixtures translated, driver-accepted and ISA-probed in parallel, none refused; VS/PS and VS/GS/PS pipelines rasterised by `SR.VkDraw`; console container executed; coverage regenerated per generation | title shader pack sweep |
+| Verification | `tests/sweep.ps1`: 80 fixtures translated, driver-accepted and ISA-probed in parallel, none refused; VS/PS and VS/GS/PS pipelines rasterised by `SR.VkDraw`; console container executed; coverage regenerated per generation | title shader pack sweep |
 
 ## 6. Roadmap
 
@@ -217,14 +217,21 @@ Each phase ends with something executable, not with a table entry.
    outputs with `OpEmitVertex`/`OpEndPrimitive` (geometry outputs are not
    arrays), and the execution modes carry the topologies and vertex budget,
    which arrive through `LiftOptions` because a raw code object does not state
-   them. Acceptance: `gfx1030/geometry` lifts, interprets, emits validated
+   them. Geometry *inputs* are arrays over the primitive's vertices:
+   `ds_read` on the input ring names the vertex in the address and the output
+   register in the immediate, and lifts to an indexed `StageInput`, so a GS
+   consumes the ES outputs through the normal Vulkan interface. Acceptance:
+   `gfx1030/geometry_read` lifts, interprets against the triangle's vertices
+   and draws a half-size copy (`904` of 4096 pixels, centre `255 0 0 255`) -
+   the same image a vertex stage computing those positions produces without a
+   geometry stage. Acceptance: `gfx1030/geometry` lifts, interprets, emits validated
    SPIR-V and draws with an empty vertex stage and the fragment fixture - 4096
    of 4096 pixels, centre `255 0 0 255` - and the driver reports the merged
    `_amdgpu_gs_main` with `s_sendmsg(MSG_GS_ALLOC_REQ)`. NGG programs, and the
    ES/GS pairing that reads the GSVS ring, remain diagnostics.
 7. **Sweep (done for the corpus).** `tests/sweep.ps1` translates every
    checked-in fixture in parallel, probes each compute module with the driver's
-   compiler and draws the graphics pipelines: 78 of 78, none refused, in about
+   compiler and draws the graphics pipelines: 80 of 80, none refused, in about
    two seconds. `tools/coverage.py` reports the translation share per generation
    from the ISA XML; the current numbers are gfx10 667/1149 (58.1%), gfx1030
    667/1153 (57.8%) and gfx1200 1344/1264 - the last above 100% because the

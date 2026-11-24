@@ -324,6 +324,16 @@ arrays: `OpEmitVertex` captures the current values, so the next vertex simply
 overwrites them. (Arrayed geometry outputs are rejected by the AMD driver;
 glslang emits the plain form too.)
 
+Geometry *inputs* are the opposite: the primitive is an array over its
+vertices, so `StageInput` carries the input vertex as its only operand and the
+emitter indexes the input array with it. The RDNA input ring names that vertex
+in the byte address (`vertex * 256`) and one output register in the immediate
+offset, position first and then one four-component location per register.
+
+Vertices staged in LDS (the NGG export model, `s_sendmsg GS_OP_EMIT`) are not
+modeled: the lifter decodes the message and refuses it, because ignoring it
+would silently emit nothing.
+
 Pipeline state that no instruction carries lives in the execution modes:
 `inputTopology`, `outputTopology` and `outputVertices`. The emitter turns them
 into `Triangles`/`InputLines`/..., `OutputTriangleStrip`/... and
