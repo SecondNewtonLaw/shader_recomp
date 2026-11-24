@@ -476,6 +476,15 @@ private:
         return Bitcast(m_module.types.U32(), *value);
     }
 
+    // One scalar register's 32-bit contents. The slot exists because the user
+    // data seeding created it; an unseeded register reads undef.
+    [[nodiscard]] Result<IL::ValueId> ReadSgprBits(std::uint32_t index, std::uint32_t pc)
+    {
+        if (index > kLastSgpr)
+            return std::unexpected(LiftError("SR-GFX-LIFT-083", "scalar register is out of range", pc));
+        return m_builder.Load(m_module.types.U32(), Slot(m_sgprSlots, index, IL::RegisterClass::Sgpr), pc, true);
+    }
+
     [[nodiscard]] Result<IL::ValueId> ReadFloat(const Operand& operand, std::uint32_t pc)
     {
         const auto value = ReadValue(operand, pc);
@@ -3249,6 +3258,131 @@ private:
                               instruction.pc,
                               static_cast<std::uint16_t>(instruction.op),
                               uniform);
+    }
+
+    // MUBUF/MTBUF: a resource descriptor in SGPRs, a VGPR address and an SGPR
+    // or inline offset. The descriptor is read from the user data slots, which
+    // the host fills; the result is a buffer device address the emitter turns
+    // into a physical pointer.
+    [[nodiscard]] Result<void> LiftMubuf(const DecodedInstruction& instruction)
+    {
+        if (instruction.operandCount < 3)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-080", "buffer instruction has too few operands", instruction.pc));
+
+        const bool isStore = instruction.op == Op::BufferStoreB8 || instruction.op == Op::BufferStoreB16 ||
+                             instruction.op == Op::BufferStoreB32 || instruction.op == Op::BufferStoreB64 ||
+                             instruction.op == Op::BufferStoreB96 || instruction.op == Op::BufferStoreB128 ||
+                             instruction.op == Op::BufferStoreFormatX || instruction.op == Op::BufferStoreFormatXy ||
+                             instruction.op == Op::BufferStoreFormatXyz ||
+                             instruction.op == Op::BufferStoreFormatXyzw;
+
+        if (instruction.op != Op::BufferLoadB32 && instruction.op != Op::BufferStoreB32)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-081",
+                                             std::string("buffer access is not modeled yet: ") +
+                                                 std::string(ToString(instruction.op)),
+                                             instruction.pc));
+        }
+
+        const std::uint32_t srsrc = instruction.bufferSrsrc;
+        if (static_cast<std::size_t>(srsrc) + 1 >= m_options.userData.size())
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-082",
+                                             "buffer descriptor s" + std::to_string(srsrc) +
+                                                 " is not in the user data",
+                                             instruction.pc));
+        }
+
+        // Descriptor: 48-bit base address in dwords 0 and 1, stride in dword 1.
+        const auto descriptor = [this](std::uint32_t index) -> Result<IL::ValueId> {
+            return ReadSgprBits(index, 0);
+        };
+
+        const auto low = descriptor(srsrc);
+        if (!low)
+            return std::unexpected(low.error());
+        const auto high = descriptor(srsrc + 1);
+        if (!high)
+            return std::unexpected(high.error());
+
+        const IL::ValueId low64 = m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *low, true);
+        const IL::ValueId highMasked = m_builder.Emit(m_module.types.U32(),
+                                                      IL::Op::Binary,
+                                                      static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                      {*high, m_builder.ConstantU32(0xFFFFu)},
+                                                      {},
+                                                      IL::NoPayload,
+                                                      instruction.pc,
+                                                      static_cast<std::uint16_t>(instruction.op),
+                                                      true);
+        const IL::ValueId high64 =
+            m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, highMasked, true);
+        const IL::ValueId highShifted = m_builder.Emit(m_module.types.U64(),
+                                                       IL::Op::Binary,
+                                                       static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                                       {high64, m_builder.ConstantU64(32)},
+                                                       {},
+                                                       IL::NoPayload,
+                                                       instruction.pc,
+                                                       static_cast<std::uint16_t>(instruction.op),
+                                                       true);
+        const IL::ValueId base = m_builder.Emit(m_module.types.U64(),
+                                                IL::Op::Binary,
+                                                static_cast<std::uint16_t>(IL::BinaryOp::Or),
+                                                {low64, highShifted},
+                                                {},
+                                                IL::NoPayload,
+                                                instruction.pc,
+                                                static_cast<std::uint16_t>(instruction.op),
+                                                true);
+
+        // Address = base + vaddr (+ soffset). A structured descriptor scales the
+        // index by its stride; the fixtures use a byte-addressed buffer.
+        const auto vaddr = ReadBits(instruction.operands[1], instruction.pc);
+        if (!vaddr)
+            return std::unexpected(vaddr.error());
+        const IL::ValueId vaddr64 =
+            m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *vaddr, false);
+
+        const auto soffset = ReadBits(instruction.operands[2], instruction.pc);
+        if (!soffset)
+            return std::unexpected(soffset.error());
+        const IL::ValueId soffset64 =
+            m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *soffset, true);
+
+        IL::ValueId sum = m_builder.Emit(m_module.types.U64(),
+                                         IL::Op::Binary,
+                                         static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                         {base, vaddr64},
+                                         {},
+                                         IL::NoPayload,
+                                         instruction.pc,
+                                         static_cast<std::uint16_t>(instruction.op),
+                                         false);
+        sum = m_builder.Emit(m_module.types.U64(),
+                             IL::Op::Binary,
+                             static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                             {sum, soffset64},
+                             {},
+                             IL::NoPayload,
+                             instruction.pc,
+                             static_cast<std::uint16_t>(instruction.op),
+                             false);
+
+        if (isStore)
+        {
+            const auto value = ReadBits(instruction.operands[0], instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+            m_builder.IntrinsicVoid(IL::IntrinsicId::DeviceStore, {sum, *value}, IL::NoPayload, instruction.pc);
+            return {};
+        }
+
+        const IL::ValueId result =
+            m_builder.IntrinsicValue(m_module.types.U32(), IL::IntrinsicId::DeviceLoad, {sum}, IL::NoPayload,
+                                     instruction.pc, false);
+        return WriteDest(instruction.operands[0], result, instruction.pc);
     }
 
     [[nodiscard]] Result<void> LiftBufferLoad(const DecodedInstruction& instruction)
@@ -7892,6 +8026,8 @@ private:
             return LiftExport(instruction);
         if (instruction.encoding == Encoding::Ds)
             return LiftDs(instruction);
+        if (instruction.encoding == Encoding::Mubuf || instruction.encoding == Encoding::Mtbuf)
+            return LiftMubuf(instruction);
         if (instruction.encoding == Encoding::Flat || instruction.encoding == Encoding::Global ||
             instruction.encoding == Encoding::Scratch || instruction.encoding == Encoding::Buffer)
             return LiftFlatMemory(instruction);

@@ -62,6 +62,8 @@ enum class IntrinsicId : std::uint16_t
     StageInput,
     StageOutput,
     UserData,
+    DeviceLoad,
+    DeviceStore,
 };
 
 enum class SpecialRegId : std::uint16_t

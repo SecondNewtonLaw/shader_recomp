@@ -767,6 +767,31 @@ constexpr std::array kGfx10 = {
     // EXP carries its target and enabled channels in fields, not operands.
     Make(Encoding::Exp, 0, Op::Exp, "exp",
          {OperandKind::ExpVsrc, OperandKind::ExpVsrc, OperandKind::ExpVsrc, OperandKind::ExpVsrc}),
+    // MUBUF: the RDNA1/2 buffer encoding. Its opcode numbers differ from the
+    // RDNA4 VBUFFER form that Encoding::Buffer carries, so the generation owns
+    // its own table instead of sharing one.
+    Make(Encoding::Mubuf, 0, Op::BufferLoadFormatX, "buffer_load_format_x", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 1, Op::BufferLoadFormatXy, "buffer_load_format_xy", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 2, Op::BufferLoadFormatXyz, "buffer_load_format_xyz", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 3, Op::BufferLoadFormatXyzw, "buffer_load_format_xyzw", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 4, Op::BufferStoreFormatX, "buffer_store_format_x", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 5, Op::BufferStoreFormatXy, "buffer_store_format_xy", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 6, Op::BufferStoreFormatXyz, "buffer_store_format_xyz", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 7, Op::BufferStoreFormatXyzw, "buffer_store_format_xyzw", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 8, Op::BufferLoadU8, "buffer_load_ubyte", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 9, Op::BufferLoadI8, "buffer_load_sbyte", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 10, Op::BufferLoadU16, "buffer_load_ushort", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 11, Op::BufferLoadI16, "buffer_load_sshort", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 12, Op::BufferLoadB32, "buffer_load_dword", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 13, Op::BufferLoadB64, "buffer_load_dwordx2", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 14, Op::BufferLoadB128, "buffer_load_dwordx4", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 15, Op::BufferLoadB96, "buffer_load_dwordx3", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 24, Op::BufferStoreB8, "buffer_store_byte", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 26, Op::BufferStoreB16, "buffer_store_short", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 28, Op::BufferStoreB32, "buffer_store_dword", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 29, Op::BufferStoreB64, "buffer_store_dwordx2", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 30, Op::BufferStoreB128, "buffer_store_dwordx4", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mubuf, 31, Op::BufferStoreB96, "buffer_store_dwordx3", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -2613,6 +2638,10 @@ std::string_view ToString(Encoding encoding) noexcept
         return "vintrp";
     case Encoding::Exp:
         return "exp";
+    case Encoding::Mubuf:
+        return "mubuf";
+    case Encoding::Mtbuf:
+        return "mtbuf";
     }
 
     return "unknown";
@@ -5006,6 +5035,15 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
         opcode = 0;
     }
+    else if (((word0 >> 26) & 0x3F) == 0x38 || ((word0 >> 26) & 0x3F) == 0x3A)
+    {
+        encoding = ((word0 >> 26) & 0x3F) == 0x38 ? Encoding::Mubuf : Encoding::Mtbuf;
+        if (words.size() < 2)
+            return std::unexpected(Error("SR-GFX-017", "truncated buffer instruction", bytePc));
+        baseWords = 2;
+        wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
+        opcode = static_cast<std::uint16_t>((word0 >> 18) & 0x3F);
+    }
     else if (((word0 >> 26) & 0x3F) == 0x36)
     {
         encoding = Encoding::Ds;
@@ -5220,6 +5258,18 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             operand.kind = OperandKind::Sdst;
             operand.value = Extract(wide, 0, 7);
             break;
+        case OperandKind::MubufVdata:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 40, 8);
+            break;
+        case OperandKind::MubufVaddr:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 0, 8);
+            break;
+        case OperandKind::MubufSoffset:
+            operand.kind = OperandKind::Ssrc;
+            operand.value = Extract(wide, 56, 8);
+            break;
         case OperandKind::VintrpVdst:
             operand.kind = OperandKind::Vgpr;
             operand.value = Extract(wide, 18, 8);
@@ -5282,6 +5332,14 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         }
 
         push(operand);
+    }
+
+    if (encoding == Encoding::Mubuf || encoding == Encoding::Mtbuf)
+    {
+        instruction.bufferOffen = Extract(word0, 12, 1) != 0;
+        instruction.bufferIdxen = Extract(word0, 13, 1) != 0;
+        instruction.bufferGlc = Extract(word0, 14, 1) != 0;
+        instruction.bufferSrsrc = Extract(wide, 48, 5) * 4;
     }
 
     if (encoding == Encoding::Vintrp)

@@ -716,6 +716,21 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     break;
                 }
 
+                if (id == IntrinsicId::DeviceLoad)
+                {
+                    const ValueId slot = resultId();
+                    const std::uint64_t address = read(instruction.operands[0]);
+                    const auto it = options.deviceMemory.find(address);
+                    values[slot] = it == options.deviceMemory.end() ? 0 : it->second;
+                    break;
+                }
+                if (id == IntrinsicId::DeviceStore)
+                {
+                    const std::uint64_t address = read(instruction.operands[0]);
+                    result.device[address] = static_cast<std::uint32_t>(read(instruction.operands[1]));
+                    break;
+                }
+
                 if (id == IntrinsicId::UserData)
                 {
                     const auto* payload = instruction.payload != NoPayload

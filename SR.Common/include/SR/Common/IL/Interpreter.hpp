@@ -16,6 +16,7 @@ struct ExecutionResult
     std::unordered_map<ValueId, std::uint64_t> memory; // alloca slot -> value
     std::unordered_map<std::uint32_t, std::uint32_t> buffer; // test ABI dword index -> value
     std::unordered_map<std::uint32_t, std::uint32_t> local;  // workgroup-scope dword index -> value
+    std::unordered_map<std::uint64_t, std::uint32_t> device; // device address -> dword
     std::unordered_map<std::uint64_t, std::uint64_t> outputs; // StageIoKey -> value
     std::vector<std::uint64_t> values;                 // SSA values at the end
     std::uint64_t steps = 0;
@@ -39,6 +40,8 @@ struct ExecutionOptions
     std::array<std::uint32_t, 3> workgroupSize = {64, 1, 1};
     // User data the dispatch supplies (push constants on the host).
     std::vector<std::uint32_t> userData;
+    // Device memory contents keyed by byte address, for buffer descriptors.
+    std::unordered_map<std::uint64_t, std::uint32_t> deviceMemory;
 };
 
 inline constexpr std::uint64_t kBuiltinKeyBase = 0x8000'0000ull;

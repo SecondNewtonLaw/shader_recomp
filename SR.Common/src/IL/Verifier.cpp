@@ -254,7 +254,7 @@ private:
         if (instruction.op == Op::Intrinsic && m_options.checkIntrinsics)
         {
             const auto id = static_cast<IntrinsicId>(instruction.subop);
-            if (id > IntrinsicId::UserData)
+            if (id > IntrinsicId::DeviceStore)
             {
                 Fail("SR-IL-041", "intrinsic id is out of range", pc);
             }

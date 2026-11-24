@@ -350,3 +350,51 @@ TEST_CASE("user data can come from host push constants", "[gfx][userdata][push]"
     REQUIRE(emission.has_value());
 #endif
 }
+
+TEST_CASE("a buffer descriptor becomes a device address load", "[gfx][descriptor][bda]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("descriptor.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("descriptor fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    // A V# for a buffer at 0x2000: low address, high address, records, flags.
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData = {0x2000u, 0u, 256u, 0u};
+
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const std::string dump = SR::IL::DumpModule(*module);
+    REQUIRE(dump.find("device.load") != std::string::npos);
+
+    SR::IL::ExecutionOptions executionOptions;
+    executionOptions.deviceMemory[0x2000] = 0x1234u;
+    const auto execution = SR::IL::Interpret(*module, executionOptions);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+
+    // The loaded dword is copied to the test buffer at dword 8.
+    REQUIRE(execution->buffer.at(2) == 0x1234u);
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    const auto emission = SR::Backend::Reemit(*module);
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+#endif
+}

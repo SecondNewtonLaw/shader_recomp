@@ -57,6 +57,8 @@ enum class Encoding : std::uint8_t
     Scratch,
     Vintrp,
     Exp,
+    Mubuf,
+    Mtbuf,
 };
 
 [[nodiscard]] std::string_view ToString(Encoding encoding) noexcept;
@@ -1196,6 +1198,9 @@ enum class OperandKind : std::uint8_t
     VintrpVdst,
     VintrpVsrc,
     ExpVsrc,
+    MubufVdata,
+    MubufVaddr,
+    MubufSoffset,
 };
 
 struct Operand
@@ -1229,6 +1234,11 @@ struct DecodedInstruction
     // VINTRP: the attribute slot and channel are fields, not register operands.
     std::uint8_t attr = 0;
     std::uint8_t attrChan = 0;
+
+    // MUBUF/MTBUF: the resource descriptor register. The addressing flags and
+    // the format live with the other buffer fields below.
+    std::uint32_t bufferSrsrc = 0;
+    bool bufferGlc = false;
 
     // EXP: enabled channels, export target, and the compressed (16-bit) form.
     std::uint8_t exportEnabled = 0;

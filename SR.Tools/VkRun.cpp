@@ -59,8 +59,15 @@ Device CreateDevice(VkInstance instance)
             queueInfo.queueCount = 1;
             queueInfo.pQueuePriorities = &priority;
 
+            // Buffer device address lets a shader read a V# base the harness
+            // hands it, the way a console dispatch supplies user data.
+            VkPhysicalDeviceVulkan12Features features12{};
+            features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+            features12.bufferDeviceAddress = VK_TRUE;
+
             VkDeviceCreateInfo deviceInfo{};
             deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+            deviceInfo.pNext = &features12;
             deviceInfo.queueCreateInfoCount = 1;
             deviceInfo.pQueueCreateInfos = &queueInfo;
 
@@ -83,12 +90,14 @@ int main(int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::cerr << "usage: SR.VkRun <module.spv> [words] [--push d0,d1,...] [init...]\n";
+        std::cerr << "usage: SR.VkRun <module.spv> [words] [--push d0,d1,...] [--vsharp N] [--init d0,d1,...]\n";
         return 2;
     }
 
     std::uint32_t wordCount = 16;
     std::vector<std::uint32_t> pushData(32, 0);
+    std::vector<std::uint32_t> initialValues(64, 0);
+    std::uint32_t vsharpAt = 0xFFFFFFFFu;
     int argumentStart = 2;
     for (int i = 2; i < argc; ++i)
     {
@@ -101,6 +110,23 @@ int main(int argc, char** argv)
             {
                 const std::size_t comma = text.find(',');
                 pushData[slot++] = static_cast<std::uint32_t>(std::stoul(std::string(text.substr(0, comma)), nullptr, 0));
+                text = comma == std::string_view::npos ? std::string_view() : text.substr(comma + 1);
+            }
+            continue;
+        }
+        if (argument == "--vsharp" && i + 1 < argc)
+        {
+            vsharpAt = static_cast<std::uint32_t>(std::stoul(argv[++i]));
+            continue;
+        }
+        if (argument == "--init" && i + 1 < argc)
+        {
+            std::string_view text = argv[++i];
+            std::size_t slot = 0;
+            while (!text.empty() && slot < initialValues.size())
+            {
+                const std::size_t comma = text.find(',');
+                initialValues[slot++] = static_cast<std::uint32_t>(std::stoul(std::string(text.substr(0, comma)), nullptr, 0));
                 text = comma == std::string_view::npos ? std::string_view() : text.substr(comma + 1);
             }
             continue;
@@ -151,7 +177,7 @@ int main(int argc, char** argv)
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.size = bufferSize;
-    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VkBuffer buffer = VK_NULL_HANDLE;
@@ -184,33 +210,35 @@ int main(int argc, char** argv)
     vkAllocateMemory(device.logical, &allocateInfo, nullptr, &memory);
     vkBindBufferMemory(device.logical, buffer, memory, 0);
 
+    if (vsharpAt != 0xFFFFFFFFu)
+    {
+        VkBufferDeviceAddressInfo addressInfo{};
+        addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+        addressInfo.buffer = buffer;
+        const VkDeviceAddress address = vkGetBufferDeviceAddress(device.logical, &addressInfo);
+        if (vsharpAt + 3 < pushData.size())
+        {
+            // A V# for the bound buffer: base address, then the record count.
+            pushData[vsharpAt + 0] = static_cast<std::uint32_t>(address & 0xFFFFFFFFull);
+            pushData[vsharpAt + 1] = static_cast<std::uint32_t>((address >> 32) & 0xFFFFull);
+            pushData[vsharpAt + 2] = static_cast<std::uint32_t>(bufferSize);
+            pushData[vsharpAt + 3] = 0;
+        }
+        else
+        {
+            std::cerr << "--vsharp index is outside the push block\n";
+            return 1;
+        }
+    }
+
     void* mapped = nullptr;
     vkMapMemory(device.logical, memory, 0, bufferSize, 0, &mapped);
     std::memset(mapped, 0, bufferSize);
     {
-        // Initial buffer values follow the module as plain numbers; options
-        // (--push, --words) are already consumed above.
         auto* initial = static_cast<std::uint32_t*>(mapped);
-        std::uint32_t index = 0;
-        for (int i = 2; i < argc; ++i)
-        {
-            const std::string_view argument = argv[i];
-            if (argument.empty() || argument[0] == '-')
-            {
-                if ((argument == "--push" || argument == "--words") && i + 1 < argc)
-                    ++i;
-                continue;
-            }
-            if (argument.find_first_not_of("0123456789") == std::string_view::npos && wordCount == 16 &&
-                i == argumentStart - 1)
-                continue; // the positional word count
-
-            if (index * sizeof(std::uint32_t) >= bufferSize)
-                break;
-            initial[index++] = static_cast<std::uint32_t>(std::stoul(std::string(argument)));
-        }
+        for (std::size_t index = 0; index < initialValues.size(); ++index)
+            initial[index] = initialValues[index];
     }
-
     VkDescriptorSetLayoutBinding binding{};
     binding.binding = 0;
     binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;

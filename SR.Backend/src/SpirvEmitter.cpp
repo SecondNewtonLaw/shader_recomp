@@ -58,6 +58,7 @@ enum SpvOp : std::uint16_t
     OpUConvert = 113,
     OpSConvert = 114,
     OpFConvert = 115,
+    OpConvertUToPtr = 120,
     OpBitcast = 124,
     OpSNegate = 126,
     OpFNegate = 127,
@@ -379,6 +380,18 @@ public:
             if (!scope)
                 return std::unexpected(scope.error());
             m_waveScope = *scope;
+        }
+
+        if (m_useDeviceMemory)
+        {
+            const IL::TypeId u32Type = m_module.types.FindInt(32, false);
+            if (u32Type == IL::InvalidType)
+                return std::unexpected(EmitError("SR-SPV-072", "device memory requires a u32 type"));
+            const auto u32 = EmitType(u32Type);
+            if (!u32)
+                return std::unexpected(u32.error());
+            m_devicePtrU32 = NewId();
+            Op(OpTypePointer, {m_devicePtrU32, 5349 /* PhysicalStorageBuffer */, *u32});
         }
 
         if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveBallot))
@@ -1019,12 +1032,18 @@ private:
             Op(OpCapability, {61}); // GroupNonUniform
             Op(OpCapability, {64}); // GroupNonUniformBallot (BroadcastFirst needs it too)
         }
+        if (UsesIntrinsic(m_module, IL::IntrinsicId::DeviceLoad) ||
+            UsesIntrinsic(m_module, IL::IntrinsicId::DeviceStore))
+        {
+            Op(OpCapability, {5347}); // PhysicalStorageBufferAddresses
+            m_useDeviceMemory = true;
+        }
         if (m_useGlsl)
         {
             m_glslSet = NewId();
             EmitString(OpExtInstImport, m_glslSet, "GLSL.std.450");
         }
-        Op(OpMemoryModel, {0, 1}); // Logical, GLSL450
+        Op(OpMemoryModel, {m_useDeviceMemory ? 5348u : 0u, 1}); // PhysicalStorageBuffer64 or Logical, GLSL450
 
         m_mainId = NewId();
         const std::uint32_t executionModel = ExecutionModel(m_module.stage);
@@ -2238,6 +2257,48 @@ private:
         }
 
         if (instruction.op == IL::Op::Intrinsic &&
+            (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::DeviceLoad) ||
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::DeviceStore)))
+        {
+            if (!m_useDeviceMemory)
+                return std::unexpected(EmitError("SR-SPV-073", "device access without the address capability", instruction.sourcePc));
+
+            const auto address = ValueId(function, instruction.operands[0]);
+            if (!address)
+                return std::unexpected(EmitError("SR-SPV-074", "invalid device address", instruction.sourcePc));
+
+            const std::uint32_t pointer = NewId();
+            Op(OpConvertUToPtr, {m_devicePtrU32, pointer, *address});
+
+            if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::DeviceStore))
+            {
+                const auto value = ValueId(function, instruction.operands[1]);
+                if (!value)
+                    return std::unexpected(EmitError("SR-SPV-075", "invalid device store value", instruction.sourcePc));
+                // A physical pointer carries no alignment information, so the
+                // access states it: the resources here are dword-aligned.
+                Op(OpStore, {pointer, *value, 2 /* Aligned */, 4});
+                return {};
+            }
+
+            if (instruction.results.size() != 1)
+                return std::unexpected(EmitError("SR-SPV-076", "device load must have one result", instruction.sourcePc));
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+            Op(OpLoad, {*resultType, resultId, pointer, 2 /* Aligned */, 4});
+            m_valueIds[resultValue] = resultId;
+            if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                Op(OpStore, {m_spillVars[resultValue], resultId});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::WaveBroadcastFirst))
         {
             if (instruction.results.size() != 1 || instruction.operands.size() != 1)
@@ -3052,6 +3113,8 @@ private:
     std::uint32_t m_ballotVecType = 0;
     std::uint32_t m_ballotPairType = 0;
     std::uint32_t m_waveScope = 0;
+    bool m_useDeviceMemory = false;
+    std::uint32_t m_devicePtrU32 = 0;
     bool m_usePushConstants = false;
     std::uint32_t m_pushVar = 0;
     std::uint32_t m_pushArray = 0;
