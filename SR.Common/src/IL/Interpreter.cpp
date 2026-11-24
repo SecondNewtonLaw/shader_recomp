@@ -918,6 +918,13 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                 {
                     const ValueId slot = resultId();
                     const std::uint64_t address = read(instruction.operands[0]);
+                    // A store earlier in the same invocation wins over the
+                    // initial contents, so a store/load round trip works.
+                    if (const auto written = result.device.find(address); written != result.device.end())
+                    {
+                        values[slot] = written->second;
+                        break;
+                    }
                     const auto it = options.deviceMemory.find(address);
                     values[slot] = it == options.deviceMemory.end() ? 0 : it->second;
                     break;
