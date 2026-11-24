@@ -663,6 +663,30 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     values[id] = it == result.local.end() ? 0 : it->second;
                     break;
                 }
+
+                if (id == IntrinsicId::StageInput || id == IntrinsicId::StageOutput)
+                {
+                    const auto* io = instruction.payload != NoPayload
+                                         ? std::get_if<StageIoDesc>(&module.payloads.Get(instruction.payload))
+                                         : nullptr;
+                    if (io == nullptr)
+                        return std::unexpected(ExecutionError("SR-IL-INT-015",
+                                                              "stage IO without a signature descriptor",
+                                                              instruction.sourcePc));
+
+                    const std::uint64_t key = StageIoKey(io->builtin, io->location, io->component);
+                    if (id == IntrinsicId::StageInput)
+                    {
+                        const ValueId slot = resultId();
+                        const auto it = options.stageInputs.find(key);
+                        values[slot] = it == options.stageInputs.end() ? 0 : it->second;
+                    }
+                    else
+                    {
+                        result.outputs[key] = read(instruction.operands[0]);
+                    }
+                    break;
+                }
                 return std::unexpected(ExecutionError("SR-IL-INT-014",
                                                       std::string("unsupported intrinsic: ") + std::string(ToString(id)),
                                                       instruction.sourcePc));

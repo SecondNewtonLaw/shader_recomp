@@ -6,6 +6,7 @@
 
 #include "SR/Common/Diagnostic.hpp"
 #include "SR/Common/IL/Module.hpp"
+#include "SR/Common/IL/Signature.hpp"
 
 namespace SR::IL {
 
@@ -14,6 +15,7 @@ struct ExecutionResult
     std::unordered_map<ValueId, std::uint64_t> memory; // alloca slot -> value
     std::unordered_map<std::uint32_t, std::uint32_t> buffer; // test ABI dword index -> value
     std::unordered_map<std::uint32_t, std::uint32_t> local;  // workgroup-scope dword index -> value
+    std::unordered_map<std::uint64_t, std::uint64_t> outputs; // StageIoKey -> value
     std::vector<std::uint64_t> values;                 // SSA values at the end
     std::uint64_t steps = 0;
     BlockId finalBlock = InvalidBlockId;
@@ -26,7 +28,23 @@ struct ExecutionOptions
     std::unordered_map<std::uint32_t, std::uint32_t> testBuffer;
     // Workgroup-scope memory contents: dword index -> value.
     std::unordered_map<std::uint32_t, std::uint32_t> localMemory;
+    // Stage inputs: StageIoKey -> value. Builtin values use
+    // kBuiltinKeyBase + the Builtin enumerator; locations use
+    // location * 4 + component.
+    std::unordered_map<std::uint64_t, std::uint64_t> stageInputs;
 };
+
+inline constexpr std::uint64_t kBuiltinKeyBase = 0x8000'0000ull;
+
+// The key the interpreter uses for one stage input or output.
+[[nodiscard]] constexpr std::uint64_t StageIoKey(Builtin builtin,
+                                                 std::uint32_t location,
+                                                 std::uint32_t component) noexcept
+{
+    return builtin != Builtin::None
+               ? kBuiltinKeyBase + (static_cast<std::uint64_t>(builtin) * 4) + component
+               : static_cast<std::uint64_t>(location) * 4 + component;
+}
 
 // Executes one invocation of a lifted module. This is a reference model for
 // tests and the divergence harness, not an optimiser: it implements the IL

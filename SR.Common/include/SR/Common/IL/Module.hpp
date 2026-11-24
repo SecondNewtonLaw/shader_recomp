@@ -11,6 +11,7 @@
 #include "SR/Common/IL/Attributes.hpp"
 #include "SR/Common/IL/Instruction.hpp"
 #include "SR/Common/IL/Intrinsics.hpp"
+#include "SR/Common/IL/Signature.hpp"
 #include "SR/Common/IL/Types.hpp"
 
 namespace SR::IL {
@@ -78,44 +79,6 @@ constexpr std::string_view ToString(Stage stage)
 
     return "unknown";
 }
-
-enum class Interpolation : std::uint8_t
-{
-    None,
-    Perspective,
-    Linear,
-    NoPerspective,
-    Flat,
-    Centroid,
-    Sample,
-};
-
-enum class Builtin : std::uint8_t
-{
-    None,
-    Position,
-    PointSize,
-    VertexIndex,
-    InstanceIndex,
-    FragCoord,
-    FrontFacing,
-    PrimitiveId,
-    Layer,
-    ViewportIndex,
-    TessCoord,
-    BaryCoord,
-    SampleId,
-    SampleMask,
-    ClipDistance,
-    CullDistance,
-    LocalInvocationId,
-    GlobalInvocationId,
-    WorkgroupId,
-    LocalInvocationIndex,
-    SubgroupInvocationId,
-    SubgroupSize,
-    NumWorkgroups,
-};
 
 struct SignatureDecl
 {

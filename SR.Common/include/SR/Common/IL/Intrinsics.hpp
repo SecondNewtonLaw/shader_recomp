@@ -5,6 +5,7 @@
 #include <variant>
 
 #include "SR/Common/IL/Attributes.hpp"
+#include "SR/Common/IL/Signature.hpp"
 #include "SR/Common/IL/Types.hpp"
 
 namespace SR::IL {
@@ -57,6 +58,8 @@ enum class IntrinsicId : std::uint16_t
     TestBufferLoad,
     LocalStore,
     LocalLoad,
+    StageInput,
+    StageOutput,
 };
 
 enum class SpecialRegId : std::uint16_t
@@ -208,7 +211,8 @@ using Payload = std::variant<std::monostate,
                              SampleDesc,
                              DotDesc,
                              SendDesc,
-                             TestBufferDesc>;
+                             TestBufferDesc,
+                             StageIoDesc>;
 
 struct IntrinsicSpec
 {
