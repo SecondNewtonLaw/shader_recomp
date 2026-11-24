@@ -231,8 +231,9 @@ Each phase ends with something executable, not with a table entry.
    ES/GS pairing that reads the GSVS ring, remain diagnostics.
 7. **Sweep (done for the corpus).** `tests/sweep.ps1` translates every
    checked-in fixture in parallel, probes each compute module with the driver's
-   compiler and draws the graphics pipelines: 86 of 86, none refused, in about
-   two seconds. `tools/coverage.py` derives the lifted set from
+   compiler and draws the graphics pipelines: 92 of 93 translated and accepted,
+   one refused by design (the mip load), serially - eight concurrent Vulkan
+   devices wedged the driver on this machine. `tools/coverage.py` derives the lifted set from
    `GfxLifter.cpp` instead of a hand-maintained list, and reports the decoded
    count beside it: gfx10 lifts 802 of its 840 decoded opcodes (of 1149 in the
    XML), gfx1030 802 of 840 (of 1153), gfx1200 1255 of 1553 decoded (the

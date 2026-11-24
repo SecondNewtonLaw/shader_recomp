@@ -10,7 +10,10 @@
 param(
     [string]$Configuration = "debug",
     [string]$Bin = "",
-    [int]$Throttle = 8
+    # One probe at a time is the default: eight concurrent Vulkan devices
+    # repeatedly wedged this machine's driver, and the sweep is a structural
+    # check, not a benchmark. Raise it when the driver is known to cope.
+    [int]$Throttle = 1
 )
 
 $ErrorActionPreference = "Stop"
