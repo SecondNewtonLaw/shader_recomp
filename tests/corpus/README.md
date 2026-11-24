@@ -41,6 +41,13 @@ real AMDGPU code objects assembled from `*.s` with ROCm's `llvm-mc`, one
 directory per generation. They exercise decode → translate → CFA → SSA →
 optimize → SPIR-V end to end, and `build_gfx.ps1` regenerates all of them.
 
+`xbox/` holds a console fixture: the same program as a gfx1030 code object and
+wrapped in an Xbox Series X|S container (DXBC → XDAT → XBCH → FSSM). The reader
+must turn both into the same instruction stream and the same SPIR-V. The
+container is synthetic (assembled with `llvm-mc`, not taken from a title) and its
+layout is documented in `docs/XBOX_SERIES_X.md`; `build_xbox.py` regenerates it
+from the code object.
+
 Round-trip checks live in `tests/roundtrip.ps1`: they recompile each fixture to
 SPIR-V, compile that SPIR-V with the installed Vulkan driver through
 `SR.ISAProbe`, and compare the driver's ISA against the original.
@@ -81,6 +88,13 @@ powershell -ExecutionPolicy Bypass -File scripts/build_corpus.ps1 -Clean
 # Only one format
 powershell -ExecutionPolicy Bypass -File scripts/build_corpus.ps1 -SkipDxbc
 powershell -ExecutionPolicy Bypass -File scripts/build_corpus.ps1 -SkipDxil
+```
+
+The console fixture is rebuilt with ROCm's `llvm-mc` and Python 3:
+
+```powershell
+llvm-mc -triple=amdgcn-amd-amdhsa -mcpu=gfx1030 -filetype=obj xbox/compute.s -o xbox/compute.hsaco
+python xbox/build_xbox.py xbox/compute.hsaco xbox/compute.bin
 ```
 
 Partial builds rewrite `compiled/index.json` with only the built targets. Run a

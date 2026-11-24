@@ -49,6 +49,10 @@ struct DecodedShader
     std::uint32_t shaderModel = 0;
     std::vector<DecodedFunction> functions;
     std::vector<std::uint8_t> rawBytecode;
+    // Observations a reader made while resolving the container: a fallback that
+    // matched, a size field that disagreed, a layout guess. Empty when the input
+    // was unambiguous.
+    std::vector<std::string> notes;
 };
 
 } // namespace SR::Frontend

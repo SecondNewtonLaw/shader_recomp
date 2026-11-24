@@ -13,6 +13,7 @@ enum class BinaryFormat : std::uint8_t
     Spirv,
     Cubin,
     Hsaco,
+    XboxShader,
 };
 
 constexpr std::string_view ToString(BinaryFormat format)
@@ -29,6 +30,8 @@ constexpr std::string_view ToString(BinaryFormat format)
         return "cubin";
     case BinaryFormat::Hsaco:
         return "hsaco";
+    case BinaryFormat::XboxShader:
+        return "xbox";
     case BinaryFormat::Unknown:
         break;
     }

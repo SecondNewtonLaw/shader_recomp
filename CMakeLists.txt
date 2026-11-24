@@ -35,6 +35,7 @@ include(cmake/CPM.cmake)
 include(cmake/libassert.cmake)
 include(cmake/mimalloc.cmake)
 include(cmake/spirv.cmake)
+include(cmake/zlib.cmake)
 
 include(CTest)
 if (BUILD_TESTING)
@@ -224,6 +225,7 @@ sr_add_library(SR.Frontend
         SR.Frontend/src/Arch/Gfx/GfxLifter.cpp
         SR.Frontend/src/Container/DxbcContainer.cpp
         SR.Frontend/src/Container/ElfContainer.cpp
+        SR.Frontend/src/Container/XboxShaderContainer.cpp
         SR.Frontend/src/Frontend.cpp
         SR.Frontend/src/MasterReader.cpp
         SR.Frontend/src/Readers/CubinReader.cpp
@@ -231,8 +233,13 @@ sr_add_library(SR.Frontend
         SR.Frontend/src/Readers/DxilReader.cpp
         SR.Frontend/src/Readers/HsacoReader.cpp
         SR.Frontend/src/Readers/SpirvReader.cpp
+        SR.Frontend/src/Readers/XboxShaderReader.cpp
 )
 target_link_libraries(SR.Frontend PUBLIC SR.Common)
+if (TARGET zlibstatic)
+    # XBCH streams are zlib-wrapped FSSM programs.
+    target_link_libraries(SR.Frontend PRIVATE zlibstatic)
+endif ()
 
 sr_add_library(SR.Backend
         SR.Backend/src/SpirvEmitter.cpp
@@ -281,6 +288,7 @@ if (BUILD_TESTING)
             SR.Tests/CorpusReaderTests.cpp
             SR.Tests/FormatReaderTests.cpp
             SR.Tests/GfxTests.cpp
+            SR.Tests/XboxTests.cpp
     )
     target_link_libraries(SR.Tests PRIVATE
             SR.Common

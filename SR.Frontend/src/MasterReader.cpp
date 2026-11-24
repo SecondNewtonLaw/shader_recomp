@@ -7,13 +7,17 @@
 #include "SR/Frontend/Readers/DxilReader.hpp"
 #include "SR/Frontend/Readers/HsacoReader.hpp"
 #include "SR/Frontend/Readers/SpirvReader.hpp"
+#include "SR/Frontend/Readers/XboxShaderReader.hpp"
 
 namespace SR::Frontend {
 
 MasterReader::MasterReader()
 {
-    // DXIL lives in a DXBC container, so it is probed before DXBC.
+    // DXIL lives in a DXBC container, so it is probed before DXBC. A console
+    // container is DXBC as well but its DXIL part carries machine code in an
+    // XDAT/XBCH stream, so it is probed before DXIL.
     Add(std::make_unique<SpirvReader>());
+    Add(std::make_unique<XboxShaderReader>());
     Add(std::make_unique<DxilReader>());
     Add(std::make_unique<DxbcReader>());
     Add(std::make_unique<CubinReader>());

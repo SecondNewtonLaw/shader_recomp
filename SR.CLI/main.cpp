@@ -24,8 +24,9 @@ void PrintUsage()
               << "       shader-recomp --inspect <input>\n"
               << "       shader-recomp [--arch <name>] [--dump-il] --spirv <output.spv> <input>\n"
               << '\n'
-              << "Registered readers: spirv, dxil, dxbc, cubin, hsaco\n"
-              << "Architectures: gfx10, gfx1013, gfx1030, gfx1100, gfx1150, gfx1200\n";
+              << "Registered readers: spirv, xbox, dxil, dxbc, cubin, hsaco\n"
+              << "Architectures: gfx10, gfx1013, gfx1030, gfx1100, gfx1150, gfx1200\n"
+              << "An Xbox Series X|S container defaults to gfx1030.\n";
 }
 
 std::vector<std::uint8_t> ReadFile(const std::string& path, bool& ok)
@@ -55,6 +56,9 @@ void PrintShader(const SR::Frontend::DecodedShader& shader)
               << "functions:     " << shader.functions.size() << '\n'
               << "instructions:  " << instructionCount << '\n'
               << "raw bytecode:  " << shader.rawBytecode.size() << " bytes\n";
+
+    for (const std::string& note : shader.notes)
+        std::cout << "note:          " << note << '\n';
 }
 
 } // namespace
@@ -64,6 +68,7 @@ int main(int argc, char** argv)
     std::string input;
     std::string output;
     std::string archName = "gfx1200";
+    bool archSpecified = false;
     bool inspect = false;
     bool recompile = false;
     bool dumpIl = false;
@@ -105,6 +110,7 @@ int main(int argc, char** argv)
         if (argument == "--arch" && i + 1 < argc)
         {
             archName = argv[++i];
+            archSpecified = true;
             continue;
         }
 
@@ -159,11 +165,16 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (shader->format != SR::Frontend::BinaryFormat::Hsaco)
+    if (shader->format != SR::Frontend::BinaryFormat::Hsaco
+        && shader->format != SR::Frontend::BinaryFormat::XboxShader)
     {
-        std::cerr << "recompilation currently targets AMDGPU code objects (hsaco)\n";
+        std::cerr << "recompilation currently targets AMDGPU code objects (hsaco) and Xbox Series X|S containers\n";
         return 1;
     }
+
+    // Console programs are GFX10.3; the other formats keep the RDNA4 default.
+    if (!archSpecified && shader->format == SR::Frontend::BinaryFormat::XboxShader)
+        archName = "gfx1030";
 
     const auto* arch = SR::Frontend::Gfx::FindArch(archName);
     if (arch == nullptr)

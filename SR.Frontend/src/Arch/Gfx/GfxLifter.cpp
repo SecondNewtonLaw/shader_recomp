@@ -8959,6 +8959,18 @@ Result<IL::Module> Lift(const DecodedShader& shader, Arch arch, std::string_view
     if (shader.rawBytecode.empty())
         return std::unexpected(LiftError("SR-GFX-LIFT-030", "code object has no .text payload", 0));
 
+    // The translation stage models one invocation: thread ids and memory. A
+    // vertex or pixel program needs IO variables, interpolation and exports,
+    // which the emitter does not have yet, so it is refused rather than lifted
+    // as if it were compute.
+    if (shader.stage != IL::Stage::Unknown && shader.stage != IL::Stage::Compute)
+    {
+        return std::unexpected(LiftError("SR-GFX-LIFT-032",
+                                         "stage '" + std::string(IL::ToString(shader.stage))
+                                             + "' has no execution model yet; only compute is lifted",
+                                         0));
+    }
+
     if (shader.rawBytecode.size() % 4 != 0)
         return std::unexpected(LiftError("SR-GFX-LIFT-031", "code object size is not a multiple of 4", 0));
 
