@@ -317,7 +317,16 @@ public:
                 m_f16One = NewId();
                 Op(OpConstant, {*type, m_f16One, 0x3C00u});
             }
-            if (m_f32One == 0 && m_f16One == 0)
+            const IL::TypeId f64Type = m_module.types.FindFloat(IL::FloatFormat::F64);
+            if (f64Type != IL::InvalidType)
+            {
+                const auto type = EmitType(f64Type);
+                if (!type)
+                    return std::unexpected(type.error());
+                m_f64One = NewId();
+                Op(OpConstant, {*type, m_f64One, 0u, 0x3FF00000u});
+            }
+            if (m_f32One == 0 && m_f16One == 0 && m_f64One == 0)
                 return std::unexpected(EmitError("SR-SPV-046", "reciprocal requires a float type"));
         }
 
@@ -445,6 +454,17 @@ private:
         return false;
     }
 
+    [[nodiscard]] static bool UsesFloat64(const IL::Module& module)
+    {
+        for (std::size_t index = 0; index < module.types.size(); ++index)
+        {
+            const IL::Type& type = module.types.Get(static_cast<IL::TypeId>(index));
+            if (type.kind == IL::TypeKind::Float && type.floatFormat == IL::FloatFormat::F64)
+                return true;
+        }
+        return false;
+    }
+
     [[nodiscard]] static bool UsesFloatReciprocal(const IL::Module& module)
     {
         for (const IL::Function& function : module.functions)
@@ -454,7 +474,8 @@ private:
                 for (const IL::Instruction& instruction : block.body)
                 {
                     if (instruction.op == IL::Op::Unary &&
-                        static_cast<IL::UnaryOp>(instruction.subop) == IL::UnaryOp::Rcp)
+                        (static_cast<IL::UnaryOp>(instruction.subop) == IL::UnaryOp::Rcp ||
+                         static_cast<IL::UnaryOp>(instruction.subop) == IL::UnaryOp::Rsq))
                     {
                         return true;
                     }
@@ -514,6 +535,8 @@ private:
             Op(OpCapability, {9}); // Float16
         if (UsesInt16(m_module))
             Op(OpCapability, {22}); // Int16
+        if (UsesFloat64(m_module))
+            Op(OpCapability, {10}); // Float64
         if (m_useGlsl)
         {
             m_glslSet = NewId();
@@ -2001,7 +2024,9 @@ private:
         case IL::UnaryOp::Rcp:
         {
             const std::uint32_t one =
-                resultType.floatFormat == IL::FloatFormat::F16 ? m_f16One : m_f32One;
+                resultType.floatFormat == IL::FloatFormat::F16 ? m_f16One
+                : resultType.floatFormat == IL::FloatFormat::F64 ? m_f64One
+                                                                 : m_f32One;
             if (one == 0)
                 return std::unexpected(EmitError("SR-SPV-083", "reciprocal constant was not pre-emitted", instruction.sourcePc));
             Op(OpFDiv, {typeId, resultId, one, *operand});
@@ -2009,9 +2034,21 @@ private:
             return {};
         }
         case IL::UnaryOp::Rsq:
+        {
+            if (resultType.floatFormat == IL::FloatFormat::F64)
+            {
+                if (m_f64One == 0)
+                    return std::unexpected(EmitError("SR-SPV-084", "rsq constant was not pre-emitted", instruction.sourcePc));
+                const std::uint32_t root = NewId();
+                Op(OpExtInst, {typeId, root, m_glslSet, GlslSqrt, *operand});
+                Op(OpFDiv, {typeId, resultId, m_f64One, root});
+                m_valueIds[resultValue] = resultId;
+                return {};
+            }
             Op(OpExtInst, {typeId, resultId, m_glslSet, GlslInverseSqrt, *operand});
             m_valueIds[resultValue] = resultId;
             return {};
+        }
         case IL::UnaryOp::Exp2:
             Op(OpExtInst, {typeId, resultId, m_glslSet, GlslExp2, *operand});
             m_valueIds[resultValue] = resultId;
@@ -2160,6 +2197,7 @@ private:
     std::uint32_t m_mainId = 0;
     std::uint32_t m_f32One = 0;
     std::uint32_t m_f16One = 0;
+    std::uint32_t m_f64One = 0;
 
     bool m_structured = false;
     IL::FunctionAnalysis m_analysis;

@@ -230,6 +230,19 @@ bool WriteVgprPair(IsaState& state, const Operand& operand, std::uint64_t value)
     return true;
 }
 
+std::optional<double> ReadF64(const IsaState& state, const Operand& operand)
+{
+    const auto bits = ReadVgprPair(state, operand);
+    if (!bits)
+        return std::nullopt;
+    return std::bit_cast<double>(*bits);
+}
+
+bool WriteF64(IsaState& state, const Operand& operand, double value)
+{
+    return WriteVgprPair(state, operand, std::bit_cast<std::uint64_t>(value));
+}
+
 std::optional<std::uint32_t> BufferIndex(const IsaState& state,
                                          const DecodedInstruction& instruction,
                                          std::uint8_t addressIndex)
@@ -1359,8 +1372,142 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                     return std::unexpected(Error("SR-GFX-ISA-105", "invalid cvt_u32_u16 operands", pc));
                 break;
             }
-        case Op::V_CvtF16F32:
+        case Op::V_CvtF64I32:
             {
+                const auto value = source(1);
+                if (!value || !WriteF64(result.state, instruction.operands[0],
+                                        static_cast<double>(AsSigned(*value))))
+                    return std::unexpected(Error("SR-GFX-ISA-151", "invalid cvt_f64_i32 operands", pc));
+                break;
+            }
+        case Op::V_CvtF64U32:
+            {
+                const auto value = source(1);
+                if (!value || !WriteF64(result.state, instruction.operands[0],
+                                        static_cast<double>(*value)))
+                    return std::unexpected(Error("SR-GFX-ISA-152", "invalid cvt_f64_u32 operands", pc));
+                break;
+            }
+        case Op::V_CvtI32F64:
+            {
+                const auto value = ReadF64(result.state, instruction.operands[1]);
+                if (!value || !write(static_cast<std::uint32_t>(static_cast<std::int32_t>(*value))))
+                    return std::unexpected(Error("SR-GFX-ISA-153", "invalid cvt_i32_f64 operands", pc));
+                break;
+            }
+        case Op::V_CvtU32F64:
+            {
+                const auto value = ReadF64(result.state, instruction.operands[1]);
+                if (!value || !write(static_cast<std::uint32_t>(*value)))
+                    return std::unexpected(Error("SR-GFX-ISA-154", "invalid cvt_u32_f64 operands", pc));
+                break;
+            }
+        case Op::V_CvtF64F32:
+            {
+                const auto value = source(1);
+                if (!value || !WriteF64(result.state, instruction.operands[0],
+                                        static_cast<double>(AsFloat(*value))))
+                    return std::unexpected(Error("SR-GFX-ISA-155", "invalid cvt_f64_f32 operands", pc));
+                break;
+            }
+        case Op::V_CvtF32F64:
+            {
+                const auto value = ReadF64(result.state, instruction.operands[1]);
+                if (!value || !write(AsBits(static_cast<float>(*value))))
+                    return std::unexpected(Error("SR-GFX-ISA-156", "invalid cvt_f32_f64 operands", pc));
+                break;
+            }
+        case Op::V_TruncF64:
+        case Op::V_CeilF64:
+        case Op::V_RndneF64:
+        case Op::V_FloorF64:
+        case Op::V_RcpF64:
+        case Op::V_RsqF64:
+        case Op::V_SqrtF64:
+        case Op::V_FractF64:
+            {
+                const auto value = ReadF64(result.state, instruction.operands[1]);
+                if (!value)
+                    return std::unexpected(Error("SR-GFX-ISA-157", "invalid f64 unary operand", pc));
+                double converted = 0.0;
+                switch (instruction.op)
+                {
+                case Op::V_TruncF64:
+                    converted = std::trunc(*value);
+                    break;
+                case Op::V_CeilF64:
+                    converted = std::ceil(*value);
+                    break;
+                case Op::V_RndneF64:
+                    converted = std::nearbyint(*value);
+                    break;
+                case Op::V_FloorF64:
+                    converted = std::floor(*value);
+                    break;
+                case Op::V_RcpF64:
+                    converted = 1.0 / *value;
+                    break;
+                case Op::V_RsqF64:
+                    converted = 1.0 / std::sqrt(*value);
+                    break;
+                case Op::V_SqrtF64:
+                    converted = std::sqrt(*value);
+                    break;
+                case Op::V_FractF64:
+                    converted = *value - std::floor(*value);
+                    break;
+                default:
+                    break;
+                }
+                if (!WriteF64(result.state, instruction.operands[0], converted))
+                    return std::unexpected(Error("SR-GFX-ISA-158", "invalid f64 unary destination", pc));
+                break;
+            }
+        case Op::V_AddF64:
+        case Op::V_MulF64:
+        case Op::V_MinF64:
+        case Op::V_MaxF64:
+            {
+                const auto first = ReadF64(result.state, instruction.operands[1]);
+                const auto second = ReadF64(result.state, instruction.operands[2]);
+                if (!first || !second)
+                    return std::unexpected(Error("SR-GFX-ISA-159", "invalid f64 binary operands", pc));
+                double value = 0.0;
+                if (instruction.op == Op::V_AddF64)
+                    value = *first + *second;
+                else if (instruction.op == Op::V_MulF64)
+                    value = *first * *second;
+                else if (instruction.op == Op::V_MinF64)
+                    value = std::fmin(*first, *second);
+                else
+                    value = std::fmax(*first, *second);
+                if (!WriteF64(result.state, instruction.operands[0], value))
+                    return std::unexpected(Error("SR-GFX-ISA-160", "invalid f64 binary destination", pc));
+                break;
+            }
+        case Op::V_FmaF64:
+            {
+                const auto a = ReadF64(result.state, instruction.operands[1]);
+                const auto b = ReadF64(result.state, instruction.operands[2]);
+                const auto c = ReadF64(result.state, instruction.operands[3]);
+                if (!a || !b || !c)
+                    return std::unexpected(Error("SR-GFX-ISA-161", "invalid f64 fma operands", pc));
+                if (!WriteF64(result.state, instruction.operands[0], std::fma(*a, *b, *c)))
+                    return std::unexpected(Error("SR-GFX-ISA-162", "invalid f64 fma destination", pc));
+                break;
+            }
+        case Op::V_LdexpF64:
+            {
+                const auto value = ReadF64(result.state, instruction.operands[1]);
+                const auto exponent = source(2);
+                if (!value || !exponent)
+                    return std::unexpected(Error("SR-GFX-ISA-163", "invalid f64 ldexp operands", pc));
+                const double scale = std::exp2(static_cast<double>(AsSigned(*exponent)));
+                if (!WriteF64(result.state, instruction.operands[0], *value * scale))
+                    return std::unexpected(Error("SR-GFX-ISA-164", "invalid f64 ldexp destination", pc));
+                break;
+            }
+        case Op::V_CvtF16F32:            {
                 const auto value = source(1);
                 if (!value || !write(FloatToHalf(AsFloat(*value))))
                     return std::unexpected(Error("SR-GFX-ISA-127", "invalid cvt_f16_f32 operands", pc));

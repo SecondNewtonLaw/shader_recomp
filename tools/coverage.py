@@ -102,6 +102,11 @@ LIFTED = {
     "V_RndneF16", "V_FractF16", "V_SinF16", "V_CosF16", "V_MovB16", "V_NotB16",
     "V_AddF16", "V_SubF16", "V_SubrevF16", "V_MulF16", "V_FmacF16", "V_MinF16",
     "V_MaxF16", "V_LdexpF16", "V_Min3F16", "V_Max3F16", "V_FmaF16",
+    # F64.
+    "V_CvtI32F64", "V_CvtF64I32", "V_CvtF32F64", "V_CvtF64F32", "V_CvtU32F64",
+    "V_CvtF64U32", "V_TruncF64", "V_CeilF64", "V_RndneF64", "V_FloorF64",
+    "V_RcpF64", "V_RsqF64", "V_SqrtF64", "V_FractF64", "V_AddF64", "V_MulF64",
+    "V_MinF64", "V_MaxF64", "V_FmaF64", "V_LdexpF64",
 }
 
 FAMILIES = [

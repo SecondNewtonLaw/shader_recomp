@@ -384,6 +384,43 @@ constexpr std::array kGfx10 = {
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop3, 852, Op::V_Max3F16, "v_max3_f16",
          {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop1, 3, Op::V_CvtI32F64, "v_cvt_i32_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 4, Op::V_CvtF64I32, "v_cvt_f64_i32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 15, Op::V_CvtF32F64, "v_cvt_f32_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 16, Op::V_CvtF64F32, "v_cvt_f64_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 21, Op::V_CvtU32F64, "v_cvt_u32_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 22, Op::V_CvtF64U32, "v_cvt_f64_u32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 23, Op::V_TruncF64, "v_trunc_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 24, Op::V_CeilF64, "v_ceil_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 25, Op::V_RndneF64, "v_rndne_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 26, Op::V_FloorF64, "v_floor_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 47, Op::V_RcpF64, "v_rcp_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 49, Op::V_RsqF64, "v_rsq_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 52, Op::V_SqrtF64, "v_sqrt_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop1, 62, Op::V_FractF64, "v_fract_f64", {OperandKind::Vgpr, OperandKind::Src}),
+
+    Make(Encoding::Vop3, 387, Op::V_CvtI32F64, "v_cvt_i32_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 388, Op::V_CvtF64I32, "v_cvt_f64_i32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 399, Op::V_CvtF32F64, "v_cvt_f32_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 400, Op::V_CvtF64F32, "v_cvt_f64_f32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 405, Op::V_CvtU32F64, "v_cvt_u32_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 406, Op::V_CvtF64U32, "v_cvt_f64_u32", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 407, Op::V_TruncF64, "v_trunc_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 408, Op::V_CeilF64, "v_ceil_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 409, Op::V_RndneF64, "v_rndne_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 410, Op::V_FloorF64, "v_floor_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 431, Op::V_RcpF64, "v_rcp_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 433, Op::V_RsqF64, "v_rsq_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 436, Op::V_SqrtF64, "v_sqrt_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 446, Op::V_FractF64, "v_fract_f64", {OperandKind::Vgpr, OperandKind::Src}),
+    Make(Encoding::Vop3, 356, Op::V_AddF64, "v_add_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 357, Op::V_MulF64, "v_mul_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 358, Op::V_MinF64, "v_min_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 359, Op::V_MaxF64, "v_max_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 332, Op::V_FmaF64, "v_fma_f64",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 360, Op::V_LdexpF64, "v_ldexp_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+
     Make(Encoding::Smem, 0, Op::S_LoadB32, "s_load_dword",
          {OperandKind::SmemSdst, OperandKind::SmemSbase, OperandKind::SmemOffset}),
     Make(Encoding::Smem, 8, Op::S_BufferLoadB32, "s_buffer_load_dword",
@@ -690,6 +727,18 @@ constexpr std::array kGfx12 = {
     Make(Encoding::Vop2, 49, Op::V_MaxF16, "v_max_num_f16", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Remove(Encoding::Vop3, 313),
     Remove(Encoding::Vop3, 314),
+    Remove(Encoding::Vop3, 807),
+    Remove(Encoding::Vop3, 808),
+    Remove(Encoding::Vop3, 809),
+    Remove(Encoding::Vop3, 810),
+    Make(Encoding::Vop3, 258, Op::V_AddF64, "v_add_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 262, Op::V_MulF64, "v_mul_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 269, Op::V_MinF64, "v_min_num_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 270, Op::V_MaxF64, "v_max_num_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop2, 2, Op::V_AddF64, "v_add_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 6, Op::V_MulF64, "v_mul_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 13, Op::V_MinF64, "v_min_num_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Vop2, 14, Op::V_MaxF64, "v_max_num_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Remove(Encoding::Vop3, 271),
     Remove(Encoding::Vop3, 272),
     Remove(Encoding::Vop3, 537),
@@ -698,6 +747,19 @@ constexpr std::array kGfx12 = {
     Remove(Encoding::Vop3, 843),
     Remove(Encoding::Vop3, 849),
     Remove(Encoding::Vop3, 852),
+    Remove(Encoding::Vop3, 356),
+    Remove(Encoding::Vop3, 357),
+    Remove(Encoding::Vop3, 358),
+    Remove(Encoding::Vop3, 359),
+    Remove(Encoding::Vop3, 332),
+    Remove(Encoding::Vop3, 360),
+    Make(Encoding::Vop3, 807, Op::V_AddF64, "v_add_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 808, Op::V_MulF64, "v_mul_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 809, Op::V_MinF64, "v_min_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 810, Op::V_MaxF64, "v_max_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 532, Op::V_FmaF64, "v_fma_f64",
+         {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src, OperandKind::Src}),
+    Make(Encoding::Vop3, 811, Op::V_LdexpF64, "v_ldexp_f64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop2, 31, Op::V_LshlrevB64, "v_lshlrev_b64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop3, 287, Op::V_LshlrevB64, "v_lshlrev_b64", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Src}),
     Make(Encoding::Vop2, 21, Op::V_MinF32, "v_min_num_f32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
@@ -1280,6 +1342,46 @@ std::string_view ToString(Op op) noexcept
         return "v_max3_f16";
     case Op::V_FmaF16:
         return "v_fma_f16";
+    case Op::V_CvtI32F64:
+        return "v_cvt_i32_f64";
+    case Op::V_CvtF64I32:
+        return "v_cvt_f64_i32";
+    case Op::V_CvtF32F64:
+        return "v_cvt_f32_f64";
+    case Op::V_CvtF64F32:
+        return "v_cvt_f64_f32";
+    case Op::V_CvtU32F64:
+        return "v_cvt_u32_f64";
+    case Op::V_CvtF64U32:
+        return "v_cvt_f64_u32";
+    case Op::V_TruncF64:
+        return "v_trunc_f64";
+    case Op::V_CeilF64:
+        return "v_ceil_f64";
+    case Op::V_RndneF64:
+        return "v_rndne_f64";
+    case Op::V_FloorF64:
+        return "v_floor_f64";
+    case Op::V_RcpF64:
+        return "v_rcp_f64";
+    case Op::V_RsqF64:
+        return "v_rsq_f64";
+    case Op::V_SqrtF64:
+        return "v_sqrt_f64";
+    case Op::V_FractF64:
+        return "v_fract_f64";
+    case Op::V_AddF64:
+        return "v_add_f64";
+    case Op::V_MulF64:
+        return "v_mul_f64";
+    case Op::V_MinF64:
+        return "v_min_f64";
+    case Op::V_MaxF64:
+        return "v_max_f64";
+    case Op::V_FmaF64:
+        return "v_fma_f64";
+    case Op::V_LdexpF64:
+        return "v_ldexp_f64";
     case Op::V_AddNcU32:
         return "v_add_nc_u32";
     case Op::V_SubNcU32:

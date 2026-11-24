@@ -1871,6 +1871,163 @@ private:
         return WriteDest(instruction.operands[0], value, instruction.pc);
     }
 
+    [[nodiscard]] IL::TypeId F64Type() { return m_module.types.Float(IL::FloatFormat::F64); }
+
+    [[nodiscard]] Result<IL::ValueId> ReadF64(const Operand& operand, std::uint32_t pc)
+    {
+        if (operand.kind != OperandKind::Vgpr && operand.kind != OperandKind::Vsrc)
+            return std::unexpected(LiftError("SR-GFX-LIFT-051", "f64 operand is not a VGPR pair", pc));
+        const auto bits = ReadVgpr64(operand.value, pc);
+        if (!bits)
+            return bits;
+        return Bitcast(F64Type(), *bits);
+    }
+
+    [[nodiscard]] Result<void> WriteF64(const Operand& destination, IL::ValueId value, std::uint32_t pc)
+    {
+        const IL::ValueId bits = Bitcast(m_module.types.U64(), value);
+        return WriteVgpr64(destination, bits, pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF64Unary(const DecodedInstruction& instruction, IL::UnaryOp subop)
+    {
+        const auto source = ReadF64(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+        const IL::ValueId result = m_builder.UnaryValue(subop, F64Type(), *source, false);
+        return WriteF64(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF64Binary(const DecodedInstruction& instruction, IL::BinaryOp subop)
+    {
+        const auto first = ReadF64(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadF64(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+        const IL::ValueId result = m_builder.Emit(F64Type(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(subop),
+                                                  {*first, *second},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteF64(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF64Fma(const DecodedInstruction& instruction)
+    {
+        const auto a = ReadF64(instruction.operands[1], instruction.pc);
+        if (!a)
+            return std::unexpected(a.error());
+        const auto b = ReadF64(instruction.operands[2], instruction.pc);
+        if (!b)
+            return std::unexpected(b.error());
+        const auto c = ReadF64(instruction.operands[3], instruction.pc);
+        if (!c)
+            return std::unexpected(c.error());
+        const IL::ValueId result = m_builder.Emit(F64Type(),
+                                                  IL::Op::Ternary,
+                                                  static_cast<std::uint16_t>(IL::TernaryOp::Fma),
+                                                  {*a, *b, *c},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteF64(instruction.operands[0], result, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftF64Convert(const DecodedInstruction& instruction)
+    {
+        switch (instruction.op)
+        {
+        case Op::V_CvtF64I32:
+        {
+            const auto source = ReadSigned(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId result = m_builder.ConvertValue(F64Type(), IL::ConvertOp::SIToFP, *source, false);
+            return WriteF64(instruction.operands[0], result, instruction.pc);
+        }
+        case Op::V_CvtF64U32:
+        {
+            const auto source = ReadBits(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId result = m_builder.ConvertValue(F64Type(), IL::ConvertOp::UIToFP, *source, false);
+            return WriteF64(instruction.operands[0], result, instruction.pc);
+        }
+        case Op::V_CvtI32F64:
+        {
+            const auto source = ReadF64(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId result = m_builder.ConvertValue(m_module.types.I32(), IL::ConvertOp::FPToSI,
+                                                              *source, false);
+            return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result), instruction.pc);
+        }
+        case Op::V_CvtU32F64:
+        {
+            const auto source = ReadF64(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId result = m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::FPToUI,
+                                                              *source, false);
+            return WriteDest(instruction.operands[0], result, instruction.pc);
+        }
+        case Op::V_CvtF64F32:
+        {
+            const auto source = ReadFloat(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId result = m_builder.ConvertValue(F64Type(), IL::ConvertOp::FPExt, *source, false);
+            return WriteF64(instruction.operands[0], result, instruction.pc);
+        }
+        case Op::V_CvtF32F64:
+        {
+            const auto source = ReadF64(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            IL::ValueId result = m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::FPTrunc,
+                                                        *source, false);
+            result = Bitcast(m_module.types.U32(), result);
+            return WriteDest(instruction.operands[0], result, instruction.pc);
+        }
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-052", "not an f64 conversion", instruction.pc));
+        }
+    }
+
+    [[nodiscard]] Result<void> LiftF64Ldexp(const DecodedInstruction& instruction)
+    {
+        const auto value = ReadF64(instruction.operands[1], instruction.pc);
+        if (!value)
+            return std::unexpected(value.error());
+        const auto exponent = ReadSigned(instruction.operands[2], instruction.pc);
+        if (!exponent)
+            return std::unexpected(exponent.error());
+        // GLSL Exp2 has no 64-bit form; scale in f32, then widen.
+        const IL::ValueId exponentF32 =
+            m_builder.ConvertValue(m_module.types.F32(), IL::ConvertOp::SIToFP, *exponent, false);
+        const IL::ValueId scaleF32 =
+            m_builder.UnaryValue(IL::UnaryOp::Exp2, m_module.types.F32(), exponentF32, false);
+        const IL::ValueId scale = m_builder.ConvertValue(F64Type(), IL::ConvertOp::FPExt, scaleF32, false);
+        const IL::ValueId result = m_builder.Emit(F64Type(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(IL::BinaryOp::FMul),
+                                                  {*value, scale},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  false);
+        return WriteF64(instruction.operands[0], result, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftUnaryFloat(const DecodedInstruction& instruction, IL::UnaryOp subop)
     {
         const auto source = ReadFloatSource(instruction, 1);
@@ -3153,6 +3310,41 @@ private:
             return LiftF16Ternary(instruction, IL::TernaryOp::FMin3);
         case Op::V_Max3F16:
             return LiftF16Ternary(instruction, IL::TernaryOp::FMax3);
+        case Op::V_CvtI32F64:
+        case Op::V_CvtF64I32:
+        case Op::V_CvtF32F64:
+        case Op::V_CvtF64F32:
+        case Op::V_CvtU32F64:
+        case Op::V_CvtF64U32:
+            return LiftF64Convert(instruction);
+        case Op::V_TruncF64:
+            return LiftF64Unary(instruction, IL::UnaryOp::Trunc);
+        case Op::V_CeilF64:
+            return LiftF64Unary(instruction, IL::UnaryOp::Ceil);
+        case Op::V_RndneF64:
+            return LiftF64Unary(instruction, IL::UnaryOp::RoundEven);
+        case Op::V_FloorF64:
+            return LiftF64Unary(instruction, IL::UnaryOp::Floor);
+        case Op::V_RcpF64:
+            return LiftF64Unary(instruction, IL::UnaryOp::Rcp);
+        case Op::V_RsqF64:
+            return LiftF64Unary(instruction, IL::UnaryOp::Rsq);
+        case Op::V_SqrtF64:
+            return LiftF64Unary(instruction, IL::UnaryOp::Sqrt);
+        case Op::V_FractF64:
+            return LiftF64Unary(instruction, IL::UnaryOp::Fract);
+        case Op::V_AddF64:
+            return LiftF64Binary(instruction, IL::BinaryOp::FAdd);
+        case Op::V_MulF64:
+            return LiftF64Binary(instruction, IL::BinaryOp::FMul);
+        case Op::V_MinF64:
+            return LiftF64Binary(instruction, IL::BinaryOp::FMin);
+        case Op::V_MaxF64:
+            return LiftF64Binary(instruction, IL::BinaryOp::FMax);
+        case Op::V_FmaF64:
+            return LiftF64Fma(instruction);
+        case Op::V_LdexpF64:
+            return LiftF64Ldexp(instruction);
         case Op::V_BfeU32:
             return LiftBitFieldExtract(instruction, false, false);        case Op::V_BfeI32:
             return LiftBitFieldExtract(instruction, true, false);
