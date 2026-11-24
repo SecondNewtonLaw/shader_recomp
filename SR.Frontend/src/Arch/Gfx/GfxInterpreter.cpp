@@ -6,6 +6,8 @@
 #include <optional>
 #include <string>
 
+#include "SR/Common/IL/Instruction.hpp"
+
 namespace SR::Frontend::Gfx {
 namespace {
 
@@ -243,6 +245,273 @@ bool WriteF64(IsaState& state, const Operand& operand, double value)
     return WriteVgprPair(state, operand, std::bit_cast<std::uint64_t>(value));
 }
 
+enum class CompareKind
+{
+    F16,
+    F64,
+    I16,
+    U16,
+    I64,
+    U64,
+};
+
+struct CompareSpec
+{
+    CompareKind kind = CompareKind::I64;
+    IL::CompareOp op = IL::CompareOp::IEq;
+    std::uint8_t predicate = 0; // 0 compare, 1 false, 2 true, 3 ordered, 4 unordered
+};
+
+std::optional<bool> EvaluateCompare(const IsaState& state,
+                                     const DecodedInstruction& instruction,
+                                     const CompareSpec& spec)
+{
+    const auto read = [&](std::uint8_t index) -> std::optional<std::uint64_t> {
+        if (spec.kind == CompareKind::F64)
+        {
+            const auto value = ReadF64(state, instruction.operands[index]);
+            if (!value)
+                return std::nullopt;
+            return std::bit_cast<std::uint64_t>(*value);
+        }
+        if (spec.kind == CompareKind::I64 || spec.kind == CompareKind::U64)
+            return ReadVgprPair(state, instruction.operands[index]);
+        const auto value = ReadOperand(state, instruction.operands[index]);
+        if (!value)
+            return std::nullopt;
+        return static_cast<std::uint64_t>(*value);
+    };
+
+    const auto left = read(1);
+    const auto right = read(2);
+    if (!left || !right)
+        return std::nullopt;
+
+    if (spec.predicate == 1)
+        return false;
+    if (spec.predicate == 2)
+        return true;
+
+    if (spec.kind == CompareKind::F16 || spec.kind == CompareKind::F64)
+    {
+        const auto asDouble = [&](std::uint64_t bits) {
+            return spec.kind == CompareKind::F16
+                       ? static_cast<double>(HalfToFloat(static_cast<std::uint16_t>(bits)))
+                       : std::bit_cast<double>(bits);
+        };
+        const double a = asDouble(*left);
+        const double b = asDouble(*right);
+        const bool ordered = Ordered(static_cast<float>(a), static_cast<float>(b)) &&
+                             (spec.kind == CompareKind::F16 || !(std::isnan(a) || std::isnan(b)));
+        if (spec.predicate == 3)
+            return ordered;
+        if (spec.predicate == 4)
+            return !ordered;
+
+        switch (spec.op)
+        {
+        case IL::CompareOp::FOrdEq:
+            return ordered && a == b;
+        case IL::CompareOp::FOrdNe:
+            return ordered && a != b;
+        case IL::CompareOp::FOrdLt:
+            return ordered && a < b;
+        case IL::CompareOp::FOrdLe:
+            return ordered && a <= b;
+        case IL::CompareOp::FOrdGt:
+            return ordered && a > b;
+        case IL::CompareOp::FOrdGe:
+            return ordered && a >= b;
+        case IL::CompareOp::FUnordEq:
+            return !ordered || a == b;
+        case IL::CompareOp::FUnordNe:
+            return !ordered || a != b;
+        case IL::CompareOp::FUnordLt:
+            return !ordered || a < b;
+        case IL::CompareOp::FUnordLe:
+            return !ordered || a <= b;
+        case IL::CompareOp::FUnordGt:
+            return !ordered || a > b;
+        case IL::CompareOp::FUnordGe:
+            return !ordered || a >= b;
+        default:
+            return std::nullopt;
+        }
+    }
+
+    const auto signedValue = [&](std::uint64_t bits) -> std::int64_t {
+        if (spec.kind == CompareKind::I16)
+            return static_cast<std::int16_t>(bits & 0xFFFFu);
+        return static_cast<std::int64_t>(bits);
+    };
+    const auto unsignedValue = [&](std::uint64_t bits) -> std::uint64_t {
+        if (spec.kind == CompareKind::U16)
+            return bits & 0xFFFFu;
+        return bits;
+    };
+    const auto signedLeft = signedValue(*left);
+    const auto signedRight = signedValue(*right);
+    const auto unsignedLeft = unsignedValue(*left);
+    const auto unsignedRight = unsignedValue(*right);
+
+    switch (spec.op)
+    {
+    case IL::CompareOp::IEq:
+    case IL::CompareOp::UEq:
+        return unsignedLeft == unsignedRight;
+    case IL::CompareOp::INe:
+    case IL::CompareOp::UNe:
+        return unsignedLeft != unsignedRight;
+    case IL::CompareOp::ILt:
+        return signedLeft < signedRight;
+    case IL::CompareOp::ILe:
+        return signedLeft <= signedRight;
+    case IL::CompareOp::IGt:
+        return signedLeft > signedRight;
+    case IL::CompareOp::IGe:
+        return signedLeft >= signedRight;
+    case IL::CompareOp::ULt:
+        return unsignedLeft < unsignedRight;
+    case IL::CompareOp::ULe:
+        return unsignedLeft <= unsignedRight;
+    case IL::CompareOp::UGt:
+        return unsignedLeft > unsignedRight;
+    case IL::CompareOp::UGe:
+        return unsignedLeft >= unsignedRight;
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<CompareSpec> CompareSpecOf(Op op)
+{
+    switch (op)
+    {
+        case Op::V_CmpLtF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdLt, 0};
+        case Op::V_CmpEqF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdEq, 0};
+        case Op::V_CmpLeF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdLe, 0};
+        case Op::V_CmpGtF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdGt, 0};
+        case Op::V_CmpLgF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdNe, 0};
+        case Op::V_CmpGeF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdGe, 0};
+        case Op::V_CmpFalseF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdEq, 1};
+        case Op::V_CmpTrueF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdEq, 2};
+        case Op::V_CmpOrdF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdEq, 3};
+        case Op::V_CmpUnordF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdEq, 4};
+        case Op::V_CmpNgeF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FUnordLt, 0};
+        case Op::V_CmpNlgF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FUnordEq, 0};
+        case Op::V_CmpNgtF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FUnordLe, 0};
+        case Op::V_CmpNleF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FUnordGt, 0};
+        case Op::V_CmpNeqF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FOrdNe, 0};
+        case Op::V_CmpNltF16:
+            return CompareSpec{CompareKind::F16, IL::CompareOp::FUnordGe, 0};
+        case Op::V_CmpLtF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdLt, 0};
+        case Op::V_CmpEqF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdEq, 0};
+        case Op::V_CmpLeF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdLe, 0};
+        case Op::V_CmpGtF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdGt, 0};
+        case Op::V_CmpLgF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdNe, 0};
+        case Op::V_CmpGeF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdGe, 0};
+        case Op::V_CmpFalseF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdEq, 1};
+        case Op::V_CmpTrueF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdEq, 2};
+        case Op::V_CmpOrdF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdEq, 3};
+        case Op::V_CmpUnordF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdEq, 4};
+        case Op::V_CmpNgeF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FUnordLt, 0};
+        case Op::V_CmpNlgF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FUnordEq, 0};
+        case Op::V_CmpNgtF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FUnordLe, 0};
+        case Op::V_CmpNleF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FUnordGt, 0};
+        case Op::V_CmpNeqF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FOrdNe, 0};
+        case Op::V_CmpNltF64:
+            return CompareSpec{CompareKind::F64, IL::CompareOp::FUnordGe, 0};
+        case Op::V_CmpLtI16:
+            return CompareSpec{CompareKind::I16, IL::CompareOp::ILt, 0};
+        case Op::V_CmpEqI16:
+            return CompareSpec{CompareKind::I16, IL::CompareOp::IEq, 0};
+        case Op::V_CmpLeI16:
+            return CompareSpec{CompareKind::I16, IL::CompareOp::ILe, 0};
+        case Op::V_CmpGtI16:
+            return CompareSpec{CompareKind::I16, IL::CompareOp::IGt, 0};
+        case Op::V_CmpNeI16:
+            return CompareSpec{CompareKind::I16, IL::CompareOp::INe, 0};
+        case Op::V_CmpGeI16:
+            return CompareSpec{CompareKind::I16, IL::CompareOp::IGe, 0};
+        case Op::V_CmpLtI64:
+            return CompareSpec{CompareKind::I64, IL::CompareOp::ILt, 0};
+        case Op::V_CmpEqI64:
+            return CompareSpec{CompareKind::I64, IL::CompareOp::IEq, 0};
+        case Op::V_CmpLeI64:
+            return CompareSpec{CompareKind::I64, IL::CompareOp::ILe, 0};
+        case Op::V_CmpGtI64:
+            return CompareSpec{CompareKind::I64, IL::CompareOp::IGt, 0};
+        case Op::V_CmpNeI64:
+            return CompareSpec{CompareKind::I64, IL::CompareOp::INe, 0};
+        case Op::V_CmpGeI64:
+            return CompareSpec{CompareKind::I64, IL::CompareOp::IGe, 0};
+        case Op::V_CmpFalseI64:
+            return CompareSpec{CompareKind::I64, IL::CompareOp::IEq, 1};
+        case Op::V_CmpTrueI64:
+            return CompareSpec{CompareKind::I64, IL::CompareOp::IEq, 2};
+        case Op::V_CmpLtU16:
+            return CompareSpec{CompareKind::U16, IL::CompareOp::ULt, 0};
+        case Op::V_CmpEqU16:
+            return CompareSpec{CompareKind::U16, IL::CompareOp::UEq, 0};
+        case Op::V_CmpLeU16:
+            return CompareSpec{CompareKind::U16, IL::CompareOp::ULe, 0};
+        case Op::V_CmpGtU16:
+            return CompareSpec{CompareKind::U16, IL::CompareOp::UGt, 0};
+        case Op::V_CmpNeU16:
+            return CompareSpec{CompareKind::U16, IL::CompareOp::UNe, 0};
+        case Op::V_CmpGeU16:
+            return CompareSpec{CompareKind::U16, IL::CompareOp::UGe, 0};
+        case Op::V_CmpLtU64:
+            return CompareSpec{CompareKind::U64, IL::CompareOp::ULt, 0};
+        case Op::V_CmpEqU64:
+            return CompareSpec{CompareKind::U64, IL::CompareOp::UEq, 0};
+        case Op::V_CmpLeU64:
+            return CompareSpec{CompareKind::U64, IL::CompareOp::ULe, 0};
+        case Op::V_CmpGtU64:
+            return CompareSpec{CompareKind::U64, IL::CompareOp::UGt, 0};
+        case Op::V_CmpNeU64:
+            return CompareSpec{CompareKind::U64, IL::CompareOp::UNe, 0};
+        case Op::V_CmpGeU64:
+            return CompareSpec{CompareKind::U64, IL::CompareOp::UGe, 0};
+        case Op::V_CmpFalseU64:
+            return CompareSpec{CompareKind::U64, IL::CompareOp::UEq, 1};
+        case Op::V_CmpTrueU64:
+            return CompareSpec{CompareKind::U64, IL::CompareOp::UEq, 2};
+    default:
+        return std::nullopt;
+    }
+}
+
 std::optional<std::uint32_t> BufferIndex(const IsaState& state,
                                          const DecodedInstruction& instruction,
                                          std::uint8_t addressIndex)
@@ -286,6 +555,18 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
 
         bool advance = true;
         bool finished = false;
+
+        if (const auto spec = CompareSpecOf(instruction.op))
+        {
+            const auto condition = EvaluateCompare(result.state, instruction, *spec);
+            if (!condition)
+                return std::unexpected(Error("SR-GFX-ISA-165", "invalid typed compare operands", pc));
+            result.state.vcc = *condition;
+            if (instruction.execMask)
+                result.state.exec = result.state.exec && *condition;
+            pc += instruction.wordCount * 4;
+            continue;
+        }
 
         switch (instruction.op)
         {
@@ -2011,6 +2292,8 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
         }
         case Op::Invalid:
             return std::unexpected(Error("SR-GFX-ISA-074", "invalid instruction", pc));
+        default:
+            break;
         }
 
         if (finished)

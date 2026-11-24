@@ -826,6 +826,172 @@ private:
         Unordered,
     };
 
+    enum class CompareValueKind
+    {
+        F16,
+        F32,
+        F64,
+        I16,
+        U16,
+        I32,
+        U32,
+        I64,
+        U64,
+    };
+
+    [[nodiscard]] IL::ValueId SignExtend16Value(IL::ValueId value)
+    {
+        IL::ValueId shifted = m_builder.Emit(m_module.types.U32(),
+                                             IL::Op::Binary,
+                                             static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                             {value, m_builder.ConstantU32(16)},
+                                             {},
+                                             IL::NoPayload,
+                                             0,
+                                             0,
+                                             false);
+        shifted = m_builder.Emit(m_module.types.I32(),
+                                 IL::Op::Binary,
+                                 static_cast<std::uint16_t>(IL::BinaryOp::AShr),
+                                 {Bitcast(m_module.types.I32(), shifted), m_builder.ConstantU32(16)},
+                                 {},
+                                 IL::NoPayload,
+                                 0,
+                                 0,
+                                 false);
+        return Bitcast(m_module.types.U32(), shifted);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadCompareValue(const DecodedInstruction& instruction,
+                                                       CompareValueKind kind,
+                                                       std::uint8_t index)
+    {
+        switch (kind)
+        {
+        case CompareValueKind::F16:
+            return ReadF16(instruction.operands[index], instruction.pc);
+        case CompareValueKind::F32:
+            return ReadFloatSource(instruction, index);
+        case CompareValueKind::F64:
+            return ReadF64(instruction.operands[index], instruction.pc);
+        case CompareValueKind::I16:
+        {
+            const auto value = ReadBits(instruction.operands[index], instruction.pc);
+            if (!value)
+                return value;
+            return Bitcast(m_module.types.I32(), SignExtend16Value(*value));
+        }
+        case CompareValueKind::U16:
+        {
+            const auto value = ReadBits(instruction.operands[index], instruction.pc);
+            if (!value)
+                return value;
+            return m_builder.Emit(m_module.types.U32(),
+                                  IL::Op::Binary,
+                                  static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                  {*value, m_builder.ConstantU32(0xFFFF)},
+                                  {},
+                                  IL::NoPayload,
+                                  instruction.pc,
+                                  static_cast<std::uint16_t>(instruction.op),
+                                  false);
+        }
+        case CompareValueKind::I32:
+            return ReadSigned(instruction.operands[index], instruction.pc);
+        case CompareValueKind::U32:
+            return ReadBits(instruction.operands[index], instruction.pc);
+        case CompareValueKind::I64:
+        {
+            if (instruction.operands[index].kind != OperandKind::Vgpr &&
+                instruction.operands[index].kind != OperandKind::Vsrc)
+                return std::unexpected(LiftError("SR-GFX-LIFT-053", "i64 compare source is not a VGPR pair",
+                                                 instruction.pc));
+            const auto bits = ReadVgpr64(instruction.operands[index].value, instruction.pc);
+            if (!bits)
+                return bits;
+            return Bitcast(m_module.types.I64(), *bits);
+        }
+        case CompareValueKind::U64:
+        {
+            if (instruction.operands[index].kind != OperandKind::Vgpr &&
+                instruction.operands[index].kind != OperandKind::Vsrc)
+                return std::unexpected(LiftError("SR-GFX-LIFT-054", "u64 compare source is not a VGPR pair",
+                                                 instruction.pc));
+            return ReadVgpr64(instruction.operands[index].value, instruction.pc);
+        }
+        }
+        return std::unexpected(LiftError("SR-GFX-LIFT-055", "unknown compare kind", instruction.pc));
+    }
+
+    [[nodiscard]] Result<void> LiftVectorCompareTyped(const DecodedInstruction& instruction,
+                                                      CompareValueKind kind,
+                                                      IL::CompareOp compare,
+                                                      VectorPredicate predicate)
+    {
+        const bool isFloat = kind == CompareValueKind::F16 || kind == CompareValueKind::F32 ||
+                             kind == CompareValueKind::F64;
+
+        IL::ValueId condition = IL::InvalidValue;
+        if (predicate == VectorPredicate::False || predicate == VectorPredicate::True)
+        {
+            condition = m_builder.ConstantBool(predicate == VectorPredicate::True);
+        }
+        else
+        {
+            const auto left = ReadCompareValue(instruction, kind, 1);
+            if (!left)
+                return std::unexpected(left.error());
+            const auto right = ReadCompareValue(instruction, kind, 2);
+            if (!right)
+                return std::unexpected(right.error());
+
+            if (predicate == VectorPredicate::Ordered || predicate == VectorPredicate::Unordered)
+            {
+                const IL::ValueId leftOrdered =
+                    m_builder.CompareValue(IL::CompareOp::FOrdEq, *left, *left, false);
+                const IL::ValueId rightOrdered =
+                    m_builder.CompareValue(IL::CompareOp::FOrdEq, *right, *right, false);
+                condition = m_builder.Emit(m_module.types.Bool(),
+                                           IL::Op::Binary,
+                                           static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                           {leftOrdered, rightOrdered},
+                                           {},
+                                           IL::NoPayload,
+                                           instruction.pc,
+                                           static_cast<std::uint16_t>(instruction.op),
+                                           false);
+                if (predicate == VectorPredicate::Unordered)
+                    condition = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), condition, false);
+            }
+            else
+            {
+                (void)isFloat;
+                condition = m_builder.CompareValue(compare, *left, *right, false);
+            }
+        }
+
+        const auto vcc = WriteVcc(condition, instruction.pc);
+        if (!vcc)
+            return vcc;
+        if (instruction.execMask)
+        {
+            const auto exec = ReadExec(instruction.pc);
+            if (!exec)
+                return std::unexpected(exec.error());
+            const IL::ValueId updated = m_builder.Emit(m_module.types.Bool(),
+                                                       IL::Op::Binary,
+                                                       static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                       {*exec, condition},
+                                                       {},
+                                                       IL::NoPayload,
+                                                       instruction.pc,
+                                                       static_cast<std::uint16_t>(instruction.op),
+                                                       false);
+            return WriteExec(updated, instruction.pc);
+        }
+        return {};
+    }
+
     [[nodiscard]] Result<void> LiftVectorCompare(const DecodedInstruction& instruction,
                                                  IL::CompareOp compare,
                                                  VectorPredicate predicate,
@@ -3345,6 +3511,126 @@ private:
             return LiftF64Fma(instruction);
         case Op::V_LdexpF64:
             return LiftF64Ldexp(instruction);
+        case Op::V_CmpLtF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdLt, VectorPredicate::Compare);
+        case Op::V_CmpEqF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdEq, VectorPredicate::Compare);
+        case Op::V_CmpLeF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdLe, VectorPredicate::Compare);
+        case Op::V_CmpGtF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdGt, VectorPredicate::Compare);
+        case Op::V_CmpLgF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdNe, VectorPredicate::Compare);
+        case Op::V_CmpGeF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdGe, VectorPredicate::Compare);
+        case Op::V_CmpFalseF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdEq, VectorPredicate::False);
+        case Op::V_CmpTrueF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdEq, VectorPredicate::True);
+        case Op::V_CmpOrdF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdEq, VectorPredicate::Ordered);
+        case Op::V_CmpUnordF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdEq, VectorPredicate::Unordered);
+        case Op::V_CmpNgeF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FUnordLt, VectorPredicate::Compare);
+        case Op::V_CmpNlgF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FUnordEq, VectorPredicate::Compare);
+        case Op::V_CmpNgtF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FUnordLe, VectorPredicate::Compare);
+        case Op::V_CmpNleF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FUnordGt, VectorPredicate::Compare);
+        case Op::V_CmpNeqF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FOrdNe, VectorPredicate::Compare);
+        case Op::V_CmpNltF16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F16, IL::CompareOp::FUnordGe, VectorPredicate::Compare);
+        case Op::V_CmpLtF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdLt, VectorPredicate::Compare);
+        case Op::V_CmpEqF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdEq, VectorPredicate::Compare);
+        case Op::V_CmpLeF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdLe, VectorPredicate::Compare);
+        case Op::V_CmpGtF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdGt, VectorPredicate::Compare);
+        case Op::V_CmpLgF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdNe, VectorPredicate::Compare);
+        case Op::V_CmpGeF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdGe, VectorPredicate::Compare);
+        case Op::V_CmpFalseF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdEq, VectorPredicate::False);
+        case Op::V_CmpTrueF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdEq, VectorPredicate::True);
+        case Op::V_CmpOrdF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdEq, VectorPredicate::Ordered);
+        case Op::V_CmpUnordF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdEq, VectorPredicate::Unordered);
+        case Op::V_CmpNgeF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FUnordLt, VectorPredicate::Compare);
+        case Op::V_CmpNlgF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FUnordEq, VectorPredicate::Compare);
+        case Op::V_CmpNgtF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FUnordLe, VectorPredicate::Compare);
+        case Op::V_CmpNleF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FUnordGt, VectorPredicate::Compare);
+        case Op::V_CmpNeqF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FOrdNe, VectorPredicate::Compare);
+        case Op::V_CmpNltF64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::F64, IL::CompareOp::FUnordGe, VectorPredicate::Compare);
+        case Op::V_CmpLtI16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I16, IL::CompareOp::ILt, VectorPredicate::Compare);
+        case Op::V_CmpEqI16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I16, IL::CompareOp::IEq, VectorPredicate::Compare);
+        case Op::V_CmpLeI16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I16, IL::CompareOp::ILe, VectorPredicate::Compare);
+        case Op::V_CmpGtI16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I16, IL::CompareOp::IGt, VectorPredicate::Compare);
+        case Op::V_CmpNeI16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I16, IL::CompareOp::INe, VectorPredicate::Compare);
+        case Op::V_CmpGeI16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I16, IL::CompareOp::IGe, VectorPredicate::Compare);
+        case Op::V_CmpLtI64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I64, IL::CompareOp::ILt, VectorPredicate::Compare);
+        case Op::V_CmpEqI64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I64, IL::CompareOp::IEq, VectorPredicate::Compare);
+        case Op::V_CmpLeI64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I64, IL::CompareOp::ILe, VectorPredicate::Compare);
+        case Op::V_CmpGtI64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I64, IL::CompareOp::IGt, VectorPredicate::Compare);
+        case Op::V_CmpNeI64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I64, IL::CompareOp::INe, VectorPredicate::Compare);
+        case Op::V_CmpGeI64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I64, IL::CompareOp::IGe, VectorPredicate::Compare);
+        case Op::V_CmpFalseI64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I64, IL::CompareOp::IEq, VectorPredicate::False);
+        case Op::V_CmpTrueI64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::I64, IL::CompareOp::IEq, VectorPredicate::True);
+        case Op::V_CmpLtU16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U16, IL::CompareOp::ULt, VectorPredicate::Compare);
+        case Op::V_CmpEqU16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U16, IL::CompareOp::UEq, VectorPredicate::Compare);
+        case Op::V_CmpLeU16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U16, IL::CompareOp::ULe, VectorPredicate::Compare);
+        case Op::V_CmpGtU16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U16, IL::CompareOp::UGt, VectorPredicate::Compare);
+        case Op::V_CmpNeU16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U16, IL::CompareOp::UNe, VectorPredicate::Compare);
+        case Op::V_CmpGeU16:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U16, IL::CompareOp::UGe, VectorPredicate::Compare);
+        case Op::V_CmpLtU64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::ULt, VectorPredicate::Compare);
+        case Op::V_CmpEqU64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::UEq, VectorPredicate::Compare);
+        case Op::V_CmpLeU64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::ULe, VectorPredicate::Compare);
+        case Op::V_CmpGtU64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::UGt, VectorPredicate::Compare);
+        case Op::V_CmpNeU64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::UNe, VectorPredicate::Compare);
+        case Op::V_CmpGeU64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::UGe, VectorPredicate::Compare);
+        case Op::V_CmpFalseU64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::UEq, VectorPredicate::False);
+        case Op::V_CmpTrueU64:
+            return LiftVectorCompareTyped(instruction, CompareValueKind::U64, IL::CompareOp::UEq, VectorPredicate::True);
         case Op::V_BfeU32:
             return LiftBitFieldExtract(instruction, false, false);        case Op::V_BfeI32:
             return LiftBitFieldExtract(instruction, true, false);
