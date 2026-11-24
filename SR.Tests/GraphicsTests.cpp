@@ -244,6 +244,111 @@ TEST_CASE("geometry stage emits its exported vertices", "[gfx][graphics][geometr
 #endif
 }
 
+TEST_CASE("geometry stage reads the input vertices", "[gfx][graphics][geometry]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("geometry_read.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("geometry fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Geometry;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.geometryOutputVertices = 3;
+    options.geometryInputTopology = SR::IL::InputTopology::Triangles;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    // The input ring names position and location 0; both are declared as
+    // geometry inputs, and the position output is built.
+    REQUIRE(module->inputs.size() == 2);
+    const bool positionInput = std::any_of(module->inputs.begin(), module->inputs.end(), [](const auto& decl) {
+        return decl.builtin == SR::IL::Builtin::Position && decl.space == SR::IL::Space::Input;
+    });
+    REQUIRE(positionInput);
+
+    // The triangle fixture writes (-1,-1), (1,1), (3,-1); the geometry fixture
+    // halves x and y and passes the colour through.
+    const std::array<std::array<std::uint32_t, 2>, 3> positions = {
+        std::array<std::uint32_t, 2>{FloatBits(-1.0f), FloatBits(-1.0f)},
+        std::array<std::uint32_t, 2>{FloatBits(1.0f), FloatBits(1.0f)},
+        std::array<std::uint32_t, 2>{FloatBits(3.0f), FloatBits(-1.0f)},
+    };
+
+    SR::IL::ExecutionOptions executionOptions;
+    for (std::uint32_t vertex = 0; vertex < 3; ++vertex)
+    {
+        executionOptions.stageInputVertices[SR::IL::StageInputVertexKey(
+            SR::IL::Builtin::Position, 0, 0, vertex)] = positions[vertex][0];
+        executionOptions.stageInputVertices[SR::IL::StageInputVertexKey(
+            SR::IL::Builtin::Position, 0, 1, vertex)] = positions[vertex][1];
+        executionOptions.stageInputVertices[SR::IL::StageInputVertexKey(
+            SR::IL::Builtin::Position, 0, 2, vertex)] = 0u;
+        executionOptions.stageInputVertices[SR::IL::StageInputVertexKey(
+            SR::IL::Builtin::Position, 0, 3, vertex)] = FloatBits(1.0f);
+        executionOptions.stageInputVertices[SR::IL::StageInputVertexKey(
+            SR::IL::Builtin::None, 0, 0, vertex)] = FloatBits(1.0f);
+        executionOptions.stageInputVertices[SR::IL::StageInputVertexKey(
+            SR::IL::Builtin::None, 0, 1, vertex)] = 0u;
+        executionOptions.stageInputVertices[SR::IL::StageInputVertexKey(
+            SR::IL::Builtin::None, 0, 2, vertex)] = 0u;
+        executionOptions.stageInputVertices[SR::IL::StageInputVertexKey(
+            SR::IL::Builtin::None, 0, 3, vertex)] = FloatBits(1.0f);
+    }
+
+    const auto execution = SR::IL::Interpret(*module, executionOptions);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+    REQUIRE(execution->vertices.size() == 3);
+
+    for (std::uint32_t vertex = 0; vertex < 3; ++vertex)
+    {
+        INFO("vertex " << vertex);
+        const auto& emitted = execution->vertices[vertex];
+        // The position operand is halved; w is passed through.
+        const std::uint32_t expectedX = FloatBits(vertex == 0 ? -0.5f : (vertex == 1 ? 0.5f : 1.5f));
+        const std::uint32_t expectedY = FloatBits(vertex == 1 ? 0.5f : -0.5f);
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::Position, 0, 0)) == expectedX);
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::Position, 0, 1)) == expectedY);
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::None, 0, 0)) == FloatBits(1.0f));
+    }
+
+    const auto emission = SR::Backend::Reemit(*module);
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+
+    std::size_t arrays = 0;
+    std::size_t inputs = 0;
+    for (std::size_t index = 5; index < emission->words.size();)
+    {
+        const std::uint32_t word = emission->words[index];
+        const std::uint16_t opcode = static_cast<std::uint16_t>(word & 0xFFFFu);
+        if (opcode == 28) // OpTypeArray
+            ++arrays;
+        index += word >> 16;
+    }
+    (void)inputs;
+
+    // Two geometry inputs (position and location 0) and the output side, which
+    // is not arrayed.
+    REQUIRE(arrays == 2);
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

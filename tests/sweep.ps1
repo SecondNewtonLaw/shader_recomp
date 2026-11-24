@@ -74,7 +74,7 @@ foreach ($case in $cases) {
         $stage = "compute"
         if ($name -eq "triangle" -or $name -eq "empty") { $stage = "vertex" }
         if ($name -eq "solid") { $stage = "fragment" }
-        if ($name -eq "geometry") { $stage = "geometry" }
+        if ($name -eq "geometry" -or $name -eq "geometry_read") { $stage = "geometry" }
 
         $jobs += [pscustomobject]@{
             Target = "$($case.Directory)/$name"
@@ -185,6 +185,23 @@ if ((Test-Path $geometry) -and (Test-Path $emptyVertex) -and (Test-Path $fragmen
     $centre = $drawOutput | Select-String -Pattern "centre rgba: (.*)"
     $results += [pscustomobject]@{
         Target = "gfx1030/empty+geometry+solid"
+        Stage = "vs+gs+ps"
+        Spirv = "yes"
+        DriverIsa = "via draw"
+        Note = if ($rendered) { "$($rendered.Matches[0].Value); $($centre.Matches[0].Value)" } else { "draw failed" }
+    }
+}
+
+# A geometry stage that consumes the vertex stage's outputs draws as well: the
+# halved triangle is the golden comparison against a vertex stage that computes
+# the same positions, and the centre stays red either way.
+$geometryRead = Join-Path $work "gfx1030-geometry_read.spv"
+if ((Test-Path $geometryRead) -and (Test-Path $vertex) -and (Test-Path $fragment) -and (Test-Path $draw)) {
+    $drawOutput = & $draw $vertex $fragment --gs $geometryRead 2>&1
+    $rendered = $drawOutput | Select-String -Pattern "pixels written: (\d+)"
+    $centre = $drawOutput | Select-String -Pattern "centre rgba: (.*)"
+    $results += [pscustomobject]@{
+        Target = "gfx1030/triangle+geometry_read+solid"
         Stage = "vs+gs+ps"
         Spirv = "yes"
         DriverIsa = "via draw"

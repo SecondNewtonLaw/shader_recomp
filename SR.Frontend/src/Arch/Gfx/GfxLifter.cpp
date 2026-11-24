@@ -4558,8 +4558,105 @@ private:
         return {};
     }
 
+    // A geometry input vertex is an array element: the ring address names the
+    // vertex and the immediate names one dword of its exported outputs. The
+    // order is position first, then one four-component location per output
+    // register, so dword d is register d / 4 and component d % 4.
+    [[nodiscard]] Result<void> LiftGeometryDsRead(const DecodedInstruction& instruction,
+                                                 std::uint32_t firstDword,
+                                                 std::uint32_t dwords)
+    {
+        const Operand address = DsOperand(instruction, OperandKind::DsAddr);
+        if (address.kind == OperandKind::None)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-057", "DS instruction has no address operand", instruction.pc));
+
+        const auto base = ReadVgpr(address.value, instruction.pc);
+        if (!base)
+            return std::unexpected(base.error());
+
+        // The ring address is vertex * 256 bytes.
+        const IL::ValueId vertex =
+            Bin(instruction, IL::BinaryOp::LShr, *base, m_builder.ConstantU32(8));
+        const IL::TypeId f32 = m_module.types.F32();
+        const IL::TypeId vec4 = m_module.types.Vector(f32, 4);
+        const Operand destination = DsOperand(instruction, OperandKind::DsDest);
+        if (destination.kind == OperandKind::None)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-058", "DS instruction has no destination", instruction.pc));
+
+        for (std::uint32_t i = 0; i < dwords; ++i)
+        {
+            const std::uint32_t dword = (firstDword + i) % 64;
+            const std::uint32_t reg = dword / 4;
+            const std::uint32_t component = dword % 4;
+            const IL::Builtin builtin = reg == 0 ? IL::Builtin::Position : IL::Builtin::None;
+            const std::uint32_t location = reg == 0 ? 0 : reg - 1;
+
+            (void)EnsureSignature(IL::Space::Input, builtin, location, vec4);
+            const IL::PayloadId payload =
+                StageIoPayload(IL::Space::Input, builtin, location, component, IL::Interpolation::None);
+            const IL::ValueId value =
+                m_builder.Emit(f32,
+                               IL::Op::Intrinsic,
+                               static_cast<std::uint16_t>(IL::IntrinsicId::StageInput),
+                               {vertex},
+                               {},
+                               payload,
+                               instruction.pc,
+                               static_cast<std::uint16_t>(instruction.op));
+            const IL::ValueId bits =
+                m_builder.Emit(m_module.types.U32(),
+                               IL::Op::Bitcast,
+                               {},
+                               {value},
+                               {},
+                               IL::NoPayload,
+                               instruction.pc,
+                               static_cast<std::uint16_t>(instruction.op));
+            DsWriteVgpr(instruction, destination.value + i, bits);
+        }
+
+        return {};
+    }
+
+    [[nodiscard]] Result<void> LiftGeometryDs(const DecodedInstruction& instruction)
+    {
+        switch (instruction.op)
+        {
+        case Op::DsStoreB32:
+        case Op::DsStoreB64:
+        case Op::DsStore2addrB32:
+        case Op::DsStore2addrB64:
+        case Op::DsStore2addrStride64B32:
+        case Op::DsStore2addrStride64B64:
+            return std::unexpected(LiftError("SR-GFX-LIFT-060",
+                                             "geometry LDS stores stage NGG output, which is not modeled yet",
+                                             instruction.pc));
+        case Op::DsLoadB32:
+        case Op::DsLoadB64:
+            break;
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-061",
+                                             "unsupported geometry LDS access " +
+                                                 std::string(ToString(instruction.op)),
+                                             instruction.pc));
+        }
+
+        if (instruction.dsOffset0 % 4 != 0)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-062", "geometry LDS read is not dword aligned", instruction.pc));
+
+        return LiftGeometryDsRead(instruction,
+                                  instruction.dsOffset0 / 4,
+                                  instruction.op == Op::DsLoadB64 ? 2u : 1u);
+    }
+
     [[nodiscard]] Result<void> LiftDsLoadStore(const DecodedInstruction& instruction)
     {
+        if (m_module.stage == IL::Stage::Geometry)
+            return LiftGeometryDs(instruction);
+
         const bool wide = instruction.op == Op::DsLoadB64 || instruction.op == Op::DsStoreB64 ||
                           instruction.op == Op::DsLoad2addrB64 ||
                           instruction.op == Op::DsStore2addrB64 ||
@@ -5996,6 +6093,38 @@ private:
         switch (instruction.op)
         {
         case Op::S_Sendmsg:
+        {
+            if (m_module.stage != IL::Stage::Geometry)
+                return {};
+
+            // bits[3:0] message, bits[6:4] GS op, bits[9:8] stream.
+            const std::uint32_t message = instruction.operands[0].value;
+            const std::uint32_t id = message & 0xF;
+            const std::uint32_t gsOp = (message >> 4) & 0x7;
+            const std::uint32_t stream = (message >> 8) & 0x3;
+
+            if (id == 3) // MSG_GS_DONE
+                return {};
+            if (id == 9) // MSG_GS_ALLOC_REQ: the allocation is wave state
+                return {};
+
+            if (id == 2) // MSG_GS
+            {
+                if (stream != 0)
+                    return std::unexpected(
+                        LiftError("SR-GFX-LIFT-063", "geometry streams are not modeled", instruction.pc));
+                if (gsOp != 0)
+                    return std::unexpected(LiftError("SR-GFX-LIFT-060",
+                                                     "s_sendmsg GS_OP_EMIT stages vertices in LDS, which is "
+                                                     "not modeled yet",
+                                                     instruction.pc));
+                return {};
+            }
+
+            return std::unexpected(LiftError("SR-GFX-LIFT-064",
+                                             "unmodeled geometry message " + std::to_string(message),
+                                             instruction.pc));
+        }
         case Op::S_Sendmsghalt:
         case Op::S_Sethalt:
         case Op::S_Setkill:
