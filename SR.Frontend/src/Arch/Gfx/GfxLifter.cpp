@@ -3450,6 +3450,18 @@ private:
                                  instruction.pc,
                                  static_cast<std::uint16_t>(instruction.op),
                                  false);
+        if (instruction.bufferOffset != 0)
+        {
+            address = m_builder.Emit(m_module.types.U64(),
+                                     IL::Op::Binary,
+                                     static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                     {address, m_builder.ConstantU64(instruction.bufferOffset)},
+                                     {},
+                                     IL::NoPayload,
+                                     instruction.pc,
+                                     static_cast<std::uint16_t>(instruction.op),
+                                     false);
+        }
 
         const Operand& data = instruction.operands[0];
         for (std::uint32_t component = 0; component < components; ++component)

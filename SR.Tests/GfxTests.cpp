@@ -2422,3 +2422,46 @@ TEST_CASE("gfx1030 MUBUF operands and offset decode to their fields", "[gfx][dec
     REQUIRE(byte->operands[0].value == 3u);
     REQUIRE(byte->operands[1].value == 0u);
 }
+
+TEST_CASE("gfx1030 MTBUF format fields and offset decode to their bits", "[gfx][decode][mtbuf]")
+{
+    using namespace SR::Frontend::Gfx;
+
+    // llvm-mc gfx1030 output for
+    //   tbuffer_load_format_x v1, v0, s[0:3], 0 offen [offset:0/4]
+    //   tbuffer_load_format_xyzw v[1:4], v0, s[0:3], 0 offen offset:8
+    const std::array<std::uint32_t, 2> formatX0 = {0xE8081000u, 0x80000100u};
+    const std::array<std::uint32_t, 2> formatX4 = {0xE8081004u, 0x80000100u};
+    const std::array<std::uint32_t, 2> formatXyzw8 = {0xE80B1008u, 0x80000100u};
+    // The corpus fixture's hand-encoded 32-bit float typed load: DFMT 4,
+    // NFMT 7, which the disassembler prints as format:116.
+    const std::array<std::uint32_t, 2> float32 = {0xEBA00000u, 0x80000100u};
+
+    const auto first = Decode(formatX0, Arch::Gfx103, 0);
+    REQUIRE(first.has_value());
+    REQUIRE(first->op == Op::TbufferLoadFormatX);
+    REQUIRE(first->bufferOffset == 0u);
+    // The bare mnemonic encodes the assembler's default format, DFMT 1 with
+    // NFMT 0 (unified 1 = 8_SNORM), not zero.
+    REQUIRE(first->bufferDataFormat == 1u);
+    REQUIRE(first->bufferNumberFormat == 0u);
+    REQUIRE(first->operands[1].value == 0u); // vaddr v0
+
+    const auto shifted = Decode(formatX4, Arch::Gfx103, 0);
+    REQUIRE(shifted.has_value());
+    REQUIRE(shifted->op == Op::TbufferLoadFormatX);
+    REQUIRE(shifted->bufferOffset == 4u);
+
+    const auto wide = Decode(formatXyzw8, Arch::Gfx103, 0);
+    REQUIRE(wide.has_value());
+    REQUIRE(wide->op == Op::TbufferLoadFormatXyzw);
+    REQUIRE(wide->bufferOffset == 8u);
+
+    const auto typed = Decode(float32, Arch::Gfx103, 0);
+    REQUIRE(typed.has_value());
+    REQUIRE(typed->op == Op::TbufferLoadFormatX);
+    // The unified format the disassembler prints is (nfmt << 4) | dfmt.
+    REQUIRE(typed->bufferDataFormat == 4u);
+    REQUIRE(typed->bufferNumberFormat == 7u);
+    REQUIRE(((typed->bufferNumberFormat << 4u) | typed->bufferDataFormat) == 116u);
+}

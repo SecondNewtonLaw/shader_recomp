@@ -944,6 +944,67 @@ TEST_CASE("narrow buffer stores merge into their dword", "[gfx][buffers]")
 #endif
 }
 
+TEST_CASE("typed buffer xyzw round trips through the immediate offset", "[gfx][buffers]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("tbufferxyzw.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("typed buffer fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData.assign(4, 0u);
+    options.userDataFromPush = true;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    std::string liftError;
+    if (!module)
+        liftError = SR::ToString(module.error());
+    INFO(liftError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    std::string executionError;
+    if (!execution)
+        executionError = SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    // The store wrote 1.0..4.0 as raw dwords at 0 and again at +8, and both
+    // typed loads read them back.
+    const std::array<std::uint32_t, 4> expected = {0x3F800000u, 0x40000000u, 0x40400000u, 0x40800000u};
+    for (std::uint32_t component = 0; component < 4; ++component)
+    {
+        INFO("component " << component);
+        REQUIRE(execution->buffer.at(4 + component) == expected[component]);
+        REQUIRE(execution->buffer.at(8 + component) == expected[component]);
+    }
+
+    // Every device access must stay inside the 32 bytes the fixture touches.
+    for (const auto& [address, value] : execution->device)
+    {
+        INFO("device address " << address);
+        REQUIRE(address + 4u <= 24u);
+    }
+
+    const auto emission = SR::Backend::Reemit(*module);
+    std::string emissionError;
+    if (!emission)
+        emissionError = SR::ToString(emission.error());
+    INFO(emissionError);
+    REQUIRE(emission.has_value());
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)
