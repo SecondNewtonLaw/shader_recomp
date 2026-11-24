@@ -70,6 +70,8 @@ void RewriteUses(Function& function, const std::vector<ValueId>& replacement)
         {
             for (ValueId& operand : instruction.operands)
                 operand = Resolve(replacement, operand);
+            if (instruction.guard != InvalidValue)
+                instruction.guard = Resolve(replacement, instruction.guard);
             for (auto& incoming : instruction.incoming)
                 incoming.value = Resolve(replacement, incoming.value);
         }
@@ -401,6 +403,8 @@ void EliminateDeadCode(Function& function)
                     if (operand < used.size())
                         used[operand] = true;
                 }
+                if (instruction.guard != InvalidValue && instruction.guard < used.size())
+                    used[instruction.guard] = true;
                 for (const auto& incoming : instruction.incoming)
                 {
                     if (incoming.value < used.size())

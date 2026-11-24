@@ -236,6 +236,10 @@ struct Instruction
     std::vector<ValueId> operands;
     Attrs attrs;
     PayloadId payload = NoPayload;
+    // Per-lane predicate for an instruction with memory effects: the operation
+    // runs only where the guard is true. A lifted EXEC mask lands here, so a
+    // predicated store does not write for masked-off lanes.
+    ValueId guard = InvalidValue;
     std::vector<PhiIncoming> incoming; // Phi only
     std::uint32_t sourcePc = 0;
     std::uint16_t sourceOpcode = 0;

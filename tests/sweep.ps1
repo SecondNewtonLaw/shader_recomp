@@ -57,6 +57,7 @@ foreach ($case in $cases) {
         "readfirst"  = @("--test-abi", "--wave64")
         "waveballot" = @("--test-abi", "--wave64")
         "descriptor" = @("--test-abi", "--user-data-push", "4")
+        "predicated" = @("--test-abi")
     }
 
     # Fixtures whose translation is expected to be refused today: they are

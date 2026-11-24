@@ -623,7 +623,51 @@ private:
     [[nodiscard]] Result<void> WriteExec(IL::ValueId value, std::uint32_t pc)
     {
         m_builder.Store(ExecSlot(), value, pc);
+        // From here on a memory access may be masked for some lanes.
+        m_execMayBeFalse = true;
         return {};
+    }
+
+    // The source's EXEC mask becomes the guard of the access just emitted.
+    // The EXEC mask as of this point, or InvalidValue when no mask can be
+    // false. It is read before the access so the value exists when the access
+    // executes.
+    [[nodiscard]] IL::ValueId CurrentGuard(std::uint32_t pc)
+    {
+        if (!m_execMayBeFalse)
+            return IL::InvalidValue;
+        const auto exec = ReadExec(pc);
+        return exec ? *exec : IL::InvalidValue;
+    }
+
+    // Guards the most recent access with a mask captured before it was emitted.
+    void ApplyGuard(std::uint32_t pc, IL::ValueId guard)
+    {
+        if (guard == IL::InvalidValue)
+            return;
+
+        IL::Block& block = m_builder.GetBlock(m_builder.CurrentBlock());
+
+        constexpr std::size_t none = static_cast<std::size_t>(-1);
+        std::size_t target = none;
+        for (std::size_t i = block.body.size(); i-- > 0;)
+        {
+            const IL::Instruction& candidate = block.body[i];
+            IL::Effect effect = IL::EffectsOf(candidate.op);
+            if (candidate.op == IL::Op::Intrinsic)
+                effect = IL::GetIntrinsicSpec(static_cast<IL::IntrinsicId>(candidate.subop)).effects;
+
+            if (IL::HasEffect(effect, IL::Effect::WriteMemory) || IL::HasEffect(effect, IL::Effect::Atomic))
+            {
+                target = i;
+                break;
+            }
+        }
+
+        if (target == none)
+            return;
+
+        block.body[target].guard = guard;
     }
 
     [[nodiscard]] Result<void> WriteSccIfNonZero(IL::ValueId value, std::uint32_t pc, bool uniform = true)
@@ -694,6 +738,17 @@ private:
         if (destination.kind != OperandKind::Sdst)
             return std::unexpected(LiftError("SR-GFX-LIFT-043", "64-bit destination is not a scalar register", pc));
         const std::uint32_t index = destination.value;
+
+        // A 64-bit write to a special register opens the wave or sets a mask.
+        // The model keeps one boolean per invocation, so the pair collapses to
+        // "does this lane have a bit".
+        if (index == 126 || index == 106)
+        {
+            const IL::ValueId nonzero =
+                m_builder.CompareValue(IL::CompareOp::UNe, value, m_builder.ConstantU64(0), true);
+            return index == 126 ? WriteExec(nonzero, pc) : WriteVcc(nonzero, pc);
+        }
+
         if (index + 1 > kLastSgpr)
             return std::unexpected(LiftError("SR-GFX-LIFT-044", "64-bit scalar destination is out of range", pc));
 
@@ -1139,7 +1194,8 @@ private:
         // ballot there: the predicate is per lane, the mask is per wave.
         if (instruction.encoding == Encoding::Vop3)
         {
-            const Operand* destination = FindOperand(instruction, OperandKind::Sdst);
+            // A cmpx writes EXEC, not the named destination.
+            const Operand* destination = instruction.execMask ? nullptr : FindOperand(instruction, OperandKind::Sdst);
             if (destination != nullptr)
             {
                 const IL::ValueId ballot = m_builder.Emit(m_module.types.U64(),
@@ -1231,7 +1287,9 @@ private:
         // wave. A 64-lane wave needs the pair.
         if (instruction.encoding == Encoding::Vop3)
         {
-            const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
+            // A cmpx writes EXEC, not the named destination.
+            const Operand* scalarDestination =
+                instruction.execMask ? nullptr : FindOperand(instruction, OperandKind::Sdst);
             if (scalarDestination != nullptr)
             {
                 const IL::ValueId ballot = m_builder.Emit(m_module.types.U64(),
@@ -3390,7 +3448,9 @@ private:
             const auto value = ReadBits(instruction.operands[0], instruction.pc);
             if (!value)
                 return std::unexpected(value.error());
+            const IL::ValueId guard = CurrentGuard(instruction.pc);
             m_builder.IntrinsicVoid(IL::IntrinsicId::DeviceStore, {sum, *value}, IL::NoPayload, instruction.pc);
+            ApplyGuard(instruction.pc, guard);
             return {};
         }
 
@@ -3614,7 +3674,9 @@ private:
     void BufferPutDword(const DecodedInstruction& instruction, IL::ValueId index, IL::ValueId value)
     {
         const IL::PayloadId payload = m_module.payloads.Add(IL::TestBufferDesc{0, 0});
+        const IL::ValueId guard = CurrentGuard(instruction.pc);
         m_builder.IntrinsicVoid(IL::IntrinsicId::TestBufferStore, {index, value}, payload, instruction.pc);
+        ApplyGuard(instruction.pc, guard);
     }
 
     [[nodiscard]] std::uint32_t MemoryDestination(const DecodedInstruction& instruction) const
@@ -4094,7 +4156,9 @@ private:
 
     void DsPutDword(const DecodedInstruction& instruction, IL::ValueId index, IL::ValueId value)
     {
+        const IL::ValueId guard = CurrentGuard(instruction.pc);
         m_builder.IntrinsicVoid(IL::IntrinsicId::LocalStore, {index, value}, IL::NoPayload, instruction.pc);
+        ApplyGuard(instruction.pc, guard);
     }
 
     [[nodiscard]] IL::ValueId DsDwordAt(const DecodedInstruction& instruction,
@@ -8979,7 +9043,9 @@ private:
                 return std::unexpected(value.error());
 
             const IL::PayloadId payload = m_module.payloads.Add(IL::TestBufferDesc{0, 0});
+            const IL::ValueId guard = CurrentGuard(instruction.pc);
             m_builder.IntrinsicVoid(IL::IntrinsicId::TestBufferStore, {*index, *value}, payload, instruction.pc);
+            ApplyGuard(instruction.pc, guard);
             return {};
         }
         case Op::S_LoadB32:
@@ -9396,6 +9462,7 @@ private:
     IL::ValueId m_vccSlot = IL::InvalidValue;
     IL::ValueId m_execSlot = IL::InvalidValue;
     std::vector<StageSlot> m_stageSlots;
+    bool m_execMayBeFalse = false;
 };
 
 } // namespace

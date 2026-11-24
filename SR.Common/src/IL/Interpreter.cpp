@@ -213,6 +213,9 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
 
         for (const Instruction& instruction : block.body)
         {
+            if (instruction.guard != InvalidValue && read(instruction.guard) == 0)
+                continue;
+
             ++result.steps;
             if (result.steps > maxSteps)
                 return std::unexpected(ExecutionError("SR-IL-INT-004", "step limit exceeded", instruction.sourcePc));

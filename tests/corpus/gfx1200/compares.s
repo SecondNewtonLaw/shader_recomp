@@ -31,6 +31,9 @@ done:
 exec_false:
   v_mov_b32 v8, 8
 store:
+  ; The masked stores above leave EXEC at zero for the failing cmpx; a store
+  ; only executes for active lanes, so re-open the wave before storing.
+  s_mov_b64 exec, -1
   v_mov_b32 v10, 0
   global_store_b32 v10, v2, s[0:1]
   v_mov_b32 v11, 4

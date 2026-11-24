@@ -150,6 +150,8 @@ std::string FormatTerminator(const Terminator& terminator)
 std::string FormatInstruction(const Module& module, const Instruction& instruction)
 {
     std::string text;
+    if (instruction.guard != InvalidValue)
+        text += "if %" + std::to_string(instruction.guard) + " ";
     if (!instruction.results.empty())
     {
         if (instruction.results.size() == 1)

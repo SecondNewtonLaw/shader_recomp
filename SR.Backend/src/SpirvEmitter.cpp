@@ -2160,7 +2160,32 @@ private:
         }
     }
 
+    // A guarded instruction is a per-lane predicate the source wrote as EXEC:
+    // the hardware skips the access for masked-off lanes, so the module needs a
+    // selection around it rather than an unconditional access.
     [[nodiscard]] Result<void> EmitInstruction(const IL::Function& function, const IL::Instruction& instruction)
+    {
+        if (instruction.guard == IL::InvalidValue)
+            return EmitInstructionBody(function, instruction);
+
+        const auto guard = ValueId(function, instruction.guard);
+        if (!guard)
+            return std::unexpected(EmitError("SR-SPV-080", "invalid instruction guard", instruction.sourcePc));
+
+        const std::uint32_t thenBlock = NewId();
+        const std::uint32_t mergeBlock = NewId();
+        Op(OpSelectionMerge, {mergeBlock, 0 /* None */});
+        Op(OpBranchConditional, {*guard, thenBlock, mergeBlock});
+        Op(OpLabel, {thenBlock});
+
+        const auto status = EmitInstructionBody(function, instruction);
+
+        Op(OpBranch, {mergeBlock});
+        Op(OpLabel, {mergeBlock});
+        return status;
+    }
+
+    [[nodiscard]] Result<void> EmitInstructionBody(const IL::Function& function, const IL::Instruction& instruction)
     {
         if (instruction.op == IL::Op::Nop || instruction.op == IL::Op::Alloca)
             return {};

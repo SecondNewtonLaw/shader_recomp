@@ -449,3 +449,55 @@ TEST_CASE("an image access is refused with its descriptors named", "[gfx][image]
     REQUIRE(module.error().message.find("S#=s16") != std::string::npos);
 #endif
 }
+
+TEST_CASE("a predicated store leaves masked lanes untouched", "[gfx][exec][guard]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("predicated.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("predicated fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    // The access carries the mask, so the dump shows it as a guarded store.
+    REQUIRE(SR::IL::DumpModule(*module).find("if %") != std::string::npos);
+
+    // Lane 0 satisfies tid < 1 and writes; lane 5 is masked and writes nothing.
+    SR::IL::ExecutionOptions lane0;
+    lane0.threadId = {0, 0, 0};
+    const auto executed = SR::IL::Interpret(*module, lane0);
+    if (!executed)
+        INFO(SR::ToString(executed.error()));
+    REQUIRE(executed.has_value());
+    REQUIRE(executed->buffer.at(0) == 0xAAu);
+
+    SR::IL::ExecutionOptions lane5;
+    lane5.threadId = {5, 0, 0};
+    const auto masked = SR::IL::Interpret(*module, lane5);
+    REQUIRE(masked.has_value());
+    REQUIRE(masked->buffer.find(0) == masked->buffer.end());
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    const auto emission = SR::Backend::Reemit(*module);
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+#endif
+}

@@ -251,6 +251,19 @@ private:
         VerifyArity(function, instruction);
         VerifyMemoryTypes(function, instruction, block);
 
+        if (instruction.guard != InvalidValue)
+        {
+            if (instruction.guard >= function.values.size())
+                Fail("SR-IL-048", "instruction guard is not a value", pc);
+            const Type& guardType = m_module.types.Get(function.values[instruction.guard].type);
+            if (guardType.kind != TypeKind::Bool)
+                Fail("SR-IL-049", "instruction guard is not a boolean", pc);
+            if (HasEffect(EffectsOf(instruction.op), Effect::ReadMemory) == false &&
+                HasEffect(EffectsOf(instruction.op), Effect::WriteMemory) == false &&
+                instruction.op != Op::Intrinsic)
+                Fail("SR-IL-050", "instruction without effects has a guard", pc);
+        }
+
         if (instruction.op == Op::Intrinsic && m_options.checkIntrinsics)
         {
             const auto id = static_cast<IntrinsicId>(instruction.subop);

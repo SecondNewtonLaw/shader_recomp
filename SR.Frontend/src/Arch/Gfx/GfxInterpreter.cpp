@@ -179,6 +179,16 @@ bool WriteOperand(IsaState& state, const Operand& operand, std::uint32_t value)
     switch (operand.kind)
     {
     case OperandKind::Sdst:
+        if (operand.value == 126) // EXEC
+        {
+            state.exec = value != 0;
+            return true;
+        }
+        if (operand.value == 106) // VCC
+        {
+            state.vcc = value != 0;
+            return true;
+        }
         if (operand.value >= 256)
             return false;
         state.sgpr[operand.value] = value;
@@ -216,7 +226,19 @@ std::optional<std::uint64_t> ReadPair(const IsaState& state, const Operand& oper
 
 bool WritePair(IsaState& state, const Operand& operand, std::uint64_t value)
 {
-    if (operand.kind != OperandKind::Sdst || operand.value + 1 >= 256)
+    if (operand.kind != OperandKind::Sdst)
+        return false;
+    if (operand.value == 126) // EXEC pair
+    {
+        state.exec = value != 0;
+        return true;
+    }
+    if (operand.value == 106) // VCC pair
+    {
+        state.vcc = value != 0;
+        return true;
+    }
+    if (operand.value + 1 >= 256)
         return false;
     state.sgpr[operand.value] = static_cast<std::uint32_t>(value);
     state.sgpr[operand.value + 1] = static_cast<std::uint32_t>(value >> 32);
