@@ -279,6 +279,7 @@ public:
         if (m_useLocal)
             m_localVar = NewId();
         PrepareStageIo();
+        PreparePushConstants();
         for (const IL::Function& function : m_module.functions)
         {
             for (const IL::Block& block : function.blocks)
@@ -393,6 +394,12 @@ public:
             Op(OpTypeVector, {m_ballotVecType, *u32, 4});
             m_ballotPairType = NewId();
             Op(OpTypeVector, {m_ballotPairType, *u32, 2});
+        }
+
+        {
+            const auto declarations = EmitPushDeclarations();
+            if (!declarations)
+                return std::unexpected(declarations.error());
         }
 
         {
@@ -919,6 +926,76 @@ private:
         return pointer;
     }
 
+    // User data is a push constant block: the host fills it per dispatch or
+    // draw, which is how a console shader receives root constants and
+    // descriptor addresses.
+    void PreparePushConstants()
+    {
+        for (const IL::Function& function : m_module.functions)
+        {
+            for (const IL::Block& block : function.blocks)
+            {
+                for (const IL::Instruction& instruction : block.body)
+                {
+                    if (instruction.op != IL::Op::Intrinsic ||
+                        instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::UserData))
+                        continue;
+                    const auto* payload = instruction.payload != IL::NoPayload
+                                              ? std::get_if<IL::UserDataDesc>(&m_module.payloads.Get(instruction.payload))
+                                              : nullptr;
+                    if (payload == nullptr)
+                        continue;
+                    m_pushIndices.push_back(payload->index);
+                    m_pushCount = std::max(m_pushCount, payload->index + 1);
+                }
+            }
+        }
+
+        if (m_pushIndices.empty())
+            return;
+
+        m_pushCount = std::max(m_pushCount, 32u);
+        m_usePushConstants = true;
+        m_pushVar = NewId();
+        m_pushArray = NewId();
+        m_pushStruct = NewId();
+    }
+
+    [[nodiscard]] Result<void> EmitPushDeclarations()
+    {
+        if (!m_usePushConstants)
+            return {};
+
+        const IL::TypeId u32Type = m_module.types.FindInt(32, false);
+        if (u32Type == IL::InvalidType)
+            return std::unexpected(EmitError("SR-SPV-070", "user data requires a u32 type"));
+        const auto u32 = EmitType(u32Type);
+        if (!u32)
+            return std::unexpected(u32.error());
+
+        const std::uint32_t count = NewId();
+        Op(OpConstant, {*u32, count, m_pushCount});
+        Op(OpTypeArray, {m_pushArray, *u32, count});
+        Op(OpTypeStruct, {m_pushStruct, m_pushArray});
+
+        const std::uint32_t pointerStruct = NewId();
+        Op(OpTypePointer, {pointerStruct, 9 /* PushConstant */, m_pushStruct});
+        m_pushPtrU32 = NewId();
+        Op(OpTypePointer, {m_pushPtrU32, 9 /* PushConstant */, *u32});
+
+        for (std::uint32_t index = 0; index <= m_pushCount; ++index)
+        {
+            const auto constant = U32Constant(index);
+            if (!constant)
+                return std::unexpected(constant.error());
+            if (index == 0)
+                m_pushZero = *constant;
+        }
+
+        Op(OpVariable, {pointerStruct, m_pushVar, 9 /* PushConstant */});
+        return {};
+    }
+
     void EmitHeader()
     {
         m_words.push_back(kMagic);
@@ -978,6 +1055,8 @@ private:
             operands.push_back(binding.variable);
         for (const SpecialVariable& entry : m_special)
             operands.push_back(entry.variable);
+        if (m_usePushConstants)
+            operands.push_back(m_pushVar);
         Op(OpEntryPoint, operands);
 
         if (executionModel == 5) // GLCompute
@@ -1004,6 +1083,13 @@ private:
 
         for (const SpecialVariable& entry : m_special)
             Op(OpDecorate, {entry.variable, 11 /* Builtin */, BuiltinValue(entry.builtin)});
+
+        if (m_usePushConstants)
+        {
+            Op(OpDecorate, {m_pushStruct, 2 /* Block */});
+            Op(OpMemberDecorate, {m_pushStruct, 0, 35 /* Offset */, 0});
+            Op(OpDecorate, {m_pushArray, 6 /* ArrayStride */, 4});
+        }
 
         // Annotations for the stage interface precede every type declaration.
         for (const StageIo& binding : m_stageIo)
@@ -2122,6 +2208,36 @@ private:
         }
 
         if (instruction.op == IL::Op::Intrinsic &&
+            instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::UserData))
+        {
+            const auto* payload = instruction.payload != IL::NoPayload
+                                      ? std::get_if<IL::UserDataDesc>(&m_module.payloads.Get(instruction.payload))
+                                      : nullptr;
+            if (payload == nullptr || instruction.results.size() != 1 || !m_usePushConstants)
+                return std::unexpected(EmitError("SR-SPV-071", "user data read without a push block", instruction.sourcePc));
+
+            const auto index = U32Constant(payload->index);
+            if (!index)
+                return std::unexpected(index.error());
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+
+            const std::uint32_t pointer = NewId();
+            Op(OpAccessChain, {m_pushPtrU32, pointer, m_pushVar, m_pushZero, *index});
+
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+            Op(OpLoad, {*resultType, resultId, pointer});
+            m_valueIds[resultValue] = resultId;
+            if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                Op(OpStore, {m_spillVars[resultValue], resultId});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::WaveBroadcastFirst))
         {
             if (instruction.results.size() != 1 || instruction.operands.size() != 1)
@@ -2936,6 +3052,14 @@ private:
     std::uint32_t m_ballotVecType = 0;
     std::uint32_t m_ballotPairType = 0;
     std::uint32_t m_waveScope = 0;
+    bool m_usePushConstants = false;
+    std::uint32_t m_pushVar = 0;
+    std::uint32_t m_pushArray = 0;
+    std::uint32_t m_pushStruct = 0;
+    std::uint32_t m_pushPtrU32 = 0;
+    std::uint32_t m_pushZero = 0;
+    std::uint32_t m_pushCount = 0;
+    std::vector<std::uint32_t> m_pushIndices;
 
     bool m_structured = false;
     IL::FunctionAnalysis m_analysis;

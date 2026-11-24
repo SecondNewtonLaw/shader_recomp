@@ -86,6 +86,8 @@ std::string DescribePayload(const Module& module, PayloadId id)
                 return "dot bits=" + std::to_string(value.inputBits) + " n=" + std::to_string(value.elements);
             else if constexpr (std::is_same_v<T, TestBufferDesc>)
                 return "buffer set=" + std::to_string(value.set) + " binding=" + std::to_string(value.binding);
+            else if constexpr (std::is_same_v<T, UserDataDesc>)
+                return "user-data[" + std::to_string(value.index) + "]";
             else if constexpr (std::is_same_v<T, StageIoDesc>)
                 return (value.space == Space::Input ? "in " : "out ")
                      + (value.builtin != Builtin::None ? "builtin " + std::to_string(static_cast<int>(value.builtin))

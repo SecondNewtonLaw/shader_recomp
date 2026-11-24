@@ -83,11 +83,39 @@ int main(int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::cerr << "usage: SR.VkRun <module.spv> [words] [init...]\n";
+        std::cerr << "usage: SR.VkRun <module.spv> [words] [--push d0,d1,...] [init...]\n";
         return 2;
     }
 
-    const std::uint32_t wordCount = argc >= 3 ? static_cast<std::uint32_t>(std::stoul(argv[2])) : 16;
+    std::uint32_t wordCount = 16;
+    std::vector<std::uint32_t> pushData(32, 0);
+    int argumentStart = 2;
+    for (int i = 2; i < argc; ++i)
+    {
+        const std::string_view argument = argv[i];
+        if (argument == "--push" && i + 1 < argc)
+        {
+            std::string_view text = argv[++i];
+            std::size_t slot = 0;
+            while (!text.empty() && slot < pushData.size())
+            {
+                const std::size_t comma = text.find(',');
+                pushData[slot++] = static_cast<std::uint32_t>(std::stoul(std::string(text.substr(0, comma)), nullptr, 0));
+                text = comma == std::string_view::npos ? std::string_view() : text.substr(comma + 1);
+            }
+            continue;
+        }
+        if (argument == "--words" && i + 1 < argc)
+        {
+            wordCount = static_cast<std::uint32_t>(std::stoul(argv[++i]));
+            continue;
+        }
+        if (argumentStart == 2 && argument.size() > 1 && argument[0] != '-')
+        {
+            wordCount = static_cast<std::uint32_t>(std::stoul(std::string(argument)));
+            argumentStart = i + 1;
+        }
+    }
     const std::vector<std::uint32_t> code = ReadSpirv(argv[1]);
     if (code.empty())
     {
@@ -160,13 +188,26 @@ int main(int argc, char** argv)
     vkMapMemory(device.logical, memory, 0, bufferSize, 0, &mapped);
     std::memset(mapped, 0, bufferSize);
     {
+        // Initial buffer values follow the module as plain numbers; options
+        // (--push, --words) are already consumed above.
         auto* initial = static_cast<std::uint32_t*>(mapped);
-        for (int i = 3; i < argc; ++i)
+        std::uint32_t index = 0;
+        for (int i = 2; i < argc; ++i)
         {
-            const std::uint32_t index = static_cast<std::uint32_t>(i - 3);
+            const std::string_view argument = argv[i];
+            if (argument.empty() || argument[0] == '-')
+            {
+                if ((argument == "--push" || argument == "--words") && i + 1 < argc)
+                    ++i;
+                continue;
+            }
+            if (argument.find_first_not_of("0123456789") == std::string_view::npos && wordCount == 16 &&
+                i == argumentStart - 1)
+                continue; // the positional word count
+
             if (index * sizeof(std::uint32_t) >= bufferSize)
                 break;
-            initial[index] = static_cast<std::uint32_t>(std::stoul(argv[i]));
+            initial[index++] = static_cast<std::uint32_t>(std::stoul(std::string(argument)));
         }
     }
 
@@ -228,8 +269,15 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushRange.offset = 0;
+    pushRange.size = static_cast<std::uint32_t>(pushData.size() * sizeof(std::uint32_t));
+
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts = &setLayout;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
@@ -268,6 +316,8 @@ int main(int argc, char** argv)
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(command, &beginInfo);
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+    vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       static_cast<std::uint32_t>(pushData.size() * sizeof(std::uint32_t)), pushData.data());
     vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
     vkCmdDispatch(command, 1, 1, 1);
 

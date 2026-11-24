@@ -27,6 +27,9 @@ struct LiftOptions
     // root constants, descriptor table pointers and root descriptor addresses,
     // in root order.
     std::vector<std::uint32_t> userData;
+    // Seed the user data from the host's push constants instead of folding the
+    // values above into the module.
+    bool userDataFromPush = false;
 };
 
 // Lifts a code object into COMMON_SHADER. Control flow and effects are

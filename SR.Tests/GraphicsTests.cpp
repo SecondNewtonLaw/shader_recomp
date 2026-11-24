@@ -304,3 +304,49 @@ TEST_CASE("v_readfirstlane broadcasts the first lane", "[gfx][wave][broadcast]")
     REQUIRE(SR::Backend::Reemit(*module).has_value());
 #endif
 }
+
+TEST_CASE("user data can come from host push constants", "[gfx][userdata][push]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("userdata.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("userdata fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData = {0u}; // the count; the value arrives from the host
+    options.userDataFromPush = true;
+
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::IL::DumpModule(*module).find("user-data[0]") != std::string::npos);
+
+    SR::IL::ExecutionOptions executionOptions;
+    executionOptions.userData = {41u};
+    const auto execution = SR::IL::Interpret(*module, executionOptions);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+    REQUIRE(execution->buffer.at(0) == 41u);
+
+    // The module reads a push constant block, which the emitter must declare
+    // and list in the entry point interface for SPIR-V 1.4+.
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    const auto emission = SR::Backend::Reemit(*module);
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+#endif
+}

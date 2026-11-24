@@ -61,6 +61,7 @@ enum class IntrinsicId : std::uint16_t
     LocalLoad,
     StageInput,
     StageOutput,
+    UserData,
 };
 
 enum class SpecialRegId : std::uint16_t
@@ -203,6 +204,12 @@ struct TestBufferDesc
     std::uint32_t binding = 0;
 };
 
+// One dword of the user data block the dispatch or draw supplies.
+struct UserDataDesc
+{
+    std::uint32_t index = 0;
+};
+
 using Payload = std::variant<std::monostate,
                              SpecialRegPayload,
                              VotePayload,
@@ -213,7 +220,8 @@ using Payload = std::variant<std::monostate,
                              DotDesc,
                              SendDesc,
                              TestBufferDesc,
-                             StageIoDesc>;
+                             StageIoDesc,
+                             UserDataDesc>;
 
 struct IntrinsicSpec
 {

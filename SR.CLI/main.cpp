@@ -29,7 +29,7 @@ void PrintUsage()
               << "Architectures: gfx10, gfx1013, gfx1030, gfx1100, gfx1150, gfx1200\n"
               << "An Xbox Series X|S container defaults to gfx1030.\n"
               << "Stages: compute (default for code objects), vertex, fragment.\n"
-              << "Options: --test-abi, --wave64, --user-data <d0,d1,...>, --interpret.\n";
+              << "Options: --test-abi, --wave64, --user-data <d0,d1,...>, --user-data-push <count>, --interpret.\n";
 }
 
 std::vector<std::uint8_t> ReadFile(const std::string& path, bool& ok)
@@ -80,6 +80,7 @@ int main(int argc, char** argv)
     bool wave64 = false;
     bool interpret = false;
     std::vector<std::uint32_t> userData;
+    bool userDataFromPush = false;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -149,6 +150,14 @@ int main(int argc, char** argv)
                 userData.push_back(static_cast<std::uint32_t>(std::stoul(std::string(field), nullptr, 0)));
                 text = comma == std::string_view::npos ? std::string_view() : text.substr(comma + 1);
             }
+            continue;
+        }
+
+        if (argument == "--user-data-push" && i + 1 < argc)
+        {
+            const auto count = static_cast<std::size_t>(std::stoul(argv[++i]));
+            userData.assign(count, 0u);
+            userDataFromPush = true;
             continue;
         }
 
@@ -240,6 +249,7 @@ int main(int argc, char** argv)
     liftOptions.testAbi = testAbi;
     liftOptions.wave64 = wave64;
     liftOptions.userData = userData;
+    liftOptions.userDataFromPush = userDataFromPush;
     auto module = SR::Frontend::Gfx::Lift(*shader, arch->arch, "main", liftOptions);
     if (!module)
     {

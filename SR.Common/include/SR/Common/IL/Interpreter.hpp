@@ -37,6 +37,8 @@ struct ExecutionOptions
     std::array<std::uint32_t, 3> threadId = {0, 0, 0};
     std::array<std::uint32_t, 3> workgroupId = {0, 0, 0};
     std::array<std::uint32_t, 3> workgroupSize = {64, 1, 1};
+    // User data the dispatch supplies (push constants on the host).
+    std::vector<std::uint32_t> userData;
 };
 
 inline constexpr std::uint64_t kBuiltinKeyBase = 0x8000'0000ull;

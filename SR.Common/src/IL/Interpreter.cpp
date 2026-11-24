@@ -716,6 +716,20 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     break;
                 }
 
+                if (id == IntrinsicId::UserData)
+                {
+                    const auto* payload = instruction.payload != NoPayload
+                                              ? std::get_if<UserDataDesc>(&module.payloads.Get(instruction.payload))
+                                              : nullptr;
+                    if (payload == nullptr)
+                        return std::unexpected(ExecutionError("SR-IL-INT-018",
+                                                              "user data without a descriptor",
+                                                              instruction.sourcePc));
+                    const ValueId slot = resultId();
+                    values[slot] = payload->index < options.userData.size() ? options.userData[payload->index] : 0;
+                    break;
+                }
+
                 if (id == IntrinsicId::WaveBroadcastFirst)
                 {
                     // One invocation is a one-lane wave: the value is its own.

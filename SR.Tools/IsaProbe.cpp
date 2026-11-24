@@ -190,8 +190,17 @@ int main(int argc, char** argv)
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
     vkCreateDescriptorSetLayout(logical, &setLayoutInfo, nullptr, &setLayout);
 
+    // A module may read user data through push constants; declaring the
+    // console's 128-byte block keeps the driver's compiler happy.
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushRange.offset = 0;
+    pushRange.size = 128;
+
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts = &setLayout;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;

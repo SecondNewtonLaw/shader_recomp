@@ -105,9 +105,28 @@ public:
         // the descriptor model can read it from memory.
         for (std::size_t index = 0; index < m_options.userData.size() && index <= kLastSgpr; ++index)
         {
-            m_builder.Store(Slot(m_sgprSlots, static_cast<std::uint32_t>(index), IL::RegisterClass::Sgpr),
-                            m_builder.ConstantU32(m_options.userData[index]),
-                            0);
+            IL::ValueId value = IL::InvalidValue;
+            if (m_options.userDataFromPush)
+            {
+                IL::UserDataDesc payload;
+                payload.index = static_cast<std::uint32_t>(index);
+                const IL::PayloadId payloadId = m_module.payloads.Add(payload);
+                value = m_builder.Emit(m_module.types.U32(),
+                                       IL::Op::Intrinsic,
+                                       static_cast<std::uint16_t>(IL::IntrinsicId::UserData),
+                                       {},
+                                       {},
+                                       payloadId,
+                                       0,
+                                       0,
+                                       true);
+            }
+            else
+            {
+                value = m_builder.ConstantU32(m_options.userData[index]);
+            }
+
+            m_builder.Store(Slot(m_sgprSlots, static_cast<std::uint32_t>(index), IL::RegisterClass::Sgpr), value, 0);
         }
 
         // A compute program reads its thread id from the builtin; the workgroup
