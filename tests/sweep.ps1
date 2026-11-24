@@ -74,6 +74,7 @@ foreach ($case in $cases) {
         "scalarnew" = @("--test-abi")
         "dscounter" = @("--test-abi")
         "dscmpst" = @("--test-abi")
+        "dsaddtid" = @("--test-abi")
         "imageresinfo" = @("--test-abi", "--user-data-push", "4")
         "imagegather4" = @("--test-abi", "--user-data-push", "12")
         "imagemip" = @("--test-abi", "--user-data-push", "12")

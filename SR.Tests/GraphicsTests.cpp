@@ -1055,6 +1055,55 @@ TEST_CASE("typed buffer xyzw round trips through the immediate offset", "[gfx][b
 #endif
 }
 
+TEST_CASE("LDS addtid addresses the lane's own slot", "[gfx][lds]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("dsaddtid.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("addtid fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    std::string liftError;
+    if (!module)
+        liftError = SR::ToString(module.error());
+    INFO(liftError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    SR::IL::ExecutionOptions executionOptions;
+    executionOptions.threadId = {3, 0, 0};
+    const auto execution = SR::IL::Interpret(*module, executionOptions);
+    std::string executionError;
+    if (!execution)
+        executionError = SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    // The store landed at dword 3 (the thread id) and the load read it back.
+    REQUIRE(execution->local.at(3) == 0x1234u);
+    REQUIRE(execution->local.find(0) == execution->local.end());
+    REQUIRE(execution->buffer.at(0) == 0x1234u);
+
+    const auto emission = SR::Backend::Reemit(*module);
+    std::string emissionError;
+    if (!emission)
+        emissionError = SR::ToString(emission.error());
+    INFO(emissionError);
+    REQUIRE(emission.has_value());
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

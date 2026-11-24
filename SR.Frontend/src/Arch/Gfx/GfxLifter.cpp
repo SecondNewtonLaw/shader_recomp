@@ -5474,6 +5474,50 @@ private:
         SubClamp,
     };
 
+    // ds_read_addtid_b32 / ds_write_addtid_b32: the address is the encoded
+    // offset plus the invocation's thread id, so each lane reaches its own LDS
+    // slot at the same offset.
+    [[nodiscard]] Result<void> LiftDsAddTid(const DecodedInstruction& instruction)
+    {
+        const auto bytes = DsByteAddress(instruction, instruction.dsOffset0);
+        if (!bytes)
+            return std::unexpected(bytes.error());
+
+        // The thread id of a compute invocation is the x component of the
+        // local invocation id; the emitter supports that form.
+        IL::SpecialRegPayload payload;
+        payload.id = IL::SpecialRegId::ThreadIdX;
+        const IL::PayloadId payloadId = m_module.payloads.Add(payload);
+        const IL::ValueId tid = m_builder.Emit(m_module.types.U32(),
+                                               IL::Op::Intrinsic,
+                                               static_cast<std::uint16_t>(IL::IntrinsicId::SpecialReg),
+                                               {},
+                                               {},
+                                               payloadId,
+                                               instruction.pc,
+                                               static_cast<std::uint16_t>(instruction.op),
+                                               false);
+        const IL::ValueId tidBytes =
+            Bin(instruction, IL::BinaryOp::Shl, tid, m_builder.ConstantU32(2));
+        const IL::ValueId address = Bin(instruction, IL::BinaryOp::IAdd, *bytes, tidBytes);
+
+        const auto index = DsIndexFromBytes(instruction, address);
+        if (!index)
+            return std::unexpected(index.error());
+
+        if (instruction.op == Op::DsStoreAddtidB32)
+        {
+            const auto value = DsData(instruction, OperandKind::DsData0, false);
+            if (!value)
+                return std::unexpected(value.error());
+            DsPutDword(instruction, *index, *value);
+            return {};
+        }
+
+        const IL::ValueId value = DsDword(instruction, *index);
+        return DsWriteDest(instruction, value);
+    }
+
     // ds_append / ds_consume: return the counter and step it. The plain forms
     // wrap through zero; the bounded forms take their bound from M0.
     [[nodiscard]] Result<void> LiftDsCounter(const DecodedInstruction& instruction, bool increment)
@@ -5836,6 +5880,9 @@ private:
         case Op::DsStoreB16D16Hi:
             return LiftDsByteAccess(instruction);
 
+        case Op::DsLoadAddtidB32:
+        case Op::DsStoreAddtidB32:
+            return LiftDsAddTid(instruction);
         case Op::DsAppend:
             return LiftDsCounter(instruction, true);
         case Op::DsConsume:
