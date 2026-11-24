@@ -1,8 +1,8 @@
 # Xbox Series X|S GPU to SPIR-V
 
-Status: phases 1-4 landed and verified on hardware; phase 5 (resources) is
-designed against AnyPS5's runtime ABI and not implemented yet; phase 6 (merged
-stages) and phase 7 (title sweep) are open. This document records what a console
+Status: phases 1-5 landed and verified on hardware; phase 6 (merged stages) is
+landed for the legacy ES/GS export path and open for NGG; phase 7 (title sweep)
+waits on real shader packs. This document records what a console
 shader actually is on the wire, what the translation contract with the rest of
 the pipeline is, and the order in which the missing pieces are built. Numbers
 and layouts are taken from three independent reverse-engineering efforts, and
@@ -164,11 +164,11 @@ optimisation, not the contract.
 |---|---|---|
 | Container | PC DXBC (`SHDR`/`SHEX`), DXIL bitcode, SPIR-V, cubin, HSACO, Series X|S XDAT/XBCH/FSSM (`XboxShaderContainer`) | DXBC signature parts, root layout and used-resource tables |
 | ISA decode | gfx10 base table; gfx1013 and gfx103 inherit it with **no delta**; RDNA3/4 have their own tables | real RDNA2 delta, and the four encodings the decoder does not know: `VINTRP` (3 opcodes), `EXP`, `MIMG` (103), `MTBUF` (16) |
-| ISA lift | ALU, compare, conversion, branch, scalar, buffer/global/flat/scratch memory, `v_interp_p1/p2/mov`, `exp`, wave ballots, image load/store/sample through T#/S#, typed buffers for raw 32-bit formats | converting typed-buffer formats, merged geometry stages, matrices |
-| Stages | `GLCompute`, `Vertex` and `Fragment` with IO variables, interpolation decorations and exports; multi-block functions still use the dispatcher fallback when the CFG is not reducible | geometry and NGG mesh |
+| ISA lift | ALU, compare, conversion, branch, scalar, buffer/global/flat/scratch memory, `v_interp_p1/p2/mov`, `exp` (including `exp prim`), wave ballots, image load/store/sample through T#/S#, typed buffers for raw 32-bit formats | converting typed-buffer formats, NGG, matrices |
+| Stages | `GLCompute`, `Vertex`, `Fragment` and legacy `Geometry` with IO variables, interpolation decorations, exports and vertex emission; multi-block functions still use the dispatcher fallback when the CFG is not reducible | NGG mesh, tessellation |
 | Waves | thread ids as `LocalInvocationId`, compare masks as `OpGroupNonUniformBallot` (wave32 or wave64 masks), `v_readfirstlane` as `OpGroupNonUniformBroadcastFirst`, one-lane interpreter model | per-lane EXEC predication of stores, `v_readlane`/`v_writelane`, `ds_swizzle`, quad ops |
 | Resources | one test buffer at set 0 binding 0 (`--test-abi`) | T#/V#/S# decode, SRT/heap access, push constants |
-| Verification | `tests/sweep.ps1`: 73 fixtures translated, driver-accepted and ISA-probed in parallel, none refused; VS/PS pair rasterised by `SR.VkDraw`; console container executed; coverage regenerated per generation | title shader pack sweep |
+| Verification | `tests/sweep.ps1`: 78 fixtures translated, driver-accepted and ISA-probed in parallel, none refused; VS/PS and VS/GS/PS pipelines rasterised by `SR.VkDraw`; console container executed; coverage regenerated per generation | title shader pack sweep |
 
 ## 6. Roadmap
 
@@ -209,12 +209,23 @@ Each phase ends with something executable, not with a table entry.
    Converting formats (the data/number format table) and the tiled-surface
    decode remain; they are a format system, not an opcode gap. See section 5a
    for the plan taken from AnyPS5.
-6. **Merged stages (open).** ES/GS pairs and NGG mesh; the lifter refuses them
-   with a diagnostic instead of lifting them as standalone stages.
+6. **Merged stages (legacy GS landed, NGG open).** A legacy geometry program is
+   lifted from its exports: `exp pos0..pos3`/`exp param<n>` write the current
+   vertex's outputs, the `pos0` that starts the next vertex emits the previous
+   one, `exp prim` (target 20) emits the last vertex and ends the primitive, and
+   `s_endpgm` flushes whatever is open. The emitter publishes plain per-vertex
+   outputs with `OpEmitVertex`/`OpEndPrimitive` (geometry outputs are not
+   arrays), and the execution modes carry the topologies and vertex budget,
+   which arrive through `LiftOptions` because a raw code object does not state
+   them. Acceptance: `gfx1030/geometry` lifts, interprets, emits validated
+   SPIR-V and draws with an empty vertex stage and the fragment fixture - 4096
+   of 4096 pixels, centre `255 0 0 255` - and the driver reports the merged
+   `_amdgpu_gs_main` with `s_sendmsg(MSG_GS_ALLOC_REQ)`. NGG programs, and the
+   ES/GS pairing that reads the GSVS ring, remain diagnostics.
 7. **Sweep (done for the corpus).** `tests/sweep.ps1` translates every
    checked-in fixture in parallel, probes each compute module with the driver's
-   compiler and draws the graphics pair: 73 of 73, none refused, in about two
-   seconds. `tools/coverage.py` reports the translation share per generation
+   compiler and draws the graphics pipelines: 78 of 78, none refused, in about
+   two seconds. `tools/coverage.py` reports the translation share per generation
    from the ISA XML; the current numbers are gfx10 667/1149 (58.1%), gfx1030
    667/1153 (57.8%) and gfx1200 1344/1264 - the last above 100% because the
    tool counts table entries (aliases included) against the XML's instruction

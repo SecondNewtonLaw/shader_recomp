@@ -296,6 +296,8 @@ Built-in intrinsic families:
 | `ResourceFromValue` | `ResourceDesc` | dynamic descriptor/handle construction |
 | `Sleep` / `Yield` | none | NANOSLEEP, S_SLEEP, YIELD |
 | `DebugBreak` / `Trap` | none | trap/breakpoint |
+| `StageInput` / `StageOutput` | `StageIoDesc` | interface variable read/write |
+| `EmitVertex` / `EndPrimitive` | none | geometry output emission |
 
 Known Intel `SEND` families (sampler, dataport, URB, gateway, LSC, barrier) get
 dedicated payload kinds and handlers. Unknown messages are `SendDesc{Unknown}`
@@ -303,6 +305,39 @@ and the emitter rejects them with the message descriptor.
 
 `Sleep`, `Yield`, debug markers, lifetime markers and file/line intrinsics are
 scheduling or debug hints. Their handlers emit nothing.
+
+### 7a. Geometry
+
+A geometry stage is one invocation that reads its input primitives and emits
+vertices. The IL spells that with the same `StageOutput` write a vertex stage
+uses, then `EmitVertex` to publish the current vertex, and `EndPrimitive` to
+close the strip:
+
+```
+StageOutput out loc 0.0 = value   ; the vertex being built
+EmitVertex                        ; publish it
+EndPrimitive                      ; close the strip
+```
+
+Geometry outputs are the plain per-vertex variables every stage uses, not
+arrays: `OpEmitVertex` captures the current values, so the next vertex simply
+overwrites them. (Arrayed geometry outputs are rejected by the AMD driver;
+glslang emits the plain form too.)
+
+Pipeline state that no instruction carries lives in the execution modes:
+`inputTopology`, `outputTopology` and `outputVertices`. The emitter turns them
+into `Triangles`/`InputLines`/..., `OutputTriangleStrip`/... and
+`OutputVertices N`; the lifter takes them from `LiftOptions`, because a raw
+code object does not say what the pipeline feeds it. The source pc and opcode
+are attached to every intrinsic.
+
+The RDNA form this maps from: `exp pos0..pos3` and `exp param<n>` write one
+vertex's outputs, and the `pos0` export that begins the next vertex closes the
+previous one; `exp prim` (target 20) closes the last vertex and ends the
+primitive; `s_endpgm` flushes whichever of the two is still open. That is the
+legacy export path. NGG (`s_sendmsg GS_ALLOC_REQ`) is still a diagnostic:
+its vertex data lives in an allocated ring that the wave reads with `ds_*`, not
+in the export path.
 
 ## 8. Memory and resources
 
