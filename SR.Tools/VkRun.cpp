@@ -261,7 +261,7 @@ int main(int argc, char** argv)
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_LINEAR;
-    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VkImage image = VK_NULL_HANDLE;
@@ -347,24 +347,42 @@ int main(int argc, char** argv)
     imageBinding.descriptorCount = 1;
     imageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    const VkDescriptorSetLayoutBinding bindings[] = {binding, imageBinding};
+    // The image model reserves bindings 8.. for sampled images and 16.. for
+    // samplers, so a shader can use both kinds in one set.
+    VkDescriptorSetLayoutBinding sampledBinding{};
+    sampledBinding.binding = 8;
+    sampledBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    sampledBinding.descriptorCount = 1;
+    sampledBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutBinding samplerBinding{};
+    samplerBinding.binding = 16;
+    samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    samplerBinding.descriptorCount = 1;
+    samplerBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    const VkDescriptorSetLayoutBinding bindings[] = {binding, imageBinding, sampledBinding, samplerBinding};
     VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
     setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    setLayoutInfo.bindingCount = 2;
+    setLayoutInfo.bindingCount = 4;
     setLayoutInfo.pBindings = bindings;
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
     vkCreateDescriptorSetLayout(device.logical, &setLayoutInfo, nullptr, &setLayout);
 
-    VkDescriptorPoolSize poolSizes[2]{};
+    VkDescriptorPoolSize poolSizes[4]{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     poolSizes[1].descriptorCount = 1;
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    poolSizes[2].descriptorCount = 1;
+    poolSizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+    poolSizes[3].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = 1;
-    poolInfo.poolSizeCount = 2;
+    poolInfo.poolSizeCount = 4;
     poolInfo.pPoolSizes = poolSizes;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     vkCreateDescriptorPool(device.logical, &poolInfo, nullptr, &pool);
@@ -402,8 +420,43 @@ int main(int argc, char** argv)
     imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     imageWrite.pImageInfo = &imageDescriptor;
 
-    const VkWriteDescriptorSet writes[] = {write, imageWrite};
-    vkUpdateDescriptorSets(device.logical, 2, writes, 0, nullptr);
+    VkDescriptorImageInfo sampledDescriptor{};
+    sampledDescriptor.imageView = imageView;
+    sampledDescriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet sampledWrite{};
+    sampledWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    sampledWrite.dstSet = descriptorSet;
+    sampledWrite.dstBinding = 8;
+    sampledWrite.descriptorCount = 1;
+    sampledWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    sampledWrite.pImageInfo = &sampledDescriptor;
+
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+    VkSampler sampler = VK_NULL_HANDLE;
+    vkCreateSampler(device.logical, &samplerInfo, nullptr, &sampler);
+
+    VkDescriptorImageInfo samplerDescriptor{};
+    samplerDescriptor.sampler = sampler;
+
+    VkWriteDescriptorSet samplerWrite{};
+    samplerWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    samplerWrite.dstSet = descriptorSet;
+    samplerWrite.dstBinding = 16;
+    samplerWrite.descriptorCount = 1;
+    samplerWrite.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    samplerWrite.pImageInfo = &samplerDescriptor;
+
+    const VkWriteDescriptorSet writes[] = {write, imageWrite, sampledWrite, samplerWrite};
+    vkUpdateDescriptorSets(device.logical, 4, writes, 0, nullptr);
 
     VkShaderModuleCreateInfo moduleInfo{};
     moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;

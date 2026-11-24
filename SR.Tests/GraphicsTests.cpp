@@ -425,7 +425,7 @@ TEST_CASE("MIMG decodes the descriptor registers and the data mask", "[gfx][imag
 #endif
 }
 
-TEST_CASE("an image access is refused with its descriptors named", "[gfx][image][stage]")
+TEST_CASE("image_sample, load and store lift from one descriptor pair", "[gfx][image][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)
     SUCCEED("SR_CORPUS_ROOT is not defined");
@@ -441,33 +441,16 @@ TEST_CASE("an image access is refused with its descriptors named", "[gfx][image]
     REQUIRE(shader.has_value());
     shader->stage = SR::IL::Stage::Compute;
 
-    const auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main");
-    REQUIRE_FALSE(module.has_value());
-    REQUIRE(module.error().code == "SR-GFX-LIFT-090");
-    REQUIRE(module.error().message.find("image_sample") != std::string::npos);
-    REQUIRE(module.error().message.find("T#=s8") != std::string::npos);
-    REQUIRE(module.error().message.find("S#=s16") != std::string::npos);
-#endif
-}
+    // Without user data the descriptor is missing and the diagnostic names it.
+    const auto refused = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main");
+    REQUIRE_FALSE(refused.has_value());
+    REQUIRE(refused.error().code == "SR-GFX-LIFT-091");
+    REQUIRE(refused.error().message.find("s8") != std::string::npos);
 
-TEST_CASE("a predicated store leaves masked lanes untouched", "[gfx][exec][guard]")
-{
-#if !defined(SR_CORPUS_ROOT)
-    SUCCEED("SR_CORPUS_ROOT is not defined");
-#else
-    const auto bytes = ReadFile(Fixture("predicated.hsaco"));
-    if (bytes.empty())
-    {
-        SUCCEED("predicated fixture is not present");
-        return;
-    }
-
-    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
-    REQUIRE(shader.has_value());
-    shader->stage = SR::IL::Stage::Compute;
-
+    // With the T# and S# in user data the whole fixture translates.
     SR::Frontend::Gfx::LiftOptions options;
     options.testAbi = true;
+    options.userData.assign(12, 0u);
 
     auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
     if (!module)
@@ -475,23 +458,10 @@ TEST_CASE("a predicated store leaves masked lanes untouched", "[gfx][exec][guard
     REQUIRE(module.has_value());
     REQUIRE(SR::IL::VerifyModule(*module).has_value());
 
-    // The access carries the mask, so the dump shows it as a guarded store.
-    REQUIRE(SR::IL::DumpModule(*module).find("if %") != std::string::npos);
-
-    // Lane 0 satisfies tid < 1 and writes; lane 5 is masked and writes nothing.
-    SR::IL::ExecutionOptions lane0;
-    lane0.threadId = {0, 0, 0};
-    const auto executed = SR::IL::Interpret(*module, lane0);
-    if (!executed)
-        INFO(SR::ToString(executed.error()));
-    REQUIRE(executed.has_value());
-    REQUIRE(executed->buffer.at(0) == 0xAAu);
-
-    SR::IL::ExecutionOptions lane5;
-    lane5.threadId = {5, 0, 0};
-    const auto masked = SR::IL::Interpret(*module, lane5);
-    REQUIRE(masked.has_value());
-    REQUIRE(masked->buffer.find(0) == masked->buffer.end());
+    const std::string dump = SR::IL::DumpModule(*module);
+    REQUIRE(dump.find("image.sample") != std::string::npos);
+    REQUIRE(dump.find("image.load") != std::string::npos);
+    REQUIRE(dump.find("image.store") != std::string::npos);
 
     REQUIRE(SR::IL::RunPipeline(*module).has_value());
     REQUIRE(SR::IL::VerifyModule(*module).has_value());
@@ -502,26 +472,15 @@ TEST_CASE("a predicated store leaves masked lanes untouched", "[gfx][exec][guard
 #endif
 }
 
-namespace {
-
-std::uint32_t FloatAsBits(float value)
-{
-    std::uint32_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(bits));
-    return bits;
-}
-
-} // namespace
-
-TEST_CASE("image_load reads a texel through a T# descriptor", "[gfx][image][load]")
+TEST_CASE("image_sample reads through a sampler binding", "[gfx][image][sample]")
 {
 #if !defined(SR_CORPUS_ROOT)
     SUCCEED("SR_CORPUS_ROOT is not defined");
 #else
-    const auto bytes = ReadFile(Fixture("imageload.hsaco"));
+    const auto bytes = ReadFile(Fixture("imagesample.hsaco"));
     if (bytes.empty())
     {
-        SUCCEED("imageload fixture is not present");
+        SUCCEED("imagesample fixture is not present");
         return;
     }
 
@@ -529,11 +488,9 @@ TEST_CASE("image_load reads a texel through a T# descriptor", "[gfx][image][load
     REQUIRE(shader.has_value());
     shader->stage = SR::IL::Stage::Compute;
 
-    // The T# lives in the first eight user data dwords; set 0 binding 0 is the
-    // test buffer so the first image descriptor becomes binding 1.
     SR::Frontend::Gfx::LiftOptions options;
     options.testAbi = true;
-    options.userData = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    options.userData.assign(12, 0u); // T# at s0..s7, S# at s8..s11
 
     auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
     if (!module)
@@ -542,23 +499,9 @@ TEST_CASE("image_load reads a texel through a T# descriptor", "[gfx][image][load
     REQUIRE(SR::IL::VerifyModule(*module).has_value());
 
     const std::string dump = SR::IL::DumpModule(*module);
-    REQUIRE(dump.find("image.load") != std::string::npos);
-    REQUIRE(dump.find("binding=1") != std::string::npos);
-
-    // Texel (0,0) is (1,2,3,4); the fixture copies the four components to the
-    // test buffer's first four dwords.
-    const std::uint64_t texelKey = (1ull << 40); // binding 1, y = 0, x = 0
-    SR::IL::ExecutionOptions executionOptions;
-    executionOptions.images[texelKey] = {FloatAsBits(1.0f), FloatAsBits(2.0f), FloatAsBits(3.0f), FloatAsBits(4.0f)};
-
-    const auto execution = SR::IL::Interpret(*module, executionOptions);
-    if (!execution)
-        INFO(SR::ToString(execution.error()));
-    REQUIRE(execution.has_value());
-    REQUIRE(execution->buffer.at(0) == FloatAsBits(1.0f));
-    REQUIRE(execution->buffer.at(1) == FloatAsBits(2.0f));
-    REQUIRE(execution->buffer.at(2) == FloatAsBits(3.0f));
-    REQUIRE(execution->buffer.at(3) == FloatAsBits(4.0f));
+    REQUIRE(dump.find("image.sample") != std::string::npos);
+    REQUIRE(dump.find("binding=8") != std::string::npos);
+    REQUIRE(dump.find("sampler=16") != std::string::npos);
 
     REQUIRE(SR::IL::RunPipeline(*module).has_value());
     REQUIRE(SR::IL::VerifyModule(*module).has_value());

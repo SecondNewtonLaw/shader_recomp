@@ -35,6 +35,8 @@ enum SpvOp : std::uint16_t
     OpTypeFloat = 22,
     OpTypeVector = 23,
     OpTypeImage = 25,
+    OpTypeSampler = 26,
+    OpTypeSampledImage = 27,
     OpTypeMatrix = 24,
     OpTypeRuntimeArray = 29,
     OpTypeArray = 28,
@@ -47,6 +49,9 @@ enum SpvOp : std::uint16_t
     OpFunction = 54,
     OpFunctionEnd = 56,
     OpVariable = 59,
+    OpSampledImage = 86,
+    OpImageSampleImplicitLod = 87,
+    OpImageSampleExplicitLod = 88,
     OpImageRead = 98,
     OpImageWrite = 99,
     OpLoad = 61,
@@ -1023,13 +1028,21 @@ private:
     {
         std::uint32_t set = 0;
         std::uint32_t binding = 0;
+        std::uint32_t samplerBinding = 0;
         std::uint32_t variable = 0;
+        std::uint32_t samplerVariable = 0;
         std::uint32_t imageType = 0;
         std::uint32_t pointerType = 0;
+        std::uint32_t sampledImageType = 0;
+        std::uint32_t samplerType = 0;
+        std::uint32_t samplerPointerType = 0;
+        bool sampled = false;
     };
     std::vector<ImageResource> m_images;
     std::uint32_t m_imageVec4 = 0;
     std::uint32_t m_imageVec2i = 0;
+    std::uint32_t m_imageVec2f = 0;
+    std::uint32_t m_imageZeroLod = 0;
     std::uint32_t m_imageVec4Element = 0;
 
     // Image accesses name a binding the host filled from the T# descriptor.
@@ -1038,14 +1051,18 @@ private:
         const auto add = [this](const IL::ImageAccessDesc& access) {
             for (const ImageResource& image : m_images)
             {
-                if (image.set == access.set && image.binding == access.binding)
+                if (image.set == access.set && image.binding == access.binding && image.sampled == access.sampled)
                     return;
             }
 
             ImageResource image;
             image.set = access.set;
             image.binding = access.binding;
+            image.samplerBinding = access.samplerBinding;
+            image.sampled = access.sampled;
             image.variable = NewId();
+            if (access.sampled)
+                image.samplerVariable = NewId();
             m_images.push_back(image);
         };
 
@@ -1057,7 +1074,8 @@ private:
                 {
                     if (instruction.op != IL::Op::Intrinsic ||
                         (instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageLoad) &&
-                         instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageStore)))
+                         instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageStore) &&
+                         instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::ImageSample)))
                         continue;
                     if (instruction.payload == IL::NoPayload)
                         continue;
@@ -1113,22 +1131,53 @@ private:
         m_imageVec4Element = f32Id;
         m_imageVec2i = NewId();
         Op(OpTypeVector, {m_imageVec2i, *u32, 2});
+        m_imageVec2f = NewId();
+        Op(OpTypeVector, {m_imageVec2f, f32Id, 2});
+
+        // Compute has no derivatives, so sampling states the level explicitly:
+        // level zero is a plain texel fetch through the sampler.
+        m_imageZeroLod = NewId();
+        Op(OpConstant, {f32Id, m_imageZeroLod, 0});
 
         for (ImageResource& image : m_images)
         {
             // A 2D storage image with a 32-bit float RGBA format: image_load and
             // image_store map to OpImageRead and OpImageWrite without a sampler.
             image.imageType = NewId();
-            // Sampled = 2 is Vulkan's storage image: read and written through
-            // OpImageRead/OpImageWrite without a sampler.
-            Op(OpTypeImage, {image.imageType, *f32, 1 /* 2D */, 0 /* depth */, 0 /* arrayed */, 0 /* ms */,
-                             2 /* sampled */, 1 /* Rgba32f */});
+            if (image.sampled)
+            {
+                // A sampled image: read through a sampler with normalized
+                // float coordinates, format unknown until the view is bound.
+                Op(OpTypeImage, {image.imageType, *f32, 1 /* 2D */, 0 /* depth */, 0 /* arrayed */, 0 /* ms */,
+                                 1 /* sampled */, 0 /* unknown format */});
+                image.sampledImageType = NewId();
+                Op(OpTypeSampledImage, {image.sampledImageType, image.imageType});
+                image.samplerType = NewId();
+                Op(OpTypeSampler, {image.samplerType});
+            }
+            else
+            {
+                // Sampled = 2 is Vulkan's storage image: read and written
+                // through OpImageRead/OpImageWrite without a sampler.
+                Op(OpTypeImage, {image.imageType, *f32, 1 /* 2D */, 0 /* depth */, 0 /* arrayed */, 0 /* ms */,
+                                 2 /* sampled */, 1 /* Rgba32f */});
+            }
+
             image.pointerType = NewId();
             Op(OpTypePointer, {image.pointerType, 0 /* UniformConstant */, image.imageType});
+            if (image.sampled)
+            {
+                image.samplerPointerType = NewId();
+                Op(OpTypePointer, {image.samplerPointerType, 0 /* UniformConstant */, image.samplerType});
+            }
         }
 
         for (const ImageResource& image : m_images)
+        {
             Op(OpVariable, {image.pointerType, image.variable, 0 /* UniformConstant */});
+            if (image.sampled)
+                Op(OpVariable, {image.samplerPointerType, image.samplerVariable, 0 /* UniformConstant */});
+        }
 
         return {};
     }
@@ -1211,7 +1260,11 @@ private:
         if (m_usePushConstants)
             operands.push_back(m_pushVar);
         for (const ImageResource& image : m_images)
+        {
             operands.push_back(image.variable);
+            if (image.sampled)
+                operands.push_back(image.samplerVariable);
+        }
         Op(OpEntryPoint, operands);
 
         if (executionModel == 5) // GLCompute
@@ -1243,6 +1296,11 @@ private:
         {
             Op(OpDecorate, {image.variable, 34 /* DescriptorSet */, image.set});
             Op(OpDecorate, {image.variable, 33 /* Binding */, image.binding});
+            if (image.sampled)
+            {
+                Op(OpDecorate, {image.samplerVariable, 34 /* DescriptorSet */, image.set});
+                Op(OpDecorate, {image.samplerVariable, 33 /* Binding */, image.samplerBinding});
+            }
         }
 
         if (m_usePushConstants)
@@ -2425,7 +2483,8 @@ private:
 
         if (instruction.op == IL::Op::Intrinsic &&
             (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageLoad) ||
-             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageStore)))
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageStore) ||
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageSample)))
         {
             const auto* access = instruction.payload != IL::NoPayload
                                      ? std::get_if<IL::ImageAccessDesc>(&m_module.payloads.Get(instruction.payload))
@@ -2441,6 +2500,50 @@ private:
             const auto y = ValueId(function, instruction.operands[1]);
             if (!x || !y)
                 return std::unexpected(EmitError("SR-SPV-084", "invalid image coordinates", instruction.sourcePc));
+
+            if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::ImageSample))
+            {
+                if (instruction.results.size() != 1)
+                    return std::unexpected(EmitError("SR-SPV-088", "image sample must have one result", instruction.sourcePc));
+                if (!image->sampled)
+                    return std::unexpected(EmitError("SR-SPV-089", "sample on a storage image binding", instruction.sourcePc));
+
+                // Normalized float coordinates arrive as the address VGPR bits.
+                const std::uint32_t fx = NewId();
+                Op(OpBitcast, {m_imageVec4Element, fx, *x});
+                const std::uint32_t fy = NewId();
+                Op(OpBitcast, {m_imageVec4Element, fy, *y});
+                const std::uint32_t floatCoordinate = NewId();
+                Op(OpCompositeConstruct, {m_imageVec2f, floatCoordinate, fx, fy});
+
+                const std::uint32_t imageObject = NewId();
+                Op(OpLoad, {image->imageType, imageObject, image->variable});
+                const std::uint32_t samplerObject = NewId();
+                Op(OpLoad, {image->samplerType, samplerObject, image->samplerVariable});
+                const std::uint32_t sampledObject = NewId();
+                Op(OpSampledImage, {image->sampledImageType, sampledObject, imageObject, samplerObject});
+
+                const std::uint32_t texel = NewId();
+                Op(OpImageSampleExplicitLod, {m_imageVec4, texel, sampledObject, floatCoordinate,
+                                              2 /* Lod */, m_imageZeroLod});
+
+                const std::uint32_t component = NewId();
+                Op(OpCompositeExtract, {m_imageVec4Element, component, texel,
+                                        static_cast<std::uint32_t>(access->component & 3)});
+
+                const IL::ValueId resultValue = instruction.results[0];
+                const auto resultType = EmitType(function.values[resultValue].type);
+                if (!resultType)
+                    return std::unexpected(resultType.error());
+
+                const std::uint32_t resultId =
+                    (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+                Op(OpBitcast, {*resultType, resultId, component});
+                m_valueIds[resultValue] = resultId;
+                if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                    Op(OpStore, {m_spillVars[resultValue], resultId});
+                return {};
+            }
 
             const std::uint32_t coordinate = NewId();
             Op(OpCompositeConstruct, {m_imageVec2i, coordinate, *x, *y});

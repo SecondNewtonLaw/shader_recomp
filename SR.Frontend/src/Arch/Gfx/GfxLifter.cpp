@@ -3328,14 +3328,14 @@ private:
     // carries a descriptor-set binding rather than re-deriving the tiling.
     [[nodiscard]] Result<void> LiftImageAccess(const DecodedInstruction& instruction)
     {
-        if (instruction.op != Op::ImageLoad && instruction.op != Op::ImageStore)
+        if (instruction.op != Op::ImageLoad && instruction.op != Op::ImageStore &&
+            instruction.op != Op::ImageSample)
         {
             return std::unexpected(LiftError("SR-GFX-LIFT-090",
                                              std::string("image access is not translated yet: ") +
                                                  std::string(ToString(instruction.op)) +
                                                  " T#=s" + std::to_string(instruction.imageSrsrc) +
-                                                 " S#=s" + std::to_string(instruction.imageSsamp) +
-                                                 " (needs a sampler binding)",
+                                                 " S#=s" + std::to_string(instruction.imageSsamp),
                                              instruction.pc));
         }
 
@@ -3359,19 +3359,25 @@ private:
         if (!extent)
             return std::unexpected(extent.error());
 
-        // Each distinct descriptor gets its own binding; set 0 binding 0 is the
-        // test buffer.
+        // Bindings for the test ABI: storage images start at 1, sampled images
+        // at 8 and samplers at 16, so a set can hold one of each kind.
+        const bool sampled = instruction.op == Op::ImageSample;
         std::uint32_t binding = 0;
         for (std::size_t i = 0; i < m_imageBindings.size(); ++i)
         {
-            if (m_imageBindings[i].srsrc == srsrc)
+            if (m_imageBindings[i].srsrc == srsrc && m_imageBindings[i].sampled == sampled)
                 binding = m_imageBindings[i].binding;
         }
         if (binding == 0)
         {
-            binding = static_cast<std::uint32_t>(m_imageBindings.size()) + 1;
-            m_imageBindings.push_back(ImageBinding{srsrc, binding});
+            const std::uint32_t kindCount = static_cast<std::uint32_t>(std::count_if(
+                m_imageBindings.begin(), m_imageBindings.end(),
+                [sampled](const ImageBinding& entry) { return entry.sampled == sampled; }));
+            binding = (sampled ? 8u : 1u) + kindCount;
+            m_imageBindings.push_back(ImageBinding{srsrc, binding, sampled});
         }
+
+        const std::uint32_t samplerBinding = sampled ? 16 + (binding - 8) : 0;
 
         // A null descriptor is a common way to say "no surface": treat the
         // access as reading zero rather than faulting.
@@ -3409,14 +3415,17 @@ private:
             IL::ImageAccessDesc access;
             access.set = 0;
             access.binding = binding;
+            access.samplerBinding = samplerBinding;
             access.component = static_cast<std::uint8_t>(component);
             access.dimensions = 2;
+            access.sampled = sampled;
             const IL::PayloadId payload = m_module.payloads.Add(access);
 
-            if (instruction.op == Op::ImageLoad)
+            if (instruction.op == Op::ImageLoad || instruction.op == Op::ImageSample)
             {
-                const IL::ValueId value = m_builder.IntrinsicValue(m_module.types.U32(),
-                                                                   IL::IntrinsicId::ImageLoad,
+                const IL::ValueId value = m_builder.IntrinsicValue(
+                    m_module.types.U32(),
+                    sampled ? IL::IntrinsicId::ImageSample : IL::IntrinsicId::ImageLoad,
                                                                    {*x, *y},
                                                                    payload,
                                                                    instruction.pc,
@@ -9574,6 +9583,7 @@ private:
     {
         std::uint32_t srsrc = 0;
         std::uint32_t binding = 0;
+        bool sampled = false;
     };
     std::vector<ImageBinding> m_imageBindings;
     bool m_execMayBeFalse = false;

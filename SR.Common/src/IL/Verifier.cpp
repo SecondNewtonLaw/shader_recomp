@@ -267,7 +267,7 @@ private:
         if (instruction.op == Op::Intrinsic && m_options.checkIntrinsics)
         {
             const auto id = static_cast<IntrinsicId>(instruction.subop);
-            if (id > IntrinsicId::ImageStore)
+            if (id > IntrinsicId::ImageSample)
             {
                 Fail("SR-IL-041", "intrinsic id is out of range", pc);
             }

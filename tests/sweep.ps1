@@ -59,11 +59,13 @@ foreach ($case in $cases) {
         "descriptor" = @("--test-abi", "--user-data-push", "4")
         "predicated" = @("--test-abi")
         "imageload"  = @("--test-abi", "--user-data-push", "8")
+        "imagesample" = @("--test-abi", "--user-data-push", "12")
+        "image"      = @("--test-abi", "--user-data-push", "12")
     }
 
     # Fixtures whose translation is expected to be refused today: they are
     # reported, not counted as failures.
-    $expectedRefusal = @("image")
+    $expectedRefusal = @()
 
     Get-ChildItem $directory -Filter *.hsaco | Sort-Object Name | ForEach-Object {
         $name = $_.BaseName

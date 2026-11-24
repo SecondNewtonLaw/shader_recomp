@@ -183,10 +183,32 @@ int main(int argc, char** argv)
     binding.descriptorCount = 1;
     binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
+    // Bindings the test ABI and the image model use: a storage buffer at 0 and
+    // a storage image at 1. A module only has to reference the ones it uses,
+    // but the layout has to be able to describe them for the driver.
+    VkDescriptorSetLayoutBinding imageBinding{};
+    imageBinding.binding = 1;
+    imageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    imageBinding.descriptorCount = 1;
+    imageBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutBinding sampledBinding{};
+    sampledBinding.binding = 8;
+    sampledBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    sampledBinding.descriptorCount = 1;
+    sampledBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutBinding samplerBinding{};
+    samplerBinding.binding = 16;
+    samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    samplerBinding.descriptorCount = 1;
+    samplerBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    const VkDescriptorSetLayoutBinding bindings[] = {binding, imageBinding, sampledBinding, samplerBinding};
     VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
     setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    setLayoutInfo.bindingCount = 1;
-    setLayoutInfo.pBindings = &binding;
+    setLayoutInfo.bindingCount = 4;
+    setLayoutInfo.pBindings = bindings;
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
     vkCreateDescriptorSetLayout(logical, &setLayoutInfo, nullptr, &setLayout);
 

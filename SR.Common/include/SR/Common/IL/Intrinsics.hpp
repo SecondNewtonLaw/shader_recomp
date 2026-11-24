@@ -66,6 +66,7 @@ enum class IntrinsicId : std::uint16_t
     DeviceStore,
     ImageLoad,
     ImageStore,
+    ImageSample,
 };
 
 enum class SpecialRegId : std::uint16_t
@@ -221,8 +222,12 @@ struct ImageAccessDesc
 {
     std::uint32_t set = 0;
     std::uint32_t binding = 0;
+    std::uint32_t samplerBinding = 0;
     std::uint8_t component = 0;
     std::uint8_t dimensions = 2;
+    // A sampled image is read through a sampler (normalized float coordinates);
+    // a storage image is read at integer texel coordinates.
+    bool sampled = false;
 };
 
 using Payload = std::variant<std::monostate,

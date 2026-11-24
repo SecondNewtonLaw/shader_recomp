@@ -720,7 +720,8 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     break;
                 }
 
-                if (id == IntrinsicId::ImageLoad || id == IntrinsicId::ImageStore)
+                if (id == IntrinsicId::ImageLoad || id == IntrinsicId::ImageStore ||
+                    id == IntrinsicId::ImageSample)
                 {
                     const auto* image = instruction.payload != NoPayload
                                             ? std::get_if<ImageAccessDesc>(&module.payloads.Get(instruction.payload))
@@ -735,7 +736,7 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     const std::uint64_t key = (static_cast<std::uint64_t>(image->binding) << 40) | ((y & 0xFFFFF) << 20) |
                                               (x & 0xFFFFF);
 
-                    if (id == IntrinsicId::ImageLoad)
+                    if (id == IntrinsicId::ImageLoad || id == IntrinsicId::ImageSample)
                     {
                         const ValueId slot = resultId();
                         const auto it = options.images.find(key);
