@@ -261,6 +261,8 @@ if (Vulkan_FOUND)
     target_link_libraries(SR.ISAProbe PRIVATE Vulkan::Vulkan)
     sr_add_executable(SR.VkRun SR.Tools/VkRun.cpp)
     target_link_libraries(SR.VkRun PRIVATE Vulkan::Vulkan)
+    sr_add_executable(SR.VkDraw SR.Tools/VkDraw.cpp)
+    target_link_libraries(SR.VkDraw PRIVATE Vulkan::Vulkan)
 else ()
     message(STATUS "Vulkan was not found; SR.ISAProbe and SR.VkRun are disabled")
 endif ()
@@ -289,6 +291,7 @@ if (BUILD_TESTING)
             SR.Tests/FormatReaderTests.cpp
             SR.Tests/GfxTests.cpp
             SR.Tests/XboxTests.cpp
+            SR.Tests/GraphicsTests.cpp
     )
     target_link_libraries(SR.Tests PRIVATE
             SR.Common

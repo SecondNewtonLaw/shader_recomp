@@ -170,7 +170,7 @@ TEST_CASE("xbox container and hsaco deliver the same shader", "[xbox][pipeline]"
 #endif
 }
 
-TEST_CASE("graphics stages are refused until the emitter has an execution model", "[xbox][stage]")
+TEST_CASE("stages without an execution model are refused", "[xbox][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)
     SUCCEED("SR_CORPUS_ROOT is not defined");
@@ -185,7 +185,7 @@ TEST_CASE("graphics stages are refused until the emitter has an execution model"
     auto shader = SR::Frontend::MasterReader{}.Read(bytes);
     REQUIRE(shader.has_value());
 
-    shader->stage = SR::IL::Stage::Fragment;
+    shader->stage = SR::IL::Stage::Geometry;
 
     const auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main");
     REQUIRE_FALSE(module.has_value());
