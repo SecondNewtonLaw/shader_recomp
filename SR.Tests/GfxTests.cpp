@@ -81,9 +81,11 @@ TEST_CASE("gfx lineage inherits and overrides opcodes", "[gfx][decode]")
     REQUIRE(current.has_value());
     REQUIRE(current->op == Op::S_MovB32);
 
-    // The old opcode is removed, not inherited, once RDNA3 renumbers it.
+    // Renumbering does not leave the old opcode behind: opcode 3 is reused by
+    // S_CMOV_B64 from RDNA3, so the RDNA1 encoding no longer names S_MOV_B32.
     const auto stale = Decode(gfx10Move, Arch::Gfx12, 0);
-    REQUIRE_FALSE(stale.has_value());
+    REQUIRE(stale.has_value());
+    REQUIRE(stale->op == Op::S_CmovB64);
 }
 
 TEST_CASE("gfx lineage renumbers SOP2 and SOPP", "[gfx][decode]")
@@ -901,7 +903,7 @@ TEST_CASE("gfx ISA interpreter matches the IL interpreter", "[gfx][isa][divergen
         for (const char* fixture : {"basic", "loop", "alu", "valu", "scc", "bitops", "vbits", "fpalu",
                                     "loadstore", "branch", "store", "modifiers", "bitfield", "b64",
                                     "compares", "vop1", "vop2", "vop3", "f16", "f64", "cmpwide", "packed",
-                                    "sop64", "lds", "flatmem", "buftest", "smem"})
+                                    "sop64", "lds", "flatmem", "buftest", "smem", "sopscalar"})
         {
             INFO(testCase.directory << "/" << fixture);
             const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / testCase.directory /
@@ -1779,6 +1781,58 @@ TEST_CASE("gfx scalar memory loads and widths interpret", "[gfx][smem][pipeline]
                                       0x11223344u, 0x55667788u, 0xDDEEFF00u, 51u,
                                       51u,         4386u,       0xDDEEFF00u};
     for (std::uint32_t index = 0; index < 23; ++index)
+    {
+        const auto it = execution->buffer.find(index);
+        const std::uint32_t actual = it == execution->buffer.end() ? 0u : it->second;
+        REQUIRE(actual == expected[index]);
+    }
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::Backend::Reemit(*module).has_value());
+#endif
+}
+
+TEST_CASE("gfx scalar compare, float and conversion ops interpret", "[gfx][sopscalar][pipeline]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const std::filesystem::path path = std::filesystem::path(SR_CORPUS_ROOT) / "gfx1200" / "sopscalar.hsaco";
+    if (!std::filesystem::exists(path))
+    {
+        SUCCEED("sopscalar fixture is not present");
+        return;
+    }
+
+    const auto bytes = ReadFile(path);
+    REQUIRE_FALSE(bytes.empty());
+
+    SR::Frontend::MasterReader reader;
+    const auto shader = reader.Read(bytes);
+    REQUIRE(shader.has_value());
+
+    auto module = SR::Frontend::Gfx::Lift(*shader,
+                                         SR::Frontend::Gfx::Arch::Gfx12,
+                                         "main",
+                                         SR::Frontend::Gfx::LiftOptions{true});
+    const std::string moduleError = module.has_value() ? std::string() : SR::ToString(module.error());
+    INFO(moduleError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto execution = SR::IL::Interpret(*module);
+    const std::string executionError =
+        execution.has_value() ? std::string() : SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+
+    const std::uint32_t expected[] = {1u,          0u,          1u,          0u,          1u,
+                                      0x40800000u, 0x40700000u, 0x3FC00000u, 0x40200000u, 0x40A80000u,
+                                      0x4400u,     0x44442222u, 11u,         9u,          3u,
+                                      1u,          0x40000000u, 0x40000000u, 0x40000000u, 0x40000000u,
+                                      0xC0A00000u, 2u,          0x3E00u,     0x3FC00000u, 0x3FC00000u};
+    for (std::uint32_t index = 0; index < 25; ++index)
     {
         const auto it = execution->buffer.find(index);
         const std::uint32_t actual = it == execution->buffer.end() ? 0u : it->second;

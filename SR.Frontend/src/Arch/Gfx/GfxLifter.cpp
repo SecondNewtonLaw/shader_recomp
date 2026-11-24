@@ -653,6 +653,11 @@ private:
         case Op::S_AndB64:
         case Op::S_OrB64:
         case Op::S_XorB64:
+        case Op::S_AndNot1B64:
+        case Op::S_OrNot1B64:
+        case Op::S_NandB64:
+        case Op::S_NorB64:
+        case Op::S_XnorB64:
         {
             const auto left = ReadPairSource(instruction.operands[1], instruction.pc);
             if (!left)
@@ -660,9 +665,59 @@ private:
             const auto right = ReadPairSource(instruction.operands[2], instruction.pc);
             if (!right)
                 return std::unexpected(right.error());
-            const IL::BinaryOp subop = instruction.op == Op::S_AndB64 ? IL::BinaryOp::And
-                                       : instruction.op == Op::S_OrB64 ? IL::BinaryOp::Or
-                                                                       : IL::BinaryOp::Xor;
+            const bool inverted = instruction.op == Op::S_AndNot1B64 ||
+                                  instruction.op == Op::S_OrNot1B64 || instruction.op == Op::S_NandB64 ||
+                                  instruction.op == Op::S_NorB64 || instruction.op == Op::S_XnorB64;
+            const bool invertSecond = instruction.op == Op::S_AndNot1B64 ||
+                                      instruction.op == Op::S_OrNot1B64;
+            IL::BinaryOp subop = IL::BinaryOp::And;
+            switch (instruction.op)
+            {
+            case Op::S_AndB64:
+            case Op::S_AndNot1B64:
+            case Op::S_NandB64:
+                subop = IL::BinaryOp::And;
+                break;
+            case Op::S_OrB64:
+            case Op::S_OrNot1B64:
+            case Op::S_NorB64:
+                subop = IL::BinaryOp::Or;
+                break;
+            default:
+                subop = IL::BinaryOp::Xor;
+                break;
+            }
+            const IL::ValueId operand =
+                invertSecond
+                    ? m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.U64(), *right, true)
+                    : *right;
+            IL::ValueId combined = m_builder.Emit(m_module.types.U64(),
+                                                  IL::Op::Binary,
+                                                  static_cast<std::uint16_t>(subop),
+                                                  {*left, operand},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  true);
+            if (inverted)
+                combined = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.U64(), combined, true);
+            value = combined;
+            break;
+        }
+        case Op::S_AddNcU64:
+        case Op::S_SubNcU64:
+        case Op::S_MulU64:
+        {
+            const auto left = ReadPairSource(instruction.operands[1], instruction.pc);
+            if (!left)
+                return std::unexpected(left.error());
+            const auto right = ReadPairSource(instruction.operands[2], instruction.pc);
+            if (!right)
+                return std::unexpected(right.error());
+            const IL::BinaryOp subop = instruction.op == Op::S_AddNcU64 ? IL::BinaryOp::IAdd
+                                       : instruction.op == Op::S_SubNcU64 ? IL::BinaryOp::ISub
+                                                                         : IL::BinaryOp::IMul;
             value = m_builder.Emit(m_module.types.U64(),
                                    IL::Op::Binary,
                                    static_cast<std::uint16_t>(subop),
@@ -935,54 +990,57 @@ private:
         return std::unexpected(LiftError("SR-GFX-LIFT-055", "unknown compare kind", instruction.pc));
     }
 
+    [[nodiscard]] Result<IL::ValueId> CompareCondition(const DecodedInstruction& instruction,
+                                                       CompareValueKind kind,
+                                                       IL::CompareOp compare,
+                                                       VectorPredicate predicate,
+                                                       std::uint8_t firstIndex = 1,
+                                                       std::uint8_t secondIndex = 2)
+    {
+        if (predicate == VectorPredicate::False || predicate == VectorPredicate::True)
+            return m_builder.ConstantBool(predicate == VectorPredicate::True);
+
+        const auto left = ReadCompareValue(instruction, kind, firstIndex);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadCompareValue(instruction, kind, secondIndex);
+        if (!right)
+            return std::unexpected(right.error());
+
+        if (predicate == VectorPredicate::Ordered || predicate == VectorPredicate::Unordered)
+        {
+            const IL::ValueId leftOrdered =
+                m_builder.CompareValue(IL::CompareOp::FOrdEq, *left, *left, false);
+            const IL::ValueId rightOrdered =
+                m_builder.CompareValue(IL::CompareOp::FOrdEq, *right, *right, false);
+            IL::ValueId condition = m_builder.Emit(m_module.types.Bool(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                   {leftOrdered, rightOrdered},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   false);
+            if (predicate == VectorPredicate::Unordered)
+                condition =
+                    m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), condition, false);
+            return condition;
+        }
+
+        return m_builder.CompareValue(compare, *left, *right, false);
+    }
+
     [[nodiscard]] Result<void> LiftVectorCompareTyped(const DecodedInstruction& instruction,
                                                       CompareValueKind kind,
                                                       IL::CompareOp compare,
                                                       VectorPredicate predicate)
     {
-        const bool isFloat = kind == CompareValueKind::F16 || kind == CompareValueKind::F32 ||
-                             kind == CompareValueKind::F64;
+        const auto condition = CompareCondition(instruction, kind, compare, predicate);
+        if (!condition)
+            return std::unexpected(condition.error());
 
-        IL::ValueId condition = IL::InvalidValue;
-        if (predicate == VectorPredicate::False || predicate == VectorPredicate::True)
-        {
-            condition = m_builder.ConstantBool(predicate == VectorPredicate::True);
-        }
-        else
-        {
-            const auto left = ReadCompareValue(instruction, kind, 1);
-            if (!left)
-                return std::unexpected(left.error());
-            const auto right = ReadCompareValue(instruction, kind, 2);
-            if (!right)
-                return std::unexpected(right.error());
-
-            if (predicate == VectorPredicate::Ordered || predicate == VectorPredicate::Unordered)
-            {
-                const IL::ValueId leftOrdered =
-                    m_builder.CompareValue(IL::CompareOp::FOrdEq, *left, *left, false);
-                const IL::ValueId rightOrdered =
-                    m_builder.CompareValue(IL::CompareOp::FOrdEq, *right, *right, false);
-                condition = m_builder.Emit(m_module.types.Bool(),
-                                           IL::Op::Binary,
-                                           static_cast<std::uint16_t>(IL::BinaryOp::And),
-                                           {leftOrdered, rightOrdered},
-                                           {},
-                                           IL::NoPayload,
-                                           instruction.pc,
-                                           static_cast<std::uint16_t>(instruction.op),
-                                           false);
-                if (predicate == VectorPredicate::Unordered)
-                    condition = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), condition, false);
-            }
-            else
-            {
-                (void)isFloat;
-                condition = m_builder.CompareValue(compare, *left, *right, false);
-            }
-        }
-
-        const auto vcc = WriteVcc(condition, instruction.pc);
+        const auto vcc = WriteVcc(*condition, instruction.pc);
         if (!vcc)
             return vcc;
         if (instruction.execMask)
@@ -993,7 +1051,7 @@ private:
             const IL::ValueId updated = m_builder.Emit(m_module.types.Bool(),
                                                        IL::Op::Binary,
                                                        static_cast<std::uint16_t>(IL::BinaryOp::And),
-                                                       {*exec, condition},
+                                                       {*exec, *condition},
                                                        {},
                                                        IL::NoPayload,
                                                        instruction.pc,
@@ -4890,6 +4948,406 @@ private:
         return WriteScc(comparison, instruction.pc);
     }
 
+    // ---- Scalar compares, float arithmetic and conversions ----
+
+    [[nodiscard]] Result<IL::ValueId> ReadScalarHalf(const Operand& operand, std::uint32_t pc)
+    {
+        const auto bits = ReadBits(operand, pc);
+        if (!bits)
+            return std::unexpected(bits.error());
+        const IL::ValueId low = m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, *bits, false);
+        return Bitcast(F16Type(), low);
+    }
+
+    [[nodiscard]] Result<IL::ValueId> ReadScalarFloat(const DecodedInstruction& instruction,
+                                                      std::uint8_t index,
+                                                      bool half)
+    {
+        if (half)
+            return ReadScalarHalf(instruction.operands[index], instruction.pc);
+        return ReadFloatSource(instruction, index);
+    }
+
+    [[nodiscard]] IL::ValueId FloatBits(IL::ValueId value, bool half)
+    {
+        if (half)
+        {
+            const IL::ValueId bits = Bitcast(U16Type(), value);
+            return m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::ZExt, bits, false);
+        }
+        return Bitcast(m_module.types.U32(), value);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarFloatBinary(const DecodedInstruction& instruction,
+                                                     IL::BinaryOp op,
+                                                     bool half)
+    {
+        const auto left = ReadScalarFloat(instruction, 1, half);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadScalarFloat(instruction, 2, half);
+        if (!right)
+            return std::unexpected(right.error());
+        const IL::TypeId type = half ? F16Type() : m_module.types.F32();
+        const IL::ValueId result = Bin(instruction, op, *left, *right, type);
+        return WriteDest(instruction.operands[0], FloatBits(result, half), instruction.pc);
+    }
+
+    // IEEE minimum/maximum propagate NaN; the min/max number forms drop it.
+    [[nodiscard]] Result<void> LiftScalarFloatMinimum(const DecodedInstruction& instruction,
+                                                      bool half,
+                                                      bool maximum)
+    {
+        const auto left = ReadScalarFloat(instruction, 1, half);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadScalarFloat(instruction, 2, half);
+        if (!right)
+            return std::unexpected(right.error());
+        const IL::TypeId type = half ? F16Type() : m_module.types.F32();
+        const IL::ValueId orderedLeft = m_builder.CompareValue(IL::CompareOp::FOrdEq, *left, *left, true);
+        const IL::ValueId orderedRight = m_builder.CompareValue(IL::CompareOp::FOrdEq, *right, *right, true);
+        const IL::ValueId ordered = m_builder.Emit(m_module.types.Bool(),
+                                                   IL::Op::Binary,
+                                                   static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                   {orderedLeft, orderedRight},
+                                                   {},
+                                                   IL::NoPayload,
+                                                   instruction.pc,
+                                                   static_cast<std::uint16_t>(instruction.op),
+                                                   true);
+        const IL::ValueId selected =
+            Bin(instruction, maximum ? IL::BinaryOp::FMax : IL::BinaryOp::FMin, *left, *right, type);
+        const IL::ValueId nan = half ? Bitcast(F16Type(), m_builder.ConstantU32(0x7E00))
+                                     : m_builder.ConstantF32(std::numeric_limits<float>::quiet_NaN());
+        const IL::ValueId result =
+            m_builder.SelectValue(type, ordered, selected, nan, true);
+        return WriteDest(instruction.operands[0], FloatBits(result, half), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarFmac(const DecodedInstruction& instruction, bool half)
+    {
+        const IL::TypeId type = half ? F16Type() : m_module.types.F32();
+        // The accumulator is the destination register itself.
+        const auto current = ReadSgpr(instruction.operands[0].value, instruction.pc);
+        if (!current)
+            return std::unexpected(current.error());
+        const IL::ValueId accumulator =
+            half ? Bitcast(F16Type(), m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, *current, true))
+                 : Bitcast(m_module.types.F32(), *current);
+        const auto left = ReadScalarFloat(instruction, 1, half);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadScalarFloat(instruction, 2, half);
+        if (!right)
+            return std::unexpected(right.error());
+        const IL::ValueId result = m_builder.Emit(type,
+                                                  IL::Op::Ternary,
+                                                  static_cast<std::uint16_t>(IL::TernaryOp::Fma),
+                                                  {*left, *right, accumulator},
+                                                  {},
+                                                  IL::NoPayload,
+                                                  instruction.pc,
+                                                  static_cast<std::uint16_t>(instruction.op),
+                                                  true);
+        return WriteDest(instruction.operands[0], FloatBits(result, half), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarUnaryFloat(const DecodedInstruction& instruction,
+                                                    IL::UnaryOp op,
+                                                    bool half)
+    {
+        const auto source = ReadScalarFloat(instruction, 1, half);
+        if (!source)
+            return std::unexpected(source.error());
+        const IL::TypeId type = half ? F16Type() : m_module.types.F32();
+        const IL::ValueId result = m_builder.UnaryValue(op, type, *source, false);
+        return WriteDest(instruction.operands[0], FloatBits(result, half), instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarConvert(const DecodedInstruction& instruction)
+    {
+        const IL::TypeId f32 = m_module.types.F32();
+        switch (instruction.op)
+        {
+        case Op::S_CvtF32I32:
+        case Op::S_CvtF32U32:
+        {
+            const bool isSigned = instruction.op == Op::S_CvtF32I32;
+            const auto source = isSigned ? ReadSigned(instruction.operands[1], instruction.pc)
+                                         : ReadBits(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId result = m_builder.ConvertValue(
+                f32, isSigned ? IL::ConvertOp::SIToFP : IL::ConvertOp::UIToFP, *source, true);
+            return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result),
+                             instruction.pc);
+        }
+        case Op::S_CvtI32F32:
+        case Op::S_CvtU32F32:
+        {
+            const bool isSigned = instruction.op == Op::S_CvtI32F32;
+            const auto source = ReadFloatSource(instruction, 1);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::TypeId target = isSigned ? m_module.types.I32() : m_module.types.U32();
+            const IL::ValueId result = m_builder.ConvertValue(
+                target, isSigned ? IL::ConvertOp::FPToSI : IL::ConvertOp::FPToUI, *source, true);
+            return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result),
+                             instruction.pc);
+        }
+        case Op::S_CvtF16F32:
+        {
+            const auto source = ReadFloatSource(instruction, 1);
+            if (!source)
+                return std::unexpected(source.error());
+            const IL::ValueId half = m_builder.ConvertValue(F16Type(), IL::ConvertOp::FPTrunc,
+                                                            *source, true);
+            return WriteDest(instruction.operands[0], FloatBits(half, true), instruction.pc);
+        }
+        case Op::S_CvtF32F16:
+        case Op::S_CvtHiF32F16:
+        {
+            const auto bits = ReadBits(instruction.operands[1], instruction.pc);
+            if (!bits)
+                return std::unexpected(bits.error());
+            IL::ValueId halfBits = *bits;
+            if (instruction.op == Op::S_CvtHiF32F16)
+                halfBits = Bin(instruction, IL::BinaryOp::LShr, halfBits, m_builder.ConstantU32(16));
+            const IL::ValueId low =
+                m_builder.ConvertValue(U16Type(), IL::ConvertOp::Trunc, halfBits, false);
+            const IL::ValueId half = Bitcast(F16Type(), low);
+            const IL::ValueId result = m_builder.ConvertValue(f32, IL::ConvertOp::FPExt, half, true);
+            return WriteDest(instruction.operands[0], Bitcast(m_module.types.U32(), result),
+                             instruction.pc);
+        }
+        default:
+            break;
+        }
+        return std::unexpected(
+            LiftError("SR-GFX-LIFT-072", "unsupported scalar conversion", instruction.pc));
+    }
+
+    [[nodiscard]] Result<void> LiftScalarPack(const DecodedInstruction& instruction)
+    {
+        // PACK_xy packs a half from each source: x selects src0's half and y
+        // selects src1's half, where l is the low half and h is the high half.
+        const bool secondHigh = instruction.op == Op::S_PackLhB32B16 ||
+                                instruction.op == Op::S_PackHhB32B16;
+        const bool firstHigh = instruction.op == Op::S_PackHhB32B16 ||
+                               instruction.op == Op::S_PackHlB32B16;
+        const auto first = ReadBits(instruction.operands[1], instruction.pc);
+        if (!first)
+            return std::unexpected(first.error());
+        const auto second = ReadBits(instruction.operands[2], instruction.pc);
+        if (!second)
+            return std::unexpected(second.error());
+
+        const auto halfOf = [&](IL::ValueId value, bool high) {
+            if (!high)
+                return Bin(instruction, IL::BinaryOp::And, value, m_builder.ConstantU32(0xFFFF));
+            return Bin(instruction, IL::BinaryOp::LShr, value, m_builder.ConstantU32(16));
+        };
+        const IL::ValueId low = halfOf(*first, firstHigh);
+        const IL::ValueId high = halfOf(*second, secondHigh);
+        const IL::ValueId packed = Bin(instruction, IL::BinaryOp::Or, low,
+                                       Bin(instruction, IL::BinaryOp::Shl, high,
+                                           m_builder.ConstantU32(16)));
+        return WriteDest(instruction.operands[0], packed, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarLshlAdd(const DecodedInstruction& instruction,
+                                                 std::uint32_t shift)
+    {
+        const auto left = ReadBits(instruction.operands[1], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadBits(instruction.operands[2], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+        const IL::ValueId shifted =
+            Bin(instruction, IL::BinaryOp::Shl, *left, m_builder.ConstantU32(shift));
+        const IL::ValueId sum = Bin(instruction, IL::BinaryOp::IAdd, shifted, *right);
+        const IL::ValueId overflow = m_builder.CompareValue(IL::CompareOp::ULt, sum, shifted, true);
+        const auto scc = WriteScc(overflow, instruction.pc);
+        if (!scc)
+            return scc;
+        return WriteDest(instruction.operands[0], sum, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarCmov(const DecodedInstruction& instruction)
+    {
+        const auto condition = ReadScc(instruction.pc);
+        if (!condition)
+            return std::unexpected(condition.error());
+        const bool wide = instruction.op == Op::S_CmovB64;
+        if (wide)
+        {
+            const auto source = ReadPairSource(instruction.operands[1], instruction.pc);
+            if (!source)
+                return std::unexpected(source.error());
+            const auto current = ReadSgpr64(instruction.operands[0].value, instruction.pc);
+            if (!current)
+                return std::unexpected(current.error());
+            const IL::ValueId selected =
+                m_builder.SelectValue(m_module.types.U64(), *condition, *source, *current, true);
+            return WriteSgpr64(instruction.operands[0], selected, instruction.pc);
+        }
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+        const auto current = ReadSgpr(instruction.operands[0].value, instruction.pc);
+        if (!current)
+            return std::unexpected(current.error());
+        const IL::ValueId selected =
+            m_builder.SelectValue(m_module.types.U32(), *condition, *source, *current, true);
+        return WriteDest(instruction.operands[0], selected, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftBitreplicate(const DecodedInstruction& instruction)
+    {
+        const auto source = ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        // Spread each bit of a 32-bit value to even positions, then duplicate
+        // it into the following odd position.
+        IL::ValueId spread = m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt,
+                                                    *source, true);
+        const std::uint64_t masks[] = {0x0000FFFF0000FFFFull, 0x00FF00FF00FF00FFull,
+                                       0x0F0F0F0F0F0F0F0Full, 0x3333333333333333ull,
+                                       0x5555555555555555ull};
+        const std::uint32_t shifts[] = {16, 8, 4, 2, 1};
+        for (std::uint32_t i = 0; i < 5; ++i)
+        {
+            const IL::ValueId shifted = Bin(instruction, IL::BinaryOp::Shl, spread,
+                                            m_builder.ConstantU64(shifts[i]), m_module.types.U64());
+            const IL::ValueId combined =
+                Bin(instruction, IL::BinaryOp::Or, spread, shifted, m_module.types.U64());
+            spread = Bin(instruction, IL::BinaryOp::And, combined, m_builder.ConstantU64(masks[i]),
+                         m_module.types.U64());
+        }
+        const IL::ValueId doubled =
+            Bin(instruction, IL::BinaryOp::Or, spread,
+                Bin(instruction, IL::BinaryOp::Shl, spread, m_builder.ConstantU64(1),
+                    m_module.types.U64()),
+                m_module.types.U64());
+        return WriteSgpr64(instruction.operands[0], doubled, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftQuadmask(const DecodedInstruction& instruction)
+    {
+        const bool wide = instruction.op == Op::S_QuadmaskB64;
+        const auto source = wide ? ReadPairSource(instruction.operands[1], instruction.pc)
+                                 : ReadBits(instruction.operands[1], instruction.pc);
+        if (!source)
+            return std::unexpected(source.error());
+
+        const IL::TypeId valueType = wide ? m_module.types.U64() : m_module.types.U32();
+        IL::ValueId any = *source;
+        for (std::uint32_t i = 1; i < 4; ++i)
+        {
+            const IL::ValueId shifted =
+                wide ? Bin(instruction, IL::BinaryOp::LShr, any, m_builder.ConstantU64(i),
+                           m_module.types.U64())
+                     : Bin(instruction, IL::BinaryOp::LShr, any, m_builder.ConstantU32(i));
+            any = Bin(instruction, IL::BinaryOp::Or, any, shifted, valueType);
+        }
+
+        IL::ValueId mask = m_builder.ConstantU32(0);
+        const std::uint32_t groups = wide ? 16u : 8u;
+        for (std::uint32_t i = 0; i < groups; ++i)
+        {
+            const std::uint32_t bit = 3u * i;
+            const IL::ValueId groupShifted =
+                wide ? Bin(instruction, IL::BinaryOp::LShr, any, m_builder.ConstantU64(bit),
+                           m_module.types.U64())
+                     : Bin(instruction, IL::BinaryOp::LShr, any, m_builder.ConstantU32(bit));
+            const IL::ValueId groupBit =
+                wide ? m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc,
+                                              groupShifted, true)
+                     : groupShifted;
+            const IL::ValueId single =
+                Bin(instruction, IL::BinaryOp::And, groupBit,
+                    m_builder.ConstantU32(1u << i));
+            mask = Bin(instruction, IL::BinaryOp::Or, mask, single);
+        }
+
+        const IL::ValueId nonzero = m_builder.CompareValue(IL::CompareOp::UNe, mask,
+                                                           m_builder.ConstantU32(0), true);
+        const auto scc = WriteScc(nonzero, instruction.pc);
+        if (!scc)
+            return scc;
+        return WriteDest(instruction.operands[0], mask, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarFloatCompare(const DecodedInstruction& instruction,
+                                                      bool half,
+                                                      IL::CompareOp compare,
+                                                      VectorPredicate predicate)
+    {
+        const auto condition = CompareCondition(
+            instruction, half ? CompareValueKind::F16 : CompareValueKind::F32, compare, predicate, 0, 1);
+        if (!condition)
+            return std::unexpected(condition.error());
+        return WriteScc(*condition, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarBitCompare(const DecodedInstruction& instruction)
+    {
+        const bool wide = instruction.op == Op::S_Bitcmp0B64 || instruction.op == Op::S_Bitcmp1B64;
+        const bool set = instruction.op == Op::S_Bitcmp1B32 || instruction.op == Op::S_Bitcmp1B64;
+
+        const auto index = ReadBits(instruction.operands[1], instruction.pc);
+        if (!index)
+            return std::unexpected(index.error());
+
+        IL::ValueId bit = IL::InvalidValue;
+        if (wide)
+        {
+            const auto value = ReadPairSource(instruction.operands[0], instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+            const IL::ValueId shift = m_builder.ConvertValue(
+                m_module.types.U64(), IL::ConvertOp::ZExt, MaskShiftCount(*index, 63, true), true);
+            const IL::ValueId shifted =
+                Bin(instruction, IL::BinaryOp::LShr, *value, shift, m_module.types.U64());
+            const IL::ValueId masked =
+                Bin(instruction, IL::BinaryOp::And, shifted, m_builder.ConstantU64(1),
+                    m_module.types.U64());
+            bit = m_builder.CompareValue(IL::CompareOp::UNe, masked, m_builder.ConstantU64(0), true);
+        }
+        else
+        {
+            const auto value = ReadBits(instruction.operands[0], instruction.pc);
+            if (!value)
+                return std::unexpected(value.error());
+            const IL::ValueId shifted =
+                Bin(instruction, IL::BinaryOp::LShr, *value, MaskShiftCount(*index, 31, true));
+            const IL::ValueId masked =
+                Bin(instruction, IL::BinaryOp::And, shifted, m_builder.ConstantU32(1));
+            bit = m_builder.CompareValue(IL::CompareOp::UNe, masked, m_builder.ConstantU32(0), true);
+        }
+
+        if (!set)
+            bit = m_builder.UnaryValue(IL::UnaryOp::Not, m_module.types.Bool(), bit, true);
+        return WriteScc(bit, instruction.pc);
+    }
+
+    [[nodiscard]] Result<void> LiftScalarU64Compare(const DecodedInstruction& instruction)
+    {
+        const auto left = ReadPairSource(instruction.operands[0], instruction.pc);
+        if (!left)
+            return std::unexpected(left.error());
+        const auto right = ReadPairSource(instruction.operands[1], instruction.pc);
+        if (!right)
+            return std::unexpected(right.error());
+        const IL::CompareOp op =
+            instruction.op == Op::S_CmpEqU64 ? IL::CompareOp::UEq : IL::CompareOp::UNe;
+        const IL::ValueId condition = m_builder.CompareValue(op, *left, *right, true);
+        return WriteScc(condition, instruction.pc);
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -5212,6 +5670,14 @@ private:
         case Op::S_OrB64:
         case Op::S_XorB64:
         case Op::S_CselectB64:
+        case Op::S_AndNot1B64:
+        case Op::S_OrNot1B64:
+        case Op::S_NandB64:
+        case Op::S_NorB64:
+        case Op::S_XnorB64:
+        case Op::S_AddNcU64:
+        case Op::S_SubNcU64:
+        case Op::S_MulU64:
             return LiftScalar64(instruction);
         case Op::S_MovB32:
         case Op::V_MovB32:
@@ -5942,6 +6408,147 @@ private:
         case Op::S_CmpGtU32:
         case Op::S_CmpGeU32:
             return LiftCompare(instruction);
+        case Op::S_CmpEqU64:
+        case Op::S_CmpLgU64:
+            return LiftScalarU64Compare(instruction);
+        case Op::S_Bitcmp0B32:
+        case Op::S_Bitcmp1B32:
+        case Op::S_Bitcmp0B64:
+        case Op::S_Bitcmp1B64:
+            return LiftScalarBitCompare(instruction);
+        case Op::S_CmpLtF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdLt, VectorPredicate::Compare);
+        case Op::S_CmpEqF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdEq, VectorPredicate::Compare);
+        case Op::S_CmpLeF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdLe, VectorPredicate::Compare);
+        case Op::S_CmpGtF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdGt, VectorPredicate::Compare);
+        case Op::S_CmpLgF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdNe, VectorPredicate::Compare);
+        case Op::S_CmpGeF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdGe, VectorPredicate::Compare);
+        case Op::S_CmpOF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdEq, VectorPredicate::Ordered);
+        case Op::S_CmpUF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdEq, VectorPredicate::Unordered);
+        case Op::S_CmpNgeF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FUnordLt, VectorPredicate::Compare);
+        case Op::S_CmpNlgF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FUnordEq, VectorPredicate::Compare);
+        case Op::S_CmpNgtF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FUnordLe, VectorPredicate::Compare);
+        case Op::S_CmpNleF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FUnordGt, VectorPredicate::Compare);
+        case Op::S_CmpNeqF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FOrdNe, VectorPredicate::Compare);
+        case Op::S_CmpNltF32:
+            return LiftScalarFloatCompare(instruction, false, IL::CompareOp::FUnordGe, VectorPredicate::Compare);
+        case Op::S_CmpLtF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdLt, VectorPredicate::Compare);
+        case Op::S_CmpEqF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdEq, VectorPredicate::Compare);
+        case Op::S_CmpLeF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdLe, VectorPredicate::Compare);
+        case Op::S_CmpGtF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdGt, VectorPredicate::Compare);
+        case Op::S_CmpLgF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdNe, VectorPredicate::Compare);
+        case Op::S_CmpGeF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdGe, VectorPredicate::Compare);
+        case Op::S_CmpOF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdEq, VectorPredicate::Ordered);
+        case Op::S_CmpUF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdEq, VectorPredicate::Unordered);
+        case Op::S_CmpNgeF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FUnordLt, VectorPredicate::Compare);
+        case Op::S_CmpNlgF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FUnordEq, VectorPredicate::Compare);
+        case Op::S_CmpNgtF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FUnordLe, VectorPredicate::Compare);
+        case Op::S_CmpNleF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FUnordGt, VectorPredicate::Compare);
+        case Op::S_CmpNeqF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FOrdNe, VectorPredicate::Compare);
+        case Op::S_CmpNltF16:
+            return LiftScalarFloatCompare(instruction, true, IL::CompareOp::FUnordGe, VectorPredicate::Compare);
+        case Op::S_AddF32:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FAdd, false);
+        case Op::S_SubF32:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FSub, false);
+        case Op::S_MulF32:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FMul, false);
+        case Op::S_MinNumF32:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FMin, false);
+        case Op::S_MaxNumF32:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FMax, false);
+        case Op::S_AddF16:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FAdd, true);
+        case Op::S_SubF16:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FSub, true);
+        case Op::S_MulF16:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FMul, true);
+        case Op::S_MinNumF16:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FMin, true);
+        case Op::S_MaxNumF16:
+            return LiftScalarFloatBinary(instruction, IL::BinaryOp::FMax, true);
+        case Op::S_MinimumF32:
+            return LiftScalarFloatMinimum(instruction, false, false);
+        case Op::S_MaximumF32:
+            return LiftScalarFloatMinimum(instruction, false, true);
+        case Op::S_MinimumF16:
+            return LiftScalarFloatMinimum(instruction, true, false);
+        case Op::S_MaximumF16:
+            return LiftScalarFloatMinimum(instruction, true, true);
+        case Op::S_FmacF32:
+            return LiftScalarFmac(instruction, false);
+        case Op::S_FmacF16:
+            return LiftScalarFmac(instruction, true);
+        case Op::S_PackLlB32B16:
+        case Op::S_PackLhB32B16:
+        case Op::S_PackHhB32B16:
+        case Op::S_PackHlB32B16:
+            return LiftScalarPack(instruction);
+        case Op::S_Lshl1AddU32:
+            return LiftScalarLshlAdd(instruction, 1);
+        case Op::S_Lshl2AddU32:
+            return LiftScalarLshlAdd(instruction, 2);
+        case Op::S_Lshl3AddU32:
+            return LiftScalarLshlAdd(instruction, 3);
+        case Op::S_Lshl4AddU32:
+            return LiftScalarLshlAdd(instruction, 4);
+        case Op::S_CmovB32:
+        case Op::S_CmovB64:
+            return LiftScalarCmov(instruction);
+        case Op::S_BitreplicateB64B32:
+            return LiftBitreplicate(instruction);
+        case Op::S_QuadmaskB32:
+        case Op::S_QuadmaskB64:
+            return LiftQuadmask(instruction);
+        case Op::S_CeilF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Ceil, false);
+        case Op::S_FloorF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Floor, false);
+        case Op::S_TruncF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Trunc, false);
+        case Op::S_RndneF32:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::RoundEven, false);
+        case Op::S_CeilF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Ceil, true);
+        case Op::S_FloorF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Floor, true);
+        case Op::S_TruncF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::Trunc, true);
+        case Op::S_RndneF16:
+            return LiftScalarUnaryFloat(instruction, IL::UnaryOp::RoundEven, true);
+        case Op::S_CvtF32I32:
+        case Op::S_CvtF32U32:
+        case Op::S_CvtI32F32:
+        case Op::S_CvtU32F32:
+        case Op::S_CvtF16F32:
+        case Op::S_CvtF32F16:
+        case Op::S_CvtHiF32F16:
+            return LiftScalarConvert(instruction);
         case Op::V_AddF32:
             return LiftBinary(instruction, IL::BinaryOp::FAdd, true, false);
         case Op::V_SubF32:

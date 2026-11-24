@@ -1428,6 +1428,58 @@ namespace {
     return {};
 }
 
+[[nodiscard]] bool CompareScalarFloat(Op op, float a, float b) noexcept
+{
+    const bool ordered = !std::isnan(a) && !std::isnan(b);
+    switch (op)
+    {
+    case Op::S_CmpLtF32:
+    case Op::S_CmpLtF16:
+        return ordered && a < b;
+    case Op::S_CmpEqF32:
+    case Op::S_CmpEqF16:
+        return ordered && a == b;
+    case Op::S_CmpLeF32:
+    case Op::S_CmpLeF16:
+        return ordered && a <= b;
+    case Op::S_CmpGtF32:
+    case Op::S_CmpGtF16:
+        return ordered && a > b;
+    case Op::S_CmpLgF32:
+    case Op::S_CmpLgF16:
+        return ordered && a != b;
+    case Op::S_CmpGeF32:
+    case Op::S_CmpGeF16:
+        return ordered && a >= b;
+    case Op::S_CmpOF32:
+    case Op::S_CmpOF16:
+        return ordered;
+    case Op::S_CmpUF32:
+    case Op::S_CmpUF16:
+        return !ordered;
+    case Op::S_CmpNgeF32:
+    case Op::S_CmpNgeF16:
+        return !ordered || a < b;
+    case Op::S_CmpNlgF32:
+    case Op::S_CmpNlgF16:
+        return !ordered || a == b;
+    case Op::S_CmpNgtF32:
+    case Op::S_CmpNgtF16:
+        return !ordered || a <= b;
+    case Op::S_CmpNleF32:
+    case Op::S_CmpNleF16:
+        return !ordered || a > b;
+    case Op::S_CmpNeqF32:
+    case Op::S_CmpNeqF16:
+        return !ordered || a != b;
+    case Op::S_CmpNltF32:
+    case Op::S_CmpNltF16:
+        return !ordered || a >= b;
+    default:
+        return false;
+    }
+}
+
 Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                                   Arch arch,
                                   IsaState state,
@@ -3534,6 +3586,431 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const auto status = ExecuteScalarMemory(result.state, instruction, pc);
             if (!status)
                 return std::unexpected(status.error());
+            break;
+        }
+        case Op::S_CmpEqU64:
+        case Op::S_CmpLgU64:
+        {
+            const auto left = ReadPair(result.state, instruction.operands[0]);
+            const auto right = ReadPair(result.state, instruction.operands[1]);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-240", "invalid 64-bit scalar compare", pc));
+            result.state.scc = instruction.op == Op::S_CmpEqU64 ? *left == *right : *left != *right;
+            break;
+        }
+        case Op::S_Bitcmp0B32:
+        case Op::S_Bitcmp1B32:
+        {
+            const auto value = source(0);
+            const auto index = source(1);
+            if (!value || !index)
+                return std::unexpected(Error("SR-GFX-ISA-241", "invalid bit compare", pc));
+            const bool bit = ((*value >> (*index & 31u)) & 1u) != 0;
+            result.state.scc = instruction.op == Op::S_Bitcmp1B32 ? bit : !bit;
+            break;
+        }
+        case Op::S_Bitcmp0B64:
+        case Op::S_Bitcmp1B64:
+        {
+            const auto value = ReadPair(result.state, instruction.operands[0]);
+            const auto index = source(1);
+            if (!value || !index)
+                return std::unexpected(Error("SR-GFX-ISA-242", "invalid 64-bit bit compare", pc));
+            const bool bit = ((*value >> (*index & 63u)) & 1u) != 0;
+            result.state.scc = instruction.op == Op::S_Bitcmp1B64 ? bit : !bit;
+            break;
+        }
+        case Op::S_CmpLtF32:
+        case Op::S_CmpEqF32:
+        case Op::S_CmpLeF32:
+        case Op::S_CmpGtF32:
+        case Op::S_CmpLgF32:
+        case Op::S_CmpGeF32:
+        case Op::S_CmpOF32:
+        case Op::S_CmpUF32:
+        case Op::S_CmpNgeF32:
+        case Op::S_CmpNlgF32:
+        case Op::S_CmpNgtF32:
+        case Op::S_CmpNleF32:
+        case Op::S_CmpNeqF32:
+        case Op::S_CmpNltF32:
+        {
+            const auto left = source(0);
+            const auto right = source(1);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-243", "invalid float compare", pc));
+            result.state.scc = CompareScalarFloat(instruction.op, AsFloat(*left), AsFloat(*right));
+            break;
+        }
+        case Op::S_CmpLtF16:
+        case Op::S_CmpEqF16:
+        case Op::S_CmpLeF16:
+        case Op::S_CmpGtF16:
+        case Op::S_CmpLgF16:
+        case Op::S_CmpGeF16:
+        case Op::S_CmpOF16:
+        case Op::S_CmpUF16:
+        case Op::S_CmpNgeF16:
+        case Op::S_CmpNlgF16:
+        case Op::S_CmpNgtF16:
+        case Op::S_CmpNleF16:
+        case Op::S_CmpNeqF16:
+        case Op::S_CmpNltF16:
+        {
+            const auto left = source(0);
+            const auto right = source(1);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-244", "invalid half compare", pc));
+            result.state.scc = CompareScalarFloat(
+                instruction.op, HalfToFloat(static_cast<std::uint16_t>(*left)),
+                HalfToFloat(static_cast<std::uint16_t>(*right)));
+            break;
+        }
+        case Op::S_AddF32:
+        case Op::S_SubF32:
+        case Op::S_MulF32:
+        case Op::S_MinNumF32:
+        case Op::S_MaxNumF32:
+        case Op::S_MinimumF32:
+        case Op::S_MaximumF32:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-245", "invalid scalar float operands", pc));
+            const float a = AsFloat(*left);
+            const float b = AsFloat(*right);
+            float value = 0.0f;
+            switch (instruction.op)
+            {
+            case Op::S_AddF32:
+                value = a + b;
+                break;
+            case Op::S_SubF32:
+                value = a - b;
+                break;
+            case Op::S_MulF32:
+                value = a * b;
+                break;
+            case Op::S_MinNumF32:
+                value = std::fmin(a, b);
+                break;
+            case Op::S_MaxNumF32:
+                value = std::fmax(a, b);
+                break;
+            case Op::S_MinimumF32:
+                value = (std::isnan(a) || std::isnan(b)) ? std::numeric_limits<float>::quiet_NaN()
+                                                         : std::fmin(a, b);
+                break;
+            default:
+                value = (std::isnan(a) || std::isnan(b)) ? std::numeric_limits<float>::quiet_NaN()
+                                                         : std::fmax(a, b);
+                break;
+            }
+            if (!write(AsBits(value)))
+                return std::unexpected(Error("SR-GFX-ISA-246", "invalid scalar float destination", pc));
+            break;
+        }
+        case Op::S_AddF16:
+        case Op::S_SubF16:
+        case Op::S_MulF16:
+        case Op::S_MinNumF16:
+        case Op::S_MaxNumF16:
+        case Op::S_MinimumF16:
+        case Op::S_MaximumF16:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-247", "invalid scalar half operands", pc));
+            const float a = HalfToFloat(static_cast<std::uint16_t>(*left));
+            const float b = HalfToFloat(static_cast<std::uint16_t>(*right));
+            float value = 0.0f;
+            switch (instruction.op)
+            {
+            case Op::S_AddF16:
+                value = a + b;
+                break;
+            case Op::S_SubF16:
+                value = a - b;
+                break;
+            case Op::S_MulF16:
+                value = a * b;
+                break;
+            case Op::S_MinNumF16:
+                value = std::fmin(a, b);
+                break;
+            case Op::S_MaxNumF16:
+                value = std::fmax(a, b);
+                break;
+            case Op::S_MinimumF16:
+                value = (std::isnan(a) || std::isnan(b)) ? std::numeric_limits<float>::quiet_NaN()
+                                                         : std::fmin(a, b);
+                break;
+            default:
+                value = (std::isnan(a) || std::isnan(b)) ? std::numeric_limits<float>::quiet_NaN()
+                                                         : std::fmax(a, b);
+                break;
+            }
+            if (!write(static_cast<std::uint32_t>(FloatToHalf(value))))
+                return std::unexpected(Error("SR-GFX-ISA-248", "invalid scalar half destination", pc));
+            break;
+        }
+        case Op::S_FmacF32:
+        {
+            const auto current = ReadOperand(result.state, instruction.operands[0]);
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!current || !left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-249", "invalid scalar fmac operands", pc));
+            const float value = std::fma(AsFloat(*left), AsFloat(*right), AsFloat(*current));
+            if (!write(AsBits(value)))
+                return std::unexpected(Error("SR-GFX-ISA-250", "invalid scalar fmac destination", pc));
+            break;
+        }
+        case Op::S_FmacF16:
+        {
+            const auto current = ReadOperand(result.state, instruction.operands[0]);
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!current || !left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-251", "invalid scalar half fmac", pc));
+            const float value = std::fma(HalfToFloat(static_cast<std::uint16_t>(*left)),
+                                         HalfToFloat(static_cast<std::uint16_t>(*right)),
+                                         HalfToFloat(static_cast<std::uint16_t>(*current)));
+            if (!write(static_cast<std::uint32_t>(FloatToHalf(value))))
+                return std::unexpected(Error("SR-GFX-ISA-252", "invalid scalar half fmac destination", pc));
+            break;
+        }
+        case Op::S_PackLlB32B16:
+        case Op::S_PackLhB32B16:
+        case Op::S_PackHhB32B16:
+        case Op::S_PackHlB32B16:
+        {
+            const auto first = source(1);
+            const auto second = source(2);
+            if (!first || !second)
+                return std::unexpected(Error("SR-GFX-ISA-253", "invalid scalar pack operands", pc));
+            const bool firstHigh = instruction.op == Op::S_PackHhB32B16 ||
+                                   instruction.op == Op::S_PackHlB32B16;
+            const bool secondHigh = instruction.op == Op::S_PackHhB32B16 ||
+                                    instruction.op == Op::S_PackLhB32B16;
+            const std::uint32_t low = firstHigh ? (*first >> 16) : (*first & 0xFFFFu);
+            const std::uint32_t high = secondHigh ? (*second >> 16) : (*second & 0xFFFFu);
+            if (!write((high << 16) | low))
+                return std::unexpected(Error("SR-GFX-ISA-254", "invalid scalar pack destination", pc));
+            break;
+        }
+        case Op::S_Lshl1AddU32:
+        case Op::S_Lshl2AddU32:
+        case Op::S_Lshl3AddU32:
+        case Op::S_Lshl4AddU32:
+        {
+            const auto left = source(1);
+            const auto right = source(2);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-255", "invalid lshl-add operands", pc));
+            const std::uint32_t shift = instruction.op == Op::S_Lshl1AddU32   ? 1u
+                                        : instruction.op == Op::S_Lshl2AddU32 ? 2u
+                                        : instruction.op == Op::S_Lshl3AddU32 ? 3u
+                                                                              : 4u;
+            const std::uint32_t shifted = *left << shift;
+            const std::uint32_t sum = shifted + *right;
+            result.state.scc = sum < shifted;
+            if (!write(sum))
+                return std::unexpected(Error("SR-GFX-ISA-256", "invalid lshl-add destination", pc));
+            break;
+        }
+        case Op::S_AndNot1B64:
+        case Op::S_OrNot1B64:
+        case Op::S_NandB64:
+        case Op::S_NorB64:
+        case Op::S_XnorB64:
+        {
+            const auto left = ReadPair(result.state, instruction.operands[1]);
+            const auto right = ReadPair(result.state, instruction.operands[2]);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-257", "invalid 64-bit scalar bitwise", pc));
+            std::uint64_t value = 0;
+            switch (instruction.op)
+            {
+            case Op::S_AndNot1B64:
+                value = *left & ~*right;
+                break;
+            case Op::S_OrNot1B64:
+                value = *left | ~*right;
+                break;
+            case Op::S_NandB64:
+                value = ~(*left & *right);
+                break;
+            case Op::S_NorB64:
+                value = ~(*left | *right);
+                break;
+            default:
+                value = ~(*left ^ *right);
+                break;
+            }
+            if (!WritePair(result.state, instruction.operands[0], value))
+                return std::unexpected(Error("SR-GFX-ISA-258", "invalid 64-bit scalar destination", pc));
+            break;
+        }
+        case Op::S_AddNcU64:
+        case Op::S_SubNcU64:
+        case Op::S_MulU64:
+        {
+            const auto left = ReadPair(result.state, instruction.operands[1]);
+            const auto right = ReadPair(result.state, instruction.operands[2]);
+            if (!left || !right)
+                return std::unexpected(Error("SR-GFX-ISA-259", "invalid 64-bit arithmetic", pc));
+            const std::uint64_t value = instruction.op == Op::S_AddNcU64   ? *left + *right
+                                        : instruction.op == Op::S_SubNcU64 ? *left - *right
+                                                                           : *left * *right;
+            if (!WritePair(result.state, instruction.operands[0], value))
+                return std::unexpected(Error("SR-GFX-ISA-260", "invalid 64-bit destination", pc));
+            break;
+        }
+        case Op::S_CmovB32:
+        {
+            if (result.state.scc)
+            {
+                const auto source_ = source(1);
+                if (!source_ || !write(*source_))
+                    return std::unexpected(Error("SR-GFX-ISA-261", "invalid scalar cmov", pc));
+            }
+            break;
+        }
+        case Op::S_CmovB64:
+        {
+            if (result.state.scc)
+            {
+                const auto source_ = ReadPair(result.state, instruction.operands[1]);
+                if (!source_ || !WritePair(result.state, instruction.operands[0], *source_))
+                    return std::unexpected(Error("SR-GFX-ISA-262", "invalid 64-bit scalar cmov", pc));
+            }
+            break;
+        }
+        case Op::S_BitreplicateB64B32:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-263", "invalid bitreplicate operand", pc));
+            std::uint64_t spread = *source_;
+            spread = (spread | (spread << 16)) & 0x0000FFFF0000FFFFull;
+            spread = (spread | (spread << 8)) & 0x00FF00FF00FF00FFull;
+            spread = (spread | (spread << 4)) & 0x0F0F0F0F0F0F0F0Full;
+            spread = (spread | (spread << 2)) & 0x3333333333333333ull;
+            spread = (spread | (spread << 1)) & 0x5555555555555555ull;
+            const std::uint64_t value = spread | (spread << 1);
+            if (!WritePair(result.state, instruction.operands[0], value))
+                return std::unexpected(Error("SR-GFX-ISA-264", "invalid bitreplicate destination", pc));
+            break;
+        }
+        case Op::S_QuadmaskB32:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-265", "invalid quadmask operand", pc));
+            std::uint32_t any = *source_;
+            any |= any >> 1;
+            any |= any >> 2;
+            std::uint32_t mask = 0;
+            for (std::uint32_t i = 0; i < 8; ++i)
+                mask |= (any >> (3u * i)) & (1u << i);
+            result.state.scc = mask != 0;
+            if (!write(mask))
+                return std::unexpected(Error("SR-GFX-ISA-266", "invalid quadmask destination", pc));
+            break;
+        }
+        case Op::S_QuadmaskB64:
+        {
+            const auto source_ = ReadPair(result.state, instruction.operands[1]);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-267", "invalid 64-bit quadmask operand", pc));
+            std::uint64_t any = *source_;
+            any |= any >> 1;
+            any |= any >> 2;
+            std::uint32_t mask = 0;
+            for (std::uint32_t i = 0; i < 16; ++i)
+                mask |= static_cast<std::uint32_t>((any >> (3u * i)) & 1u) << i;
+            result.state.scc = mask != 0;
+            if (!write(mask))
+                return std::unexpected(Error("SR-GFX-ISA-268", "invalid quadmask destination", pc));
+            break;
+        }
+        case Op::S_CeilF32:
+        case Op::S_FloorF32:
+        case Op::S_TruncF32:
+        case Op::S_RndneF32:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-269", "invalid scalar float round", pc));
+            const float value = AsFloat(*source_);
+            const float rounded = instruction.op == Op::S_CeilF32    ? std::ceil(value)
+                                  : instruction.op == Op::S_FloorF32 ? std::floor(value)
+                                  : instruction.op == Op::S_TruncF32 ? std::trunc(value)
+                                                                     : std::nearbyint(value);
+            if (!write(AsBits(rounded)))
+                return std::unexpected(Error("SR-GFX-ISA-270", "invalid round destination", pc));
+            break;
+        }
+        case Op::S_CeilF16:
+        case Op::S_FloorF16:
+        case Op::S_TruncF16:
+        case Op::S_RndneF16:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-271", "invalid scalar half round", pc));
+            const float value = HalfToFloat(static_cast<std::uint16_t>(*source_));
+            const float rounded = instruction.op == Op::S_CeilF16    ? std::ceil(value)
+                                  : instruction.op == Op::S_FloorF16 ? std::floor(value)
+                                  : instruction.op == Op::S_TruncF16 ? std::trunc(value)
+                                                                     : std::nearbyint(value);
+            if (!write(static_cast<std::uint32_t>(FloatToHalf(rounded))))
+                return std::unexpected(Error("SR-GFX-ISA-272", "invalid half round destination", pc));
+            break;
+        }
+        case Op::S_CvtF32I32:
+        case Op::S_CvtF32U32:
+        case Op::S_CvtI32F32:
+        case Op::S_CvtU32F32:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-273", "invalid scalar conversion", pc));
+            std::uint32_t value = 0;
+            if (instruction.op == Op::S_CvtF32I32)
+                value = AsBits(static_cast<float>(AsSigned(*source_)));
+            else if (instruction.op == Op::S_CvtF32U32)
+                value = AsBits(static_cast<float>(*source_));
+            else if (instruction.op == Op::S_CvtI32F32)
+                value = static_cast<std::uint32_t>(static_cast<std::int32_t>(AsFloat(*source_)));
+            else
+                value = static_cast<std::uint32_t>(AsFloat(*source_));
+            if (!write(value))
+                return std::unexpected(Error("SR-GFX-ISA-274", "invalid conversion destination", pc));
+            break;
+        }
+        case Op::S_CvtF16F32:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-275", "invalid f16 conversion", pc));
+            if (!write(static_cast<std::uint32_t>(FloatToHalf(AsFloat(*source_)))))
+                return std::unexpected(Error("SR-GFX-ISA-276", "invalid f16 destination", pc));
+            break;
+        }
+        case Op::S_CvtF32F16:
+        case Op::S_CvtHiF32F16:
+        {
+            const auto source_ = source(1);
+            if (!source_)
+                return std::unexpected(Error("SR-GFX-ISA-277", "invalid f32 conversion", pc));
+            const std::uint32_t bits = instruction.op == Op::S_CvtHiF32F16 ? (*source_ >> 16)
+                                                                           : (*source_ & 0xFFFFu);
+            if (!write(AsBits(HalfToFloat(static_cast<std::uint16_t>(bits)))))
+                return std::unexpected(Error("SR-GFX-ISA-278", "invalid f32 destination", pc));
             break;
         }
         case Op::Invalid:

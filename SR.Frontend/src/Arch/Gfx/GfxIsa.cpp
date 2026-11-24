@@ -751,6 +751,12 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Smem, 32, Op::S_DcacheInv, "s_dcache_inv", {OperandKind::SmemOffset}),
     Make(Encoding::Smem, 36, Op::S_MemTime, "s_memtime", {OperandKind::SmemSdst}),
     Make(Encoding::Smem, 37, Op::S_MemRealtime, "s_memrealtime", {OperandKind::SmemSdst}),
+    Make(Encoding::SopC, 12, Op::S_Bitcmp0B32, "s_bitcmp0_b32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 13, Op::S_Bitcmp1B32, "s_bitcmp1_b32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 14, Op::S_Bitcmp0B64, "s_bitcmp0_b64", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 15, Op::S_Bitcmp1B64, "s_bitcmp1_b64", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 16, Op::S_CmpEqU64, "s_cmp_eq_u64", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 17, Op::S_CmpLgU64, "s_cmp_lg_u64", {OperandKind::Ssrc, OperandKind::Ssrc}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -1079,6 +1085,65 @@ constexpr std::array kGfx11 = {
          {OperandKind::FlatVaddr, OperandKind::FlatData, OperandKind::FlatOffset13}),
     Make(Encoding::Vop2, 24, Op::V_LshlrevB32, "v_lshlrev_b32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
     Make(Encoding::Vop2, 26, Op::V_AshrrevI32, "v_ashrrev_i32", {OperandKind::Vgpr, OperandKind::Src, OperandKind::Vsrc}),
+    Make(Encoding::Sop2, 14, Op::S_Lshl1AddU32, "s_lshl1_add_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 15, Op::S_Lshl2AddU32, "s_lshl2_add_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 16, Op::S_Lshl3AddU32, "s_lshl3_add_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 17, Op::S_Lshl4AddU32, "s_lshl4_add_u32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 50, Op::S_PackLlB32B16, "s_pack_ll_b32_b16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 51, Op::S_PackLhB32B16, "s_pack_lh_b32_b16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 52, Op::S_PackHhB32B16, "s_pack_hh_b32_b16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 53, Op::S_PackHlB32B16, "s_pack_hl_b32_b16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 29, Op::S_NandB64, "s_nand_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 31, Op::S_NorB64, "s_nor_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 33, Op::S_XnorB64, "s_xnor_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 2, Op::S_CmovB32, "s_cmov_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 3, Op::S_CmovB64, "s_cmov_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 20, Op::S_BitreplicateB64B32, "s_bitreplicate_b64_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 26, Op::S_QuadmaskB32, "s_quadmask_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 27, Op::S_QuadmaskB64, "s_quadmask_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 28, Op::S_WqmB32, "s_wqm_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 29, Op::S_WqmB64, "s_wqm_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 32, Op::S_AndSaveexecB32, "s_and_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 33, Op::S_AndSaveexecB64, "s_and_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 34, Op::S_OrSaveexecB32, "s_or_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 35, Op::S_OrSaveexecB64, "s_or_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 36, Op::S_XorSaveexecB32, "s_xor_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 37, Op::S_XorSaveexecB64, "s_xor_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 38, Op::S_NandSaveexecB32, "s_nand_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 39, Op::S_NandSaveexecB64, "s_nand_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 40, Op::S_NorSaveexecB32, "s_nor_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 41, Op::S_NorSaveexecB64, "s_nor_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 42, Op::S_XnorSaveexecB32, "s_xnor_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 43, Op::S_XnorSaveexecB64, "s_xnor_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 44, Op::S_AndNot0SaveexecB32, "s_and_not0_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 45, Op::S_AndNot0SaveexecB64, "s_and_not0_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 46, Op::S_OrNot0SaveexecB32, "s_or_not0_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 47, Op::S_OrNot0SaveexecB64, "s_or_not0_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 48, Op::S_AndNot1SaveexecB32, "s_and_not1_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 49, Op::S_AndNot1SaveexecB64, "s_and_not1_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 50, Op::S_OrNot1SaveexecB32, "s_or_not1_saveexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 51, Op::S_OrNot1SaveexecB64, "s_or_not1_saveexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 52, Op::S_AndNot0WrexecB32, "s_and_not0_wrexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 53, Op::S_AndNot0WrexecB64, "s_and_not0_wrexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 54, Op::S_AndNot1WrexecB32, "s_and_not1_wrexec_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 55, Op::S_AndNot1WrexecB64, "s_and_not1_wrexec_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 64, Op::S_MovrelsB32, "s_movrels_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 65, Op::S_MovrelsB64, "s_movrels_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 66, Op::S_MovreldB32, "s_movreld_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 67, Op::S_MovreldB64, "s_movreld_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 68, Op::S_Movrelsd2B32, "s_movrelsd_2_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 71, Op::S_GetpcB64, "s_getpc_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 72, Op::S_SetpcB64, "s_setpc_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 73, Op::S_SwappcB64, "s_swappc_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 74, Op::S_RfeB64, "s_rfe_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 76, Op::S_SendmsgRtnB32, "s_sendmsg_rtn_b32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 77, Op::S_SendmsgRtnB64, "s_sendmsg_rtn_b64", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 78, Op::S_BarrierSignal, "s_barrier_signal", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 79, Op::S_BarrierSignalIsfirst, "s_barrier_signal_isfirst", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 83, Op::S_AllocVgpr, "s_alloc_vgpr", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 88, Op::S_SleepVar, "s_sleep_var", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 35, Op::S_AndNot1B64, "s_and_not1_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 37, Op::S_OrNot1B64, "s_or_not1_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
 };
 
 // RDNA4 keeps RDNA3's numbering for this subset and replaces plain S_ADD/S_SUB
@@ -1723,6 +1788,69 @@ constexpr std::array kGfx12 = {
          {OperandKind::SmemOffset24}),
     Make(Encoding::Smem, 40, Op::S_PrefetchDataPcRel, "s_prefetch_data_pc_rel",
          {OperandKind::SmemOffset24}),
+    Make(Encoding::Sop2, 64, Op::S_AddF32, "s_add_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 65, Op::S_SubF32, "s_sub_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 66, Op::S_MinNumF32, "s_min_num_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 67, Op::S_MaxNumF32, "s_max_num_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 68, Op::S_MulF32, "s_mul_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 71, Op::S_FmacF32, "s_fmac_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 72, Op::S_CvtPkRtzF16F32, "s_cvt_pk_rtz_f16_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 73, Op::S_AddF16, "s_add_f16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 74, Op::S_SubF16, "s_sub_f16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 75, Op::S_MinNumF16, "s_min_num_f16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 76, Op::S_MaxNumF16, "s_max_num_f16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 77, Op::S_MulF16, "s_mul_f16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 78, Op::S_FmacF16, "s_fmac_f16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 79, Op::S_MinimumF32, "s_minimum_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 80, Op::S_MaximumF32, "s_maximum_f32", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 81, Op::S_MinimumF16, "s_minimum_f16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 82, Op::S_MaximumF16, "s_maximum_f16", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 83, Op::S_AddNcU64, "s_add_nc_u64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 84, Op::S_SubNcU64, "s_sub_nc_u64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop2, 85, Op::S_MulU64, "s_mul_u64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 65, Op::S_CmpLtF32, "s_cmp_lt_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 66, Op::S_CmpEqF32, "s_cmp_eq_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 67, Op::S_CmpLeF32, "s_cmp_le_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 68, Op::S_CmpGtF32, "s_cmp_gt_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 69, Op::S_CmpLgF32, "s_cmp_lg_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 70, Op::S_CmpGeF32, "s_cmp_ge_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 71, Op::S_CmpOF32, "s_cmp_o_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 72, Op::S_CmpUF32, "s_cmp_u_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 73, Op::S_CmpNgeF32, "s_cmp_nge_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 74, Op::S_CmpNlgF32, "s_cmp_nlg_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 75, Op::S_CmpNgtF32, "s_cmp_ngt_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 76, Op::S_CmpNleF32, "s_cmp_nle_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 77, Op::S_CmpNeqF32, "s_cmp_neq_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 78, Op::S_CmpNltF32, "s_cmp_nlt_f32", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 81, Op::S_CmpLtF16, "s_cmp_lt_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 82, Op::S_CmpEqF16, "s_cmp_eq_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 83, Op::S_CmpLeF16, "s_cmp_le_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 84, Op::S_CmpGtF16, "s_cmp_gt_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 85, Op::S_CmpLgF16, "s_cmp_lg_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 86, Op::S_CmpGeF16, "s_cmp_ge_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 87, Op::S_CmpOF16, "s_cmp_o_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 88, Op::S_CmpUF16, "s_cmp_u_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 89, Op::S_CmpNgeF16, "s_cmp_nge_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 90, Op::S_CmpNlgF16, "s_cmp_nlg_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 91, Op::S_CmpNgtF16, "s_cmp_ngt_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 92, Op::S_CmpNleF16, "s_cmp_nle_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 93, Op::S_CmpNeqF16, "s_cmp_neq_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopC, 94, Op::S_CmpNltF16, "s_cmp_nlt_f16", {OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 96, Op::S_CeilF32, "s_ceil_f32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 97, Op::S_FloorF32, "s_floor_f32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 98, Op::S_TruncF32, "s_trunc_f32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 99, Op::S_RndneF32, "s_rndne_f32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 100, Op::S_CvtF32I32, "s_cvt_f32_i32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 101, Op::S_CvtF32U32, "s_cvt_f32_u32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 102, Op::S_CvtI32F32, "s_cvt_i32_f32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 103, Op::S_CvtU32F32, "s_cvt_u32_f32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 104, Op::S_CvtF16F32, "s_cvt_f16_f32", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 105, Op::S_CvtF32F16, "s_cvt_f32_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 106, Op::S_CvtHiF32F16, "s_cvt_hi_f32_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 107, Op::S_CeilF16, "s_ceil_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 108, Op::S_FloorF16, "s_floor_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 109, Op::S_TruncF16, "s_trunc_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::Sop1, 110, Op::S_RndneF16, "s_rndne_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -2001,6 +2129,10 @@ std::string_view ToString(Op op) noexcept
         return "s_and_not1_b32";
     case Op::S_OrNot1B32:
         return "s_or_not1_b32";
+    case Op::S_AndNot1B64:
+        return "s_and_not1_b64";
+    case Op::S_OrNot1B64:
+        return "s_or_not1_b64";
     case Op::S_Ff1I32B32:
         return "s_ff1_i32_b32";
     case Op::S_FlbitI32B32:
@@ -2821,6 +2953,258 @@ std::string_view ToString(Op op) noexcept
         return "s_cmp_ge_i32";
     case Op::S_CmpEqU32:
         return "s_cmp_eq_u32";
+    case Op::S_Bitcmp0B32:
+        return "s_bitcmp0_b32";
+    case Op::S_Bitcmp1B32:
+        return "s_bitcmp1_b32";
+    case Op::S_Bitcmp0B64:
+        return "s_bitcmp0_b64";
+    case Op::S_Bitcmp1B64:
+        return "s_bitcmp1_b64";
+    case Op::S_CmpEqU64:
+        return "s_cmp_eq_u64";
+    case Op::S_CmpLgU64:
+        return "s_cmp_lg_u64";
+    case Op::S_CmpLtF32:
+        return "s_cmp_lt_f32";
+    case Op::S_CmpEqF32:
+        return "s_cmp_eq_f32";
+    case Op::S_CmpLeF32:
+        return "s_cmp_le_f32";
+    case Op::S_CmpGtF32:
+        return "s_cmp_gt_f32";
+    case Op::S_CmpLgF32:
+        return "s_cmp_lg_f32";
+    case Op::S_CmpGeF32:
+        return "s_cmp_ge_f32";
+    case Op::S_CmpOF32:
+        return "s_cmp_o_f32";
+    case Op::S_CmpUF32:
+        return "s_cmp_u_f32";
+    case Op::S_CmpNgeF32:
+        return "s_cmp_nge_f32";
+    case Op::S_CmpNlgF32:
+        return "s_cmp_nlg_f32";
+    case Op::S_CmpNgtF32:
+        return "s_cmp_ngt_f32";
+    case Op::S_CmpNleF32:
+        return "s_cmp_nle_f32";
+    case Op::S_CmpNeqF32:
+        return "s_cmp_neq_f32";
+    case Op::S_CmpNltF32:
+        return "s_cmp_nlt_f32";
+    case Op::S_CmpLtF16:
+        return "s_cmp_lt_f16";
+    case Op::S_CmpEqF16:
+        return "s_cmp_eq_f16";
+    case Op::S_CmpLeF16:
+        return "s_cmp_le_f16";
+    case Op::S_CmpGtF16:
+        return "s_cmp_gt_f16";
+    case Op::S_CmpLgF16:
+        return "s_cmp_lg_f16";
+    case Op::S_CmpGeF16:
+        return "s_cmp_ge_f16";
+    case Op::S_CmpOF16:
+        return "s_cmp_o_f16";
+    case Op::S_CmpUF16:
+        return "s_cmp_u_f16";
+    case Op::S_CmpNgeF16:
+        return "s_cmp_nge_f16";
+    case Op::S_CmpNlgF16:
+        return "s_cmp_nlg_f16";
+    case Op::S_CmpNgtF16:
+        return "s_cmp_ngt_f16";
+    case Op::S_CmpNleF16:
+        return "s_cmp_nle_f16";
+    case Op::S_CmpNeqF16:
+        return "s_cmp_neq_f16";
+    case Op::S_CmpNltF16:
+        return "s_cmp_nlt_f16";
+    case Op::S_Lshl1AddU32:
+        return "s_lshl1_add_u32";
+    case Op::S_Lshl2AddU32:
+        return "s_lshl2_add_u32";
+    case Op::S_Lshl3AddU32:
+        return "s_lshl3_add_u32";
+    case Op::S_Lshl4AddU32:
+        return "s_lshl4_add_u32";
+    case Op::S_PackLlB32B16:
+        return "s_pack_ll_b32_b16";
+    case Op::S_PackLhB32B16:
+        return "s_pack_lh_b32_b16";
+    case Op::S_PackHhB32B16:
+        return "s_pack_hh_b32_b16";
+    case Op::S_PackHlB32B16:
+        return "s_pack_hl_b32_b16";
+    case Op::S_NandB64:
+        return "s_nand_b64";
+    case Op::S_NorB64:
+        return "s_nor_b64";
+    case Op::S_XnorB64:
+        return "s_xnor_b64";
+    case Op::S_AddF32:
+        return "s_add_f32";
+    case Op::S_SubF32:
+        return "s_sub_f32";
+    case Op::S_MulF32:
+        return "s_mul_f32";
+    case Op::S_MinNumF32:
+        return "s_min_num_f32";
+    case Op::S_MaxNumF32:
+        return "s_max_num_f32";
+    case Op::S_MinimumF32:
+        return "s_minimum_f32";
+    case Op::S_MaximumF32:
+        return "s_maximum_f32";
+    case Op::S_FmacF32:
+        return "s_fmac_f32";
+    case Op::S_CvtPkRtzF16F32:
+        return "s_cvt_pk_rtz_f16_f32";
+    case Op::S_AddF16:
+        return "s_add_f16";
+    case Op::S_SubF16:
+        return "s_sub_f16";
+    case Op::S_MulF16:
+        return "s_mul_f16";
+    case Op::S_MinNumF16:
+        return "s_min_num_f16";
+    case Op::S_MaxNumF16:
+        return "s_max_num_f16";
+    case Op::S_MinimumF16:
+        return "s_minimum_f16";
+    case Op::S_MaximumF16:
+        return "s_maximum_f16";
+    case Op::S_FmacF16:
+        return "s_fmac_f16";
+    case Op::S_AddNcU64:
+        return "s_add_nc_u64";
+    case Op::S_SubNcU64:
+        return "s_sub_nc_u64";
+    case Op::S_MulU64:
+        return "s_mul_u64";
+    case Op::S_CmovB32:
+        return "s_cmov_b32";
+    case Op::S_CmovB64:
+        return "s_cmov_b64";
+    case Op::S_BitreplicateB64B32:
+        return "s_bitreplicate_b64_b32";
+    case Op::S_QuadmaskB32:
+        return "s_quadmask_b32";
+    case Op::S_QuadmaskB64:
+        return "s_quadmask_b64";
+    case Op::S_CeilF32:
+        return "s_ceil_f32";
+    case Op::S_FloorF32:
+        return "s_floor_f32";
+    case Op::S_TruncF32:
+        return "s_trunc_f32";
+    case Op::S_RndneF32:
+        return "s_rndne_f32";
+    case Op::S_CvtF32I32:
+        return "s_cvt_f32_i32";
+    case Op::S_CvtF32U32:
+        return "s_cvt_f32_u32";
+    case Op::S_CvtI32F32:
+        return "s_cvt_i32_f32";
+    case Op::S_CvtU32F32:
+        return "s_cvt_u32_f32";
+    case Op::S_CvtF16F32:
+        return "s_cvt_f16_f32";
+    case Op::S_CvtF32F16:
+        return "s_cvt_f32_f16";
+    case Op::S_CvtHiF32F16:
+        return "s_cvt_hi_f32_f16";
+    case Op::S_CeilF16:
+        return "s_ceil_f16";
+    case Op::S_FloorF16:
+        return "s_floor_f16";
+    case Op::S_TruncF16:
+        return "s_trunc_f16";
+    case Op::S_RndneF16:
+        return "s_rndne_f16";
+    case Op::S_WqmB32:
+        return "s_wqm_b32";
+    case Op::S_WqmB64:
+        return "s_wqm_b64";
+    case Op::S_MovrelsB32:
+        return "s_movrels_b32";
+    case Op::S_MovrelsB64:
+        return "s_movrels_b64";
+    case Op::S_MovreldB32:
+        return "s_movreld_b32";
+    case Op::S_MovreldB64:
+        return "s_movreld_b64";
+    case Op::S_Movrelsd2B32:
+        return "s_movrelsd_2_b32";
+    case Op::S_GetpcB64:
+        return "s_getpc_b64";
+    case Op::S_SetpcB64:
+        return "s_setpc_b64";
+    case Op::S_SwappcB64:
+        return "s_swappc_b64";
+    case Op::S_RfeB64:
+        return "s_rfe_b64";
+    case Op::S_AndSaveexecB32:
+        return "s_and_saveexec_b32";
+    case Op::S_AndSaveexecB64:
+        return "s_and_saveexec_b64";
+    case Op::S_OrSaveexecB32:
+        return "s_or_saveexec_b32";
+    case Op::S_OrSaveexecB64:
+        return "s_or_saveexec_b64";
+    case Op::S_XorSaveexecB32:
+        return "s_xor_saveexec_b32";
+    case Op::S_XorSaveexecB64:
+        return "s_xor_saveexec_b64";
+    case Op::S_NandSaveexecB32:
+        return "s_nand_saveexec_b32";
+    case Op::S_NandSaveexecB64:
+        return "s_nand_saveexec_b64";
+    case Op::S_NorSaveexecB32:
+        return "s_nor_saveexec_b32";
+    case Op::S_NorSaveexecB64:
+        return "s_nor_saveexec_b64";
+    case Op::S_XnorSaveexecB32:
+        return "s_xnor_saveexec_b32";
+    case Op::S_XnorSaveexecB64:
+        return "s_xnor_saveexec_b64";
+    case Op::S_AndNot0SaveexecB32:
+        return "s_and_not0_saveexec_b32";
+    case Op::S_AndNot0SaveexecB64:
+        return "s_and_not0_saveexec_b64";
+    case Op::S_OrNot0SaveexecB32:
+        return "s_or_not0_saveexec_b32";
+    case Op::S_OrNot0SaveexecB64:
+        return "s_or_not0_saveexec_b64";
+    case Op::S_AndNot1SaveexecB32:
+        return "s_and_not1_saveexec_b32";
+    case Op::S_AndNot1SaveexecB64:
+        return "s_and_not1_saveexec_b64";
+    case Op::S_OrNot1SaveexecB32:
+        return "s_or_not1_saveexec_b32";
+    case Op::S_OrNot1SaveexecB64:
+        return "s_or_not1_saveexec_b64";
+    case Op::S_AndNot0WrexecB32:
+        return "s_and_not0_wrexec_b32";
+    case Op::S_AndNot0WrexecB64:
+        return "s_and_not0_wrexec_b64";
+    case Op::S_AndNot1WrexecB32:
+        return "s_and_not1_wrexec_b32";
+    case Op::S_AndNot1WrexecB64:
+        return "s_and_not1_wrexec_b64";
+    case Op::S_SendmsgRtnB32:
+        return "s_sendmsg_rtn_b32";
+    case Op::S_SendmsgRtnB64:
+        return "s_sendmsg_rtn_b64";
+    case Op::S_BarrierSignal:
+        return "s_barrier_signal";
+    case Op::S_BarrierSignalIsfirst:
+        return "s_barrier_signal_isfirst";
+    case Op::S_AllocVgpr:
+        return "s_alloc_vgpr";
+    case Op::S_SleepVar:
+        return "s_sleep_var";
     case Op::S_CmpLgU32:
         return "s_cmp_lg_u32";
     case Op::S_CmpLtU32:
