@@ -739,13 +739,22 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     if (id == IntrinsicId::ImageLoad || id == IntrinsicId::ImageSample)
                     {
                         const ValueId slot = resultId();
+                        // A write earlier in the same invocation wins over the
+                        // initial contents, so a store/load round trip works.
+                        if (const auto written = result.images.find(key); written != result.images.end())
+                        {
+                            values[slot] = written->second[image->component & 3];
+                            break;
+                        }
                         const auto it = options.images.find(key);
                         values[slot] = it == options.images.end() ? 0 : it->second[image->component & 3];
                         break;
                     }
 
+                    // A store replaces the whole texel: four components.
                     auto& texel = result.images[key];
-                    texel[image->component & 3] = static_cast<std::uint32_t>(read(instruction.operands[2]));
+                    for (std::uint32_t component = 0; component < 4; ++component)
+                        texel[component] = static_cast<std::uint32_t>(read(instruction.operands[2 + component]));
                     break;
                 }
 

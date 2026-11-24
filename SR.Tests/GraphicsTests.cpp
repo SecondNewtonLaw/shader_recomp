@@ -511,3 +511,54 @@ TEST_CASE("image_sample reads through a sampler binding", "[gfx][image][sample]"
     REQUIRE(emission.has_value());
 #endif
 }
+
+TEST_CASE("image_store round-trips a texel", "[gfx][image][store]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("imagestore.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("imagestore fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData.assign(8, 0u);
+
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const std::string dump = SR::IL::DumpModule(*module);
+    REQUIRE(dump.find("image.store") != std::string::npos);
+    REQUIRE(dump.find("image.load") != std::string::npos);
+
+    // The fixture writes (10,20,30,40) to texel (1,1) and reads it back, so the
+    // interpreter's round trip must return exactly those bits with no seeded
+    // image contents at all.
+    const auto execution = SR::IL::Interpret(*module);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+    REQUIRE(execution->buffer.at(0) == FloatBits(10.0f));
+    REQUIRE(execution->buffer.at(1) == FloatBits(20.0f));
+    REQUIRE(execution->buffer.at(2) == FloatBits(30.0f));
+    REQUIRE(execution->buffer.at(3) == FloatBits(40.0f));
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    const auto emission = SR::Backend::Reemit(*module);
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+#endif
+}

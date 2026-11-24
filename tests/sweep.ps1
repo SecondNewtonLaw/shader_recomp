@@ -60,6 +60,7 @@ foreach ($case in $cases) {
         "predicated" = @("--test-abi")
         "imageload"  = @("--test-abi", "--user-data-push", "8")
         "imagesample" = @("--test-abi", "--user-data-push", "12")
+        "imagestore" = @("--test-abi", "--user-data-push", "8")
         "image"      = @("--test-abi", "--user-data-push", "12")
     }
 

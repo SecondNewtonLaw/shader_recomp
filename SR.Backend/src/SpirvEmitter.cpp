@@ -1,6 +1,7 @@
 #include "SR/Backend/Reemitter.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
@@ -2579,26 +2580,26 @@ private:
                 return {};
             }
 
-            if (instruction.operands.size() != 3)
-                return std::unexpected(EmitError("SR-SPV-086", "image store needs a value", instruction.sourcePc));
+            if (instruction.operands.size() != 6)
+                return std::unexpected(
+                    EmitError("SR-SPV-086", "image store needs four component values", instruction.sourcePc));
 
-            const auto value = ValueId(function, instruction.operands[2]);
-            if (!value)
-                return std::unexpected(EmitError("SR-SPV-087", "invalid image store value", instruction.sourcePc));
-
-            const std::uint32_t stored = NewId();
-            Op(OpBitcast, {m_imageVec4Element, stored, *value});
-            const auto zero = U32Constant(0);
-            if (!zero)
-                return std::unexpected(zero.error());
-            const std::uint32_t zeroFloat = NewId();
-            Op(OpBitcast, {m_imageVec4Element, zeroFloat, *zero});
+            std::array<std::uint32_t, 4> components{};
+            for (std::uint32_t component = 0; component < 4; ++component)
+            {
+                const auto value = ValueId(function, instruction.operands[2 + component]);
+                if (!value)
+                    return std::unexpected(
+                        EmitError("SR-SPV-087", "invalid image store component", instruction.sourcePc));
+                components[component] = NewId();
+                Op(OpBitcast, {m_imageVec4Element, components[component], *value});
+            }
 
             const std::uint32_t loaded = NewId();
             Op(OpLoad, {image->imageType, loaded, image->variable});
 
             const std::uint32_t texel = NewId();
-            Op(OpCompositeConstruct, {m_imageVec4, texel, stored, zeroFloat, zeroFloat, zeroFloat});
+            Op(OpCompositeConstruct, {m_imageVec4, texel, components[0], components[1], components[2], components[3]});
             Op(OpImageWrite, {loaded, coordinate, texel});
             return {};
         }

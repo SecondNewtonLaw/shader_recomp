@@ -71,7 +71,7 @@ constexpr std::array<IntrinsicSpec, 55> kSpecs = {
     Make(IntrinsicId::DeviceLoad, "device.load", 1, 1, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::DeviceStore, "device.store", 2, 2, 0, 0, Effect::WriteMemory),
     Make(IntrinsicId::ImageLoad, "image.load", 2, 2, 1, 1, Effect::ReadMemory),
-    Make(IntrinsicId::ImageStore, "image.store", 3, 3, 0, 0, Effect::WriteMemory),
+    Make(IntrinsicId::ImageStore, "image.store", 6, 6, 0, 0, Effect::WriteMemory),
     Make(IntrinsicId::ImageSample, "image.sample", 2, 2, 1, 1, Effect::ReadMemory),
 };
 

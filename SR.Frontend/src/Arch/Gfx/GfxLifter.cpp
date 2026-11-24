@@ -3435,20 +3435,36 @@ private:
                 if (const auto written = WriteDest(destination, value, instruction.pc); !written)
                     return written;
             }
-            else
+        }
+
+        if (instruction.op == Op::ImageStore)
+        {
+            // One write replaces the whole texel: all four data registers.
+            std::vector<IL::ValueId> values;
+            values.push_back(*x);
+            values.push_back(*y);
+            for (std::uint32_t component = 0; component < 4; ++component)
             {
                 Operand source = *dataOperand;
                 source.value += component;
                 const auto value = ReadBits(source, instruction.pc);
                 if (!value)
                     return std::unexpected(value.error());
-                const IL::ValueId guard = CurrentGuard(instruction.pc);
-                m_builder.IntrinsicVoid(IL::IntrinsicId::ImageStore,
-                                        {*x, *y, *value},
-                                        payload,
-                                        instruction.pc);
-                ApplyGuard(instruction.pc, guard);
+                values.push_back(*value);
             }
+
+            IL::ImageAccessDesc access;
+            access.set = 0;
+            access.binding = binding;
+            access.samplerBinding = samplerBinding;
+            access.component = 0;
+            access.dimensions = 2;
+            access.sampled = false;
+            const IL::PayloadId payload = m_module.payloads.Add(access);
+
+            const IL::ValueId guard = CurrentGuard(instruction.pc);
+            m_builder.IntrinsicVoid(IL::IntrinsicId::ImageStore, values, payload, instruction.pc);
+            ApplyGuard(instruction.pc, guard);
         }
 
         return {};
