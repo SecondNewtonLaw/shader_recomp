@@ -60,10 +60,19 @@ Device CreateDevice(VkInstance instance)
             queueInfo.pQueuePriorities = &priority;
 
             // Buffer device address lets a shader read a V# base the harness
-            // hands it, the way a console dispatch supplies user data.
+            // hands it, the way a console dispatch supplies user data. Ask the
+            // device first: enabling a feature it does not report is invalid.
+            VkPhysicalDeviceVulkan12Features supported{};
+            supported.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+
+            VkPhysicalDeviceFeatures2 queried{};
+            queried.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            queried.pNext = &supported;
+            vkGetPhysicalDeviceFeatures2(physical, &queried);
+
             VkPhysicalDeviceVulkan12Features features12{};
             features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-            features12.bufferDeviceAddress = VK_TRUE;
+            features12.bufferDeviceAddress = supported.bufferDeviceAddress;
 
             VkDeviceCreateInfo deviceInfo{};
             deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

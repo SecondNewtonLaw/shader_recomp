@@ -49,6 +49,16 @@ foreach ($case in $cases) {
         continue
     }
 
+    # Fixtures that need lift options beyond the architecture.
+    $options = @{
+        "triangle"   = @("--test-abi")
+        "solid"      = @("--test-abi")
+        "userdata"   = @("--test-abi", "--user-data", "41")
+        "readfirst"  = @("--test-abi", "--wave64")
+        "waveballot" = @("--test-abi", "--wave64")
+        "descriptor" = @("--test-abi", "--user-data-push", "4")
+    }
+
     Get-ChildItem $directory -Filter *.hsaco | Sort-Object Name | ForEach-Object {
         $name = $_.BaseName
         $stage = "compute"
@@ -59,6 +69,7 @@ foreach ($case in $cases) {
             Target = "$($case.Directory)/$name"
             Arch = $case.Arch
             Stage = $stage
+            Extra = if ($options.ContainsKey($name)) { $options[$name] } else { @() }
             Input = $_.FullName
             Path = Join-Path $work "$($case.Directory)-$name.spv"
         }
@@ -83,6 +94,7 @@ $translated = $jobs | ForEach-Object -ThrottleLimit $Throttle -Parallel {
     if ($job.Arch -ne "") { $arguments += "--arch"; $arguments += $job.Arch }
     $arguments += "--stage"; $arguments += $job.Stage
     $arguments += "--spirv"; $arguments += $job.Path
+    $arguments += $job.Extra
     $arguments += $job.Input
 
     $output = & $using:driver @arguments 2>&1
