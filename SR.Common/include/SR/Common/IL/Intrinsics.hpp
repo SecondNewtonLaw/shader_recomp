@@ -67,6 +67,11 @@ enum class IntrinsicId : std::uint16_t
     ImageLoad,
     ImageStore,
     ImageSample,
+    // Image queries and atomics: the desc names the surface and the component,
+    // the atomic kind lives with it.
+    ImageQuerySize,
+    ImageQueryLod,
+    ImageGather,
     EmitVertex,
     EndPrimitive,
     // Per-invocation staging for a geometry stage that publishes vertices by
@@ -212,6 +217,24 @@ struct SendDesc
     bool known = false;
 };
 
+// Which read-modify-write an image atomic performs.
+enum class AtomicKind : std::uint8_t
+{
+    Add,
+    Sub,
+    SMin,
+    UMin,
+    SMax,
+    UMax,
+    And,
+    Or,
+    Xor,
+    Exchange,
+    CompareExchange,
+    Increment,
+    Decrement,
+};
+
 struct TestBufferDesc
 {
     std::uint32_t set = 0;
@@ -237,6 +260,13 @@ struct ImageAccessDesc
     // A sampled image is read through a sampler (normalized float coordinates);
     // a storage image is read at integer texel coordinates.
     bool sampled = false;
+    // SPIR-V image format (0 = unknown). An atomic needs an integer format.
+    std::uint8_t format = 0;
+    // The gathered channel of a gather4; `component` selects the texel.
+    std::uint8_t channel = 0;
+    // The read-modify-write, when the access is an atomic.
+    bool atomic = false;
+    AtomicKind atomicKind = AtomicKind::Add;
 };
 
 using Payload = std::variant<std::monostate,

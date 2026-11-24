@@ -52,6 +52,8 @@ struct ExecutionOptions
     std::unordered_map<std::uint64_t, std::uint32_t> deviceMemory;
     // Image texels: (binding << 40 | y << 20 | x) -> four components.
     std::unordered_map<std::uint64_t, std::array<std::uint32_t, 4>> images;
+    // Image extents by binding, for a size query. A missing binding is empty.
+    std::unordered_map<std::uint32_t, std::array<std::uint32_t, 2>> imageExtents;
 };
 
 inline constexpr std::uint64_t kBuiltinKeyBase = 0x8000'0000ull;

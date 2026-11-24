@@ -720,6 +720,159 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     break;
                 }
 
+                if (id == IntrinsicId::ImageQuerySize)
+                {
+                    const auto* image = instruction.payload != NoPayload
+                                            ? std::get_if<ImageAccessDesc>(&module.payloads.Get(instruction.payload))
+                                            : nullptr;
+                    if (image == nullptr)
+                        return std::unexpected(ExecutionError("SR-IL-INT-019",
+                                                              "image query without a descriptor",
+                                                              instruction.sourcePc));
+                    const auto extent = options.imageExtents.find(image->binding);
+                    const std::uint32_t component = image->component & 3;
+                    std::uint64_t value = 1;
+                    if (extent != options.imageExtents.end())
+                    {
+                        if (component == 0)
+                            value = extent->second[0];
+                        else if (component == 1)
+                            value = extent->second[1];
+                    }
+                    values[resultId()] = value;
+                    break;
+                }
+
+                if (id == IntrinsicId::ImageQueryLod)
+                {
+                    // One level: the level is zero and its unclamped value too.
+                    (void)read(instruction.operands[0]);
+                    (void)read(instruction.operands[1]);
+                    values[resultId()] = 0;
+                    break;
+                }
+
+                if (id == IntrinsicId::ImageGather)
+                {
+                    const auto* image = instruction.payload != NoPayload
+                                            ? std::get_if<ImageAccessDesc>(&module.payloads.Get(instruction.payload))
+                                            : nullptr;
+                    if (image == nullptr)
+                        return std::unexpected(ExecutionError("SR-IL-INT-019",
+                                                              "image gather without a descriptor",
+                                                              instruction.sourcePc));
+                    // Texel coordinates: the 2x2 footprint around the sample. A
+                    // sampled image takes normalized coordinates, so the extent
+                    // scales them; a storage image is already in texels.
+                    float x = std::bit_cast<float>(static_cast<std::uint32_t>(read(instruction.operands[0])));
+                    float y = std::bit_cast<float>(static_cast<std::uint32_t>(read(instruction.operands[1])));
+                    if (image->sampled)
+                    {
+                        if (const auto extent = options.imageExtents.find(image->binding);
+                            extent != options.imageExtents.end())
+                        {
+                            x *= static_cast<float>(extent->second[0]);
+                            y *= static_cast<float>(extent->second[1]);
+                        }
+                    }
+                    const auto baseX = static_cast<std::int32_t>(std::floor(x - 0.5f));
+                    const auto baseY = static_cast<std::int32_t>(std::floor(y - 0.5f));
+                    const auto texel = [&](std::int32_t tx, std::int32_t ty) -> std::uint32_t {
+                        const std::uint64_t key =
+                            (static_cast<std::uint64_t>(image->binding) << 40) |
+                            ((static_cast<std::uint64_t>(ty) & 0xFFFFF) << 20) |
+                            (static_cast<std::uint64_t>(tx) & 0xFFFFF);
+                        const std::uint32_t channel = image->channel & 3;
+                        if (const auto written = result.images.find(key); written != result.images.end())
+                            return written->second[channel];
+                        const auto it = options.images.find(key);
+                        return it == options.images.end() ? 0 : it->second[channel];
+                    };
+                    const std::array<std::uint32_t, 4> gathered = {
+                        texel(baseX, baseY),
+                        texel(baseX + 1, baseY),
+                        texel(baseX, baseY + 1),
+                        texel(baseX + 1, baseY + 1),
+                    };
+                    values[resultId()] = gathered[image->component & 3];
+                    break;
+                }
+
+                if (id == IntrinsicId::ImageAtomic)
+                {
+                    const auto* image = instruction.payload != NoPayload
+                                            ? std::get_if<ImageAccessDesc>(&module.payloads.Get(instruction.payload))
+                                            : nullptr;
+                    if (image == nullptr)
+                        return std::unexpected(ExecutionError("SR-IL-INT-019",
+                                                              "image atomic without a descriptor",
+                                                              instruction.sourcePc));
+                    const auto x = read(instruction.operands[0]);
+                    const auto y = read(instruction.operands[1]);
+                    const std::uint64_t key = (static_cast<std::uint64_t>(image->binding) << 40) |
+                                              ((y & 0xFFFFF) << 20) | (x & 0xFFFFF);
+                    std::array<std::uint32_t, 4> texel{};
+                    if (const auto written = result.images.find(key); written != result.images.end())
+                        texel = written->second;
+                    else if (const auto initial = options.images.find(key); initial != options.images.end())
+                        texel = initial->second;
+
+                    const auto old = texel[0];
+                    const auto asSigned = [](std::uint32_t v) { return static_cast<std::int32_t>(v); };
+                    std::uint32_t value = 0;
+                    if (image->atomicKind == AtomicKind::CompareExchange)
+                        value = static_cast<std::uint32_t>(read(instruction.operands[3]));
+                    else if (instruction.operands.size() > 2)
+                        value = static_cast<std::uint32_t>(read(instruction.operands[2]));
+
+                    switch (image->atomicKind)
+                    {
+                    case AtomicKind::Add:
+                        texel[0] = old + value;
+                        break;
+                    case AtomicKind::Sub:
+                        texel[0] = old - value;
+                        break;
+                    case AtomicKind::SMin:
+                        texel[0] = static_cast<std::uint32_t>(std::min(asSigned(old), asSigned(value)));
+                        break;
+                    case AtomicKind::UMin:
+                        texel[0] = std::min(old, value);
+                        break;
+                    case AtomicKind::SMax:
+                        texel[0] = static_cast<std::uint32_t>(std::max(asSigned(old), asSigned(value)));
+                        break;
+                    case AtomicKind::UMax:
+                        texel[0] = std::max(old, value);
+                        break;
+                    case AtomicKind::And:
+                        texel[0] = old & value;
+                        break;
+                    case AtomicKind::Or:
+                        texel[0] = old | value;
+                        break;
+                    case AtomicKind::Xor:
+                        texel[0] = old ^ value;
+                        break;
+                    case AtomicKind::Exchange:
+                        texel[0] = value;
+                        break;
+                    case AtomicKind::CompareExchange:
+                        if (old == static_cast<std::uint32_t>(read(instruction.operands[2])))
+                            texel[0] = value;
+                        break;
+                    case AtomicKind::Increment:
+                        texel[0] = old + 1;
+                        break;
+                    case AtomicKind::Decrement:
+                        texel[0] = old - 1;
+                        break;
+                    }
+                    result.images[key] = texel;
+                    values[resultId()] = old;
+                    break;
+                }
+
                 if (id == IntrinsicId::ImageLoad || id == IntrinsicId::ImageStore ||
                     id == IntrinsicId::ImageSample)
                 {

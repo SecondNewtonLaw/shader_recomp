@@ -35,7 +35,9 @@ constexpr std::array<IntrinsicSpec, static_cast<std::size_t>(IntrinsicId::Count)
     Make(IntrinsicId::Quad, "quad", 1, 1, 1, 1, Effect::Wave),
     Make(IntrinsicId::TextureSample, "texture.sample", 2, 8, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::TextureStore, "texture.store", 2, 8, 0, 0, Effect::WriteMemory),
-    Make(IntrinsicId::ImageAtomic, "texture.atomic", 3, 5, 0, 1, Effect::ReadMemory | Effect::WriteMemory | Effect::Atomic),
+    // x, y, value (and the compare value for a compare-exchange); the result is
+    // the value the texel held before the operation.
+    Make(IntrinsicId::ImageAtomic, "image.atomic", 3, 4, 1, 1, Effect::Atomic),
     Make(IntrinsicId::Mma, "mma", 3, 4, 1, 1, Effect::None),
     Make(IntrinsicId::TensorLoad, "tensor.load", 1, 2, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::TensorStore, "tensor.store", 2, 2, 0, 0, Effect::WriteMemory),
@@ -75,6 +77,9 @@ constexpr std::array<IntrinsicSpec, static_cast<std::size_t>(IntrinsicId::Count)
     Make(IntrinsicId::ImageLoad, "image.load", 2, 2, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::ImageStore, "image.store", 6, 6, 0, 0, Effect::WriteMemory),
     Make(IntrinsicId::ImageSample, "image.sample", 2, 2, 1, 1, Effect::ReadMemory),
+    Make(IntrinsicId::ImageQuerySize, "image.query-size", 0, 0, 1, 1, Effect::ReadMemory),
+    Make(IntrinsicId::ImageQueryLod, "image.query-lod", 2, 2, 1, 1, Effect::ReadMemory),
+    Make(IntrinsicId::ImageGather, "image.gather", 2, 2, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::EmitVertex, "geometry.emit-vertex", 0, 0, 0, 0, Effect::None),
     Make(IntrinsicId::EndPrimitive, "geometry.end-primitive", 0, 0, 0, 0, Effect::None),
     Make(IntrinsicId::GeometryStageStore, "geometry.stage-store", 2, 2, 0, 0, Effect::None),

@@ -89,7 +89,8 @@ std::string DescribePayload(const Module& module, PayloadId id)
             else if constexpr (std::is_same_v<T, ImageAccessDesc>)
                 return "image set=" + std::to_string(value.set) + " binding=" + std::to_string(value.binding) +
                        (value.sampled ? " sampler=" + std::to_string(value.samplerBinding) : std::string()) +
-                       " component=" + std::to_string(value.component);
+                       " component=" + std::to_string(value.component) +
+                       (value.atomic ? " atomic=" + std::to_string(static_cast<int>(value.atomicKind)) : std::string());
             else if constexpr (std::is_same_v<T, UserDataDesc>)
                 return "user-data[" + std::to_string(value.index) + "]";
             else if constexpr (std::is_same_v<T, StageIoDesc>)
