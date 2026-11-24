@@ -2,115 +2,91 @@
   "generations": {
     "gfx10": {
       "total": 1149,
-      "decoded": 712,
-      "lifted": 667
+      "decoded": 751,
+      "lifted": 713,
+      "liftedIsUpperBound": true
     },
     "gfx1013": {
       "total": 1153,
-      "decoded": 712,
-      "lifted": 667
+      "decoded": 751,
+      "lifted": 713,
+      "liftedIsUpperBound": true
     },
     "gfx1030": {
       "total": 1153,
-      "decoded": 712,
-      "lifted": 667
+      "decoded": 751,
+      "lifted": 713,
+      "liftedIsUpperBound": true
     },
     "gfx1100": {
       "total": 1148,
-      "decoded": 851,
-      "lifted": 773
+      "decoded": 871,
+      "lifted": 800,
+      "liftedIsUpperBound": true
     },
     "gfx1150": {
       "total": 1208,
-      "decoded": 851,
-      "lifted": 773
+      "decoded": 871,
+      "lifted": 800,
+      "liftedIsUpperBound": true
     },
     "gfx1200": {
       "total": 1264,
-      "decoded": 1489,
-      "lifted": 1344
+      "decoded": 1509,
+      "lifted": 1211,
+      "liftedIsUpperBound": true
     }
   },
   "gfx1200_families": {
-    "VOP3": {
-      "total": 363,
-      "decoded": 429,
-      "lifted": 400
+    "OTHER": {
+      "total": 481,
+      "decoded": 56,
+      "lifted": 41
     },
-    "DS": {
-      "total": 125,
-      "decoded": 123,
-      "lifted": 111
+    "VOP3": {
+      "total": 326,
+      "decoded": 429,
+      "lifted": 404
     },
     "VOP1": {
-      "total": 90,
+      "total": 81,
       "decoded": 80,
       "lifted": 80
     },
-    "BUFFER": {
-      "total": 89,
-      "decoded": 89,
-      "lifted": 53
-    },
     "SOP1": {
-      "total": 84,
+      "total": 65,
       "decoded": 84,
       "lifted": 55
     },
     "SOP2": {
-      "total": 72,
+      "total": 51,
       "decoded": 72,
       "lifted": 72
     },
-    "GLOBAL": {
-      "total": 65,
-      "decoded": 65,
-      "lifted": 57
-    },
-    "IMAGE": {
-      "total": 58,
-      "decoded": 0,
-      "lifted": 0
-    },
-    "FLAT": {
-      "total": 55,
-      "decoded": 55,
-      "lifted": 53
-    },
-    "SOPC": {
-      "total": 46,
-      "decoded": 46,
-      "lifted": 46
-    },
     "VOP2": {
-      "total": 45,
+      "total": 43,
       "decoded": 45,
       "lifted": 45
     },
     "SOPP": {
-      "total": 41,
+      "total": 36,
       "decoded": 43,
-      "lifted": 42
-    },
-    "OTHER": {
-      "total": 40,
-      "decoded": 36,
-      "lifted": 14
-    },
-    "SMEM": {
-      "total": 28,
-      "decoded": 31,
-      "lifted": 31
-    },
-    "SCRATCH": {
-      "total": 24,
-      "decoded": 24,
-      "lifted": 22
+      "lifted": 43
     },
     "SOPK": {
-      "total": 8,
+      "total": 26,
       "decoded": 8,
       "lifted": 4
+    },
+    "SOPC": {
+      "total": 18,
+      "decoded": 46,
+      "lifted": 46
+    },
+    "SMEM": {
+      "total": 14,
+      "decoded": 31,
+      "lifted": 31
     }
   }
 }

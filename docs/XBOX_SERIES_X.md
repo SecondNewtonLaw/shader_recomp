@@ -231,13 +231,16 @@ Each phase ends with something executable, not with a table entry.
    ES/GS pairing that reads the GSVS ring, remain diagnostics.
 7. **Sweep (done for the corpus).** `tests/sweep.ps1` translates every
    checked-in fixture in parallel, probes each compute module with the driver's
-   compiler and draws the graphics pipelines: 85 of 85, none refused, in about
-   two seconds. `tools/coverage.py` reports the translation share per generation
-   from the ISA XML; the current numbers are gfx10 667/1149 (58.1%), gfx1030
-   667/1153 (57.8%) and gfx1200 1344/1264 - the last above 100% because the
-   tool counts table entries (aliases included) against the XML's instruction
-   list, so treat it as a relative measure, not a percentage of a real shader.
-   The title shader-pack sweep needs real data.
+   compiler and draws the graphics pipelines: 86 of 86, none refused, in about
+   two seconds. `tools/coverage.py` derives the lifted set from
+   `GfxLifter.cpp` instead of a hand-maintained list, and reports the decoded
+   count beside it: gfx10 lifts 713 of its 751 decoded opcodes (of 1149 in the
+   XML), gfx1030 713 of 751 (of 1153), gfx1200 1211 of 1509 decoded (the
+   decoded count exceeds the XML total because table entries include aliases
+   and VOPC compare forms). The numbers say the lifter covers 95% of what the
+   tables decode; the gap is decoding, not lifting. A case can still refuse
+   deeper, so the lifted count is an upper bound and the decoded count is
+   exact. The title shader-pack sweep needs real data.
 
 Phases 5-6 extend the IL and the emitter, not the number of special cases: the
 stages and resources already have IL declarations (`Module::inputs`,
