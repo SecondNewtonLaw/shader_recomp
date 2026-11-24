@@ -804,6 +804,17 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     break;
                 }
 
+                if (id == IntrinsicId::EmitVertex)
+                {
+                    // Emission captures the outputs as they are now: the next
+                    // vertex overwrites them.
+                    result.vertices.push_back(result.outputs);
+                    break;
+                }
+
+                if (id == IntrinsicId::EndPrimitive)
+                    break;
+
                 if (id == IntrinsicId::StageInput || id == IntrinsicId::StageOutput)
                 {
                     const auto* io = instruction.payload != NoPayload

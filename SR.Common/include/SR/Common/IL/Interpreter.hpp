@@ -19,6 +19,9 @@ struct ExecutionResult
     std::unordered_map<std::uint64_t, std::uint32_t> device; // device address -> dword
     std::unordered_map<std::uint64_t, std::array<std::uint32_t, 4>> images; // image writes
     std::unordered_map<std::uint64_t, std::uint64_t> outputs; // StageIoKey -> value
+    // Geometry: the output values captured at each OpEmitVertex, in emission
+    // order, which is the sequence the rasterizer receives.
+    std::vector<std::unordered_map<std::uint64_t, std::uint64_t>> vertices;
     std::vector<std::uint64_t> values;                 // SSA values at the end
     std::uint64_t steps = 0;
     BlockId finalBlock = InvalidBlockId;
