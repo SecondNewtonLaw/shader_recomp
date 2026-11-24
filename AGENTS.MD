@@ -59,6 +59,7 @@ Start with `docs/ARCHITECTURE.md` and `docs/IL_ARCHITECTURE.md`; they are the no
 | `docs/GFX_ISA_LINEAGE.md` | Base-plus-delta decoder model, measured generation diffs |
 | `docs/DIVERGENCE_TESTING.md` | Oracle ladder T0-T4, test ABI, comparison policy |
 | `docs/reviews/0001-dispatch-instruction-overhead.md` | Why the loop emits 29 instead of 7 instructions |
+| `docs/XBOX_SERIES_X.md` | Xbox Series X|S container format, execution model and the roadmap to SPIR-V |
 | `docs/coverage.html` | Generated instruction coverage graph |
 | `SR.Common/include/SR/Common/IL/` | IL headers: `Types`, `Instruction`, `Intrinsics`, `Module`, `Builder`, `Analysis`, `Passes`, `Interpreter`, `Verifier`, `Dump` |
 | `SR.Common/src/IL/` | IL implementations, passes and the reference interpreter |
@@ -67,8 +68,8 @@ Start with `docs/ARCHITECTURE.md` and `docs/IL_ARCHITECTURE.md`; they are the no
 | `SR.Frontend/include/SR/Frontend/Frontend.hpp` | `IBinaryReader` and `IIsaRemapper` contracts |
 | `SR.Frontend/include/SR/Frontend/DecodedShader.hpp` | Decoded instruction stream and metadata |
 | `SR.Frontend/include/SR/Frontend/MasterReader.hpp` | Reader registry and probe order |
-| `SR.Frontend/src/Container/` | DXBC and ELF containers |
-| `SR.Frontend/src/Readers/` | DXBC, DXIL, SPIR-V, cubin and HSACO readers |
+| `SR.Frontend/src/Container/` | DXBC and ELF containers, and the Xbox Series X|S XDAT/XBCH/FSSM reader |
+| `SR.Frontend/src/Readers/` | DXBC, DXIL, SPIR-V, cubin, HSACO and Xbox container readers |
 | `SR.Frontend/include/SR/Frontend/Arch/Gfx/GfxIsa.hpp` | gfx generations, encodings, opcodes, operands, `Decode` |
 | `SR.Frontend/src/Arch/Gfx/GfxIsa.cpp` | Lineage tables and instruction decoding |
 | `SR.Frontend/include/SR/Frontend/Arch/Gfx/GfxLifter.hpp` | `Lift`, `LiftOptions`, `GfxRemapper` |
