@@ -168,7 +168,7 @@ optimisation, not the contract.
 | Stages | `GLCompute`, `Vertex` and `Fragment` with IO variables, interpolation decorations and exports; multi-block functions still use the dispatcher fallback when the CFG is not reducible | geometry and NGG mesh |
 | Waves | thread ids as `LocalInvocationId`, compare masks as `OpGroupNonUniformBallot` (wave32 or wave64 masks), `v_readfirstlane` as `OpGroupNonUniformBroadcastFirst`, one-lane interpreter model | per-lane EXEC predication of stores, `v_readlane`/`v_writelane`, `ds_swizzle`, quad ops |
 | Resources | one test buffer at set 0 binding 0 (`--test-abi`) | T#/V#/S# decode, SRT/heap access, push constants |
-| Verification | `tests/sweep.ps1`: 66 fixtures translated, driver-accepted and ISA-probed in parallel; VS/PS pair rasterised by `SR.VkDraw`; console container executed | title shader pack sweep |
+| Verification | `tests/sweep.ps1`: 73 fixtures translated, driver-accepted and ISA-probed in parallel, none refused; VS/PS pair rasterised by `SR.VkDraw`; console container executed; coverage regenerated per generation | title shader pack sweep |
 
 ## 6. Roadmap
 
@@ -209,8 +209,13 @@ Each phase ends with something executable, not with a table entry.
    with a diagnostic instead of lifting them as standalone stages.
 7. **Sweep (done for the corpus).** `tests/sweep.ps1` translates every
    checked-in fixture in parallel, probes each compute module with the driver's
-   compiler and draws the graphics pair: 66 of 66 in about two seconds. The
-   title shader-pack sweep needs real data.
+   compiler and draws the graphics pair: 73 of 73, none refused, in about two
+   seconds. `tools/coverage.py` reports the translation share per generation
+   from the ISA XML; the current numbers are gfx10 667/1149 (58.1%), gfx1030
+   667/1153 (57.8%) and gfx1200 1344/1264 - the last above 100% because the
+   tool counts table entries (aliases included) against the XML's instruction
+   list, so treat it as a relative measure, not a percentage of a real shader.
+   The title shader-pack sweep needs real data.
 
 Phases 5-6 extend the IL and the emitter, not the number of special cases: the
 stages and resources already have IL declarations (`Module::inputs`,
