@@ -17,18 +17,18 @@
     },
     "gfx1100": {
       "total": 1148,
-      "decoded": 783,
-      "lifted": 719
+      "decoded": 812,
+      "lifted": 738
     },
     "gfx1150": {
       "total": 1208,
-      "decoded": 783,
-      "lifted": 719
+      "decoded": 812,
+      "lifted": 738
     },
     "gfx1200": {
       "total": 1264,
-      "decoded": 1100,
-      "lifted": 994
+      "decoded": 1139,
+      "lifted": 1023
     }
   },
   "gfx1200_families": {
@@ -89,8 +89,8 @@
     },
     "SOPP": {
       "total": 41,
-      "decoded": 9,
-      "lifted": 8
+      "decoded": 43,
+      "lifted": 36
     },
     "OTHER": {
       "total": 40,
@@ -109,8 +109,8 @@
     },
     "SOPK": {
       "total": 8,
-      "decoded": 3,
-      "lifted": 3
+      "decoded": 8,
+      "lifted": 4
     }
   }
 }

@@ -1144,6 +1144,36 @@ constexpr std::array kGfx11 = {
     Make(Encoding::Sop1, 88, Op::S_SleepVar, "s_sleep_var", {OperandKind::Sdst, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 35, Op::S_AndNot1B64, "s_and_not1_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
     Make(Encoding::Sop2, 37, Op::S_OrNot1B64, "s_or_not1_b64", {OperandKind::Sdst, OperandKind::Ssrc, OperandKind::Ssrc}),
+    Make(Encoding::SopP, 0, Op::S_Nop, "s_nop", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 1, Op::S_Setkill, "s_setkill", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 2, Op::S_Sethalt, "s_sethalt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 3, Op::S_Sleep, "s_sleep", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 5, Op::S_Clause, "s_clause", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 7, Op::S_DelayAlu, "s_delay_alu", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 8, Op::S_WaitAlu, "s_wait_alu", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 9, Op::S_Waitcnt, "s_waitcnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 10, Op::S_WaitIdle, "s_wait_idle", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 11, Op::S_WaitEvent, "s_wait_event", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 16, Op::S_Trap, "s_trap", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 17, Op::S_RoundMode, "s_round_mode", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 18, Op::S_DenormMode, "s_denorm_mode", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 31, Op::S_CodeEnd, "s_code_end", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 49, Op::S_EndpgmSaved, "s_endpgm_saved", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 52, Op::S_Wakeup, "s_wakeup", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 53, Op::S_Setprio, "s_setprio", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 54, Op::S_Sendmsg, "s_sendmsg", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 55, Op::S_Sendmsghalt, "s_sendmsghalt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 56, Op::S_Incperflevel, "s_incperflevel", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 57, Op::S_Decperflevel, "s_decperflevel", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 58, Op::S_Ttracedata, "s_ttracedata", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 59, Op::S_TtracedataImm, "s_ttracedata_imm", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 60, Op::S_IcacheInv, "s_icache_inv", {OperandKind::Sdst}),
+    Make(Encoding::SopK, 1, Op::S_Version, "s_version", {OperandKind::Sdst, OperandKind::Simm16}),
+    Make(Encoding::SopK, 2, Op::S_CmovkI32, "s_cmovk_i32", {OperandKind::Sdst, OperandKind::Simm16}),
+    Make(Encoding::SopK, 15, Op::S_AddkCoI32, "s_addk_co_i32", {OperandKind::Sdst, OperandKind::Simm16}),
+    Make(Encoding::SopK, 17, Op::S_GetregB32, "s_getreg_b32", {OperandKind::Sdst, OperandKind::Simm16}),
+    Make(Encoding::SopK, 18, Op::S_SetregB32, "s_setreg_b32", {OperandKind::Sdst, OperandKind::Simm16}),
+    Make(Encoding::SopK, 20, Op::S_CallB64, "s_call_b64", {OperandKind::Sdst, OperandKind::Simm16}),
 };
 
 // RDNA4 keeps RDNA3's numbering for this subset and replaces plain S_ADD/S_SUB
@@ -1851,6 +1881,16 @@ constexpr std::array kGfx12 = {
     Make(Encoding::Sop1, 108, Op::S_FloorF16, "s_floor_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
     Make(Encoding::Sop1, 109, Op::S_TruncF16, "s_trunc_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
     Make(Encoding::Sop1, 110, Op::S_RndneF16, "s_rndne_f16", {OperandKind::Sdst, OperandKind::Ssrc}),
+    Make(Encoding::SopP, 20, Op::S_BarrierWait, "s_barrier_wait", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 64, Op::S_WaitLoadcnt, "s_wait_loadcnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 65, Op::S_WaitStorecnt, "s_wait_storecnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 66, Op::S_WaitSamplecnt, "s_wait_samplecnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 67, Op::S_WaitBvhcnt, "s_wait_bvhcnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 68, Op::S_WaitExpcnt, "s_wait_expcnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 70, Op::S_WaitDscnt, "s_wait_dscnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 71, Op::S_WaitKmcnt, "s_wait_kmcnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 72, Op::S_WaitLoadcntDscnt, "s_wait_loadcnt_dscnt", {OperandKind::Sdst}),
+    Make(Encoding::SopP, 73, Op::S_WaitStorecntDscnt, "s_wait_storecnt_dscnt", {OperandKind::Sdst}),
 };
 
 constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
@@ -3217,6 +3257,86 @@ std::string_view ToString(Op op) noexcept
         return "s_cmp_ge_u32";
     case Op::S_Endpgm:
         return "s_endpgm";
+    case Op::S_Nop:
+        return "s_nop";
+    case Op::S_Setkill:
+        return "s_setkill";
+    case Op::S_Sethalt:
+        return "s_sethalt";
+    case Op::S_Sleep:
+        return "s_sleep";
+    case Op::S_Clause:
+        return "s_clause";
+    case Op::S_DelayAlu:
+        return "s_delay_alu";
+    case Op::S_WaitAlu:
+        return "s_wait_alu";
+    case Op::S_Waitcnt:
+        return "s_waitcnt";
+    case Op::S_WaitIdle:
+        return "s_wait_idle";
+    case Op::S_WaitEvent:
+        return "s_wait_event";
+    case Op::S_Trap:
+        return "s_trap";
+    case Op::S_RoundMode:
+        return "s_round_mode";
+    case Op::S_DenormMode:
+        return "s_denorm_mode";
+    case Op::S_CodeEnd:
+        return "s_code_end";
+    case Op::S_EndpgmSaved:
+        return "s_endpgm_saved";
+    case Op::S_Wakeup:
+        return "s_wakeup";
+    case Op::S_Setprio:
+        return "s_setprio";
+    case Op::S_Sendmsg:
+        return "s_sendmsg";
+    case Op::S_Sendmsghalt:
+        return "s_sendmsghalt";
+    case Op::S_Incperflevel:
+        return "s_incperflevel";
+    case Op::S_Decperflevel:
+        return "s_decperflevel";
+    case Op::S_Ttracedata:
+        return "s_ttracedata";
+    case Op::S_TtracedataImm:
+        return "s_ttracedata_imm";
+    case Op::S_IcacheInv:
+        return "s_icache_inv";
+    case Op::S_BarrierWait:
+        return "s_barrier_wait";
+    case Op::S_WaitLoadcnt:
+        return "s_wait_loadcnt";
+    case Op::S_WaitStorecnt:
+        return "s_wait_storecnt";
+    case Op::S_WaitSamplecnt:
+        return "s_wait_samplecnt";
+    case Op::S_WaitBvhcnt:
+        return "s_wait_bvhcnt";
+    case Op::S_WaitExpcnt:
+        return "s_wait_expcnt";
+    case Op::S_WaitDscnt:
+        return "s_wait_dscnt";
+    case Op::S_WaitKmcnt:
+        return "s_wait_kmcnt";
+    case Op::S_WaitLoadcntDscnt:
+        return "s_wait_loadcnt_dscnt";
+    case Op::S_WaitStorecntDscnt:
+        return "s_wait_storecnt_dscnt";
+    case Op::S_Version:
+        return "s_version";
+    case Op::S_CmovkI32:
+        return "s_cmovk_i32";
+    case Op::S_AddkCoI32:
+        return "s_addk_co_i32";
+    case Op::S_GetregB32:
+        return "s_getreg_b32";
+    case Op::S_SetregB32:
+        return "s_setreg_b32";
+    case Op::S_CallB64:
+        return "s_call_b64";
     case Op::S_Branch:
         return "s_branch";
     case Op::S_CbranchScc0:

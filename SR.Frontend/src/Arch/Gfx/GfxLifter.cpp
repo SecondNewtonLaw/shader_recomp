@@ -5348,6 +5348,97 @@ private:
         return WriteScc(condition, instruction.pc);
     }
 
+    // Scalar control instructions: waits, cache hints and mode registers have
+    // no effect on the register file in this model; the wave control forms are
+    // diagnosed because a single-invocation interpreter cannot honour them.
+    [[nodiscard]] Result<void> LiftScalarControl(const DecodedInstruction& instruction)
+    {
+        switch (instruction.op)
+        {
+        case Op::S_Nop:
+        case Op::S_Clause:
+        case Op::S_DelayAlu:
+        case Op::S_WaitAlu:
+        case Op::S_Waitcnt:
+        case Op::S_WaitIdle:
+        case Op::S_WaitEvent:
+        case Op::S_RoundMode:
+        case Op::S_DenormMode:
+        case Op::S_BarrierWait:
+        case Op::S_Wakeup:
+        case Op::S_Setprio:
+        case Op::S_Incperflevel:
+        case Op::S_Decperflevel:
+        case Op::S_Ttracedata:
+        case Op::S_TtracedataImm:
+        case Op::S_IcacheInv:
+        case Op::S_WaitLoadcnt:
+        case Op::S_WaitStorecnt:
+        case Op::S_WaitSamplecnt:
+        case Op::S_WaitBvhcnt:
+        case Op::S_WaitExpcnt:
+        case Op::S_WaitDscnt:
+        case Op::S_WaitKmcnt:
+        case Op::S_WaitLoadcntDscnt:
+        case Op::S_WaitStorecntDscnt:
+            return {};
+        case Op::S_CodeEnd:
+        case Op::S_EndpgmSaved:
+        {
+            IL::Terminator terminator;
+            terminator.kind = IL::TerminatorKind::Ret;
+            terminator.sourcePc = instruction.pc;
+            m_builder.Terminate(m_builder.CurrentBlock(), std::move(terminator));
+            return {};
+        }
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-073",
+                                             std::string("unsupported scalar control instruction: ") +
+                                                 std::string(ToString(instruction.op)),
+                                             instruction.pc));
+        }
+    }
+
+    [[nodiscard]] Result<void> LiftScalarImmediate(const DecodedInstruction& instruction)
+    {
+        const std::uint32_t immediate =
+            static_cast<std::uint32_t>(static_cast<std::int32_t>(
+                static_cast<std::int16_t>(instruction.operands[1].value & 0xFFFFu)));
+        switch (instruction.op)
+        {
+        case Op::S_CmovkI32:
+        {
+            const auto condition = ReadScc(instruction.pc);
+            if (!condition)
+                return std::unexpected(condition.error());
+            const auto current = ReadSgpr(instruction.operands[0].value, instruction.pc);
+            if (!current)
+                return std::unexpected(current.error());
+            const IL::ValueId selected = m_builder.SelectValue(
+                m_module.types.U32(), *condition, m_builder.ConstantU32(immediate), *current, true);
+            return WriteDest(instruction.operands[0], selected, instruction.pc);
+        }
+        case Op::S_AddkCoI32:
+        {
+            const auto current = ReadSgpr(instruction.operands[0].value, instruction.pc);
+            if (!current)
+                return std::unexpected(current.error());
+            const IL::ValueId sum =
+                Bin(instruction, IL::BinaryOp::IAdd, *current, m_builder.ConstantU32(immediate));
+            const IL::ValueId carry = m_builder.CompareValue(IL::CompareOp::ULt, sum, *current, true);
+            const auto scc = WriteScc(carry, instruction.pc);
+            if (!scc)
+                return scc;
+            return WriteDest(instruction.operands[0], sum, instruction.pc);
+        }
+        default:
+            return std::unexpected(LiftError("SR-GFX-LIFT-074",
+                                             std::string("unsupported immediate scalar instruction: ") +
+                                                 std::string(ToString(instruction.op)),
+                                             instruction.pc));
+        }
+    }
+
     [[nodiscard]] Result<void> LiftCselect(const DecodedInstruction& instruction)
     {
         const auto condition = ReadScc(instruction.pc);
@@ -6631,6 +6722,38 @@ private:
         }
         case Op::S_Barrier:
             return std::unexpected(LiftError("SR-GFX-LIFT-020", "s_barrier is not implemented yet", instruction.pc));
+        case Op::S_Nop:
+        case Op::S_Clause:
+        case Op::S_DelayAlu:
+        case Op::S_WaitAlu:
+        case Op::S_Waitcnt:
+        case Op::S_WaitIdle:
+        case Op::S_WaitEvent:
+        case Op::S_RoundMode:
+        case Op::S_DenormMode:
+        case Op::S_BarrierWait:
+        case Op::S_Wakeup:
+        case Op::S_Setprio:
+        case Op::S_Incperflevel:
+        case Op::S_Decperflevel:
+        case Op::S_Ttracedata:
+        case Op::S_TtracedataImm:
+        case Op::S_IcacheInv:
+        case Op::S_WaitLoadcnt:
+        case Op::S_WaitStorecnt:
+        case Op::S_WaitSamplecnt:
+        case Op::S_WaitBvhcnt:
+        case Op::S_WaitExpcnt:
+        case Op::S_WaitDscnt:
+        case Op::S_WaitKmcnt:
+        case Op::S_WaitLoadcntDscnt:
+        case Op::S_WaitStorecntDscnt:
+        case Op::S_CodeEnd:
+        case Op::S_EndpgmSaved:
+            return LiftScalarControl(instruction);
+        case Op::S_CmovkI32:
+        case Op::S_AddkCoI32:
+            return LiftScalarImmediate(instruction);
         case Op::Invalid:
             break;
         default:
@@ -6658,7 +6781,8 @@ private:
             if (!status)
                 return status;
 
-            if (m_items[i].op == Op::S_Endpgm || IsBranch(m_items[i].op))
+            if (m_items[i].op == Op::S_Endpgm || m_items[i].op == Op::S_CodeEnd ||
+                m_items[i].op == Op::S_EndpgmSaved || IsBranch(m_items[i].op))
             {
                 terminated = true;
                 break;

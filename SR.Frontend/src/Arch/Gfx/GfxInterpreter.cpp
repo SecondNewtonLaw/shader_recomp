@@ -4013,6 +4013,60 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 return std::unexpected(Error("SR-GFX-ISA-278", "invalid f32 destination", pc));
             break;
         }
+        case Op::S_Nop:
+        case Op::S_Clause:
+        case Op::S_DelayAlu:
+        case Op::S_WaitAlu:
+        case Op::S_Waitcnt:
+        case Op::S_WaitIdle:
+        case Op::S_WaitEvent:
+        case Op::S_RoundMode:
+        case Op::S_DenormMode:
+        case Op::S_BarrierWait:
+        case Op::S_Wakeup:
+        case Op::S_Setprio:
+        case Op::S_Incperflevel:
+        case Op::S_Decperflevel:
+        case Op::S_Ttracedata:
+        case Op::S_TtracedataImm:
+        case Op::S_IcacheInv:
+        case Op::S_WaitLoadcnt:
+        case Op::S_WaitStorecnt:
+        case Op::S_WaitSamplecnt:
+        case Op::S_WaitBvhcnt:
+        case Op::S_WaitExpcnt:
+        case Op::S_WaitDscnt:
+        case Op::S_WaitKmcnt:
+        case Op::S_WaitLoadcntDscnt:
+        case Op::S_WaitStorecntDscnt:
+            break;
+        case Op::S_CodeEnd:
+        case Op::S_EndpgmSaved:
+            finished = true;
+            advance = false;
+            break;
+        case Op::S_CmovkI32:
+        {
+            if (result.state.scc)
+            {
+                const std::uint32_t immediate = static_cast<std::uint32_t>(
+                    static_cast<std::int32_t>(static_cast<std::int16_t>(instruction.operands[1].value & 0xFFFFu)));
+                if (!write(immediate))
+                    return std::unexpected(Error("SR-GFX-ISA-280", "invalid cmovk destination", pc));
+            }
+            break;
+        }
+        case Op::S_AddkCoI32:
+        {
+            const std::uint32_t immediate = static_cast<std::uint32_t>(
+                static_cast<std::int32_t>(static_cast<std::int16_t>(instruction.operands[1].value & 0xFFFFu)));
+            const std::uint32_t current = result.state.sgpr[instruction.operands[0].value];
+            const std::uint32_t sum = static_cast<std::uint32_t>(current + immediate);
+            result.state.scc = sum < current;
+            if (!write(sum))
+                return std::unexpected(Error("SR-GFX-ISA-281", "invalid addk destination", pc));
+            break;
+        }
         case Op::Invalid:
             return std::unexpected(Error("SR-GFX-ISA-074", "invalid instruction", pc));
         default:
