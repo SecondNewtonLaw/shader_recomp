@@ -14,6 +14,7 @@
 #include "SR/Common/IL/Interpreter.hpp"
 #include "SR/Common/IL/Passes.hpp"
 #include "SR/Common/IL/Verifier.hpp"
+#include "SR/Frontend/Arch/Gfx/GfxIsa.hpp"
 #include "SR/Frontend/Arch/Gfx/GfxLifter.hpp"
 #include "SR/Frontend/MasterReader.hpp"
 
@@ -396,5 +397,55 @@ TEST_CASE("a buffer descriptor becomes a device address load", "[gfx][descriptor
     if (!emission)
         INFO(SR::ToString(emission.error()));
     REQUIRE(emission.has_value());
+#endif
+}
+
+TEST_CASE("MIMG decodes the descriptor registers and the data mask", "[gfx][image][decode]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    // image_sample v[0:3], v[4:5], s[8:15], s[16:19] dmask:0xf dim:2d
+    const std::uint32_t words[] = {0xF0800F08u, 0x00820004u};
+    const auto decoded = SR::Frontend::Gfx::Decode(words, SR::Frontend::Gfx::Arch::Gfx103, 0);
+    if (!decoded)
+        INFO(SR::ToString(decoded.error()));
+    REQUIRE(decoded.has_value());
+
+    REQUIRE(decoded->op == SR::Frontend::Gfx::Op::ImageSample);
+    REQUIRE(decoded->encoding == SR::Frontend::Gfx::Encoding::Mimg);
+    REQUIRE(decoded->imageSrsrc == 8);
+    REQUIRE(decoded->imageSsamp == 16);
+    REQUIRE(decoded->imageDmask == 0xF);
+    REQUIRE(decoded->imageDim == 1); // 2D
+    REQUIRE(decoded->operandCount == 2);
+    REQUIRE(decoded->operands[0].kind == SR::Frontend::Gfx::OperandKind::Vgpr);
+    REQUIRE(decoded->operands[0].value == 0);  // vdata v0
+    REQUIRE(decoded->operands[1].value == 4);  // vaddr v4
+#endif
+}
+
+TEST_CASE("an image access is refused with its descriptors named", "[gfx][image][stage]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("image.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("image fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    const auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main");
+    REQUIRE_FALSE(module.has_value());
+    REQUIRE(module.error().code == "SR-GFX-LIFT-090");
+    REQUIRE(module.error().message.find("image_sample") != std::string::npos);
+    REQUIRE(module.error().message.find("T#=s8") != std::string::npos);
+    REQUIRE(module.error().message.find("S#=s16") != std::string::npos);
 #endif
 }

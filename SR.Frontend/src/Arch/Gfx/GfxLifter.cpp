@@ -3264,6 +3264,21 @@ private:
     // or inline offset. The descriptor is read from the user data slots, which
     // the host fills; the result is a buffer device address the emitter turns
     // into a physical pointer.
+    // Images need the descriptor model: a T# names the surface, its format and
+    // its tiling, and an S# the sampler state. The decode is complete; the
+    // translation is not, so the diagnostic names exactly what is missing.
+    [[nodiscard]] Result<void> LiftImageAccess(const DecodedInstruction& instruction)
+    {
+        const std::string srsrc = "s" + std::to_string(instruction.imageSrsrc);
+        const std::string ssamp = "s" + std::to_string(instruction.imageSsamp);
+        return std::unexpected(LiftError("SR-GFX-LIFT-090",
+                                         std::string("image access is not translated yet: ") +
+                                             std::string(ToString(instruction.op)) + " T#=" + srsrc +
+                                             " S#=" + ssamp + " dmask=" + std::to_string(instruction.imageDmask) +
+                                             " dim=" + std::to_string(instruction.imageDim),
+                                         instruction.pc));
+    }
+
     [[nodiscard]] Result<void> LiftMubuf(const DecodedInstruction& instruction)
     {
         if (instruction.operandCount < 3)
@@ -8026,6 +8041,8 @@ private:
             return LiftExport(instruction);
         if (instruction.encoding == Encoding::Ds)
             return LiftDs(instruction);
+        if (instruction.encoding == Encoding::Mimg)
+            return LiftImageAccess(instruction);
         if (instruction.encoding == Encoding::Mubuf || instruction.encoding == Encoding::Mtbuf)
             return LiftMubuf(instruction);
         if (instruction.encoding == Encoding::Flat || instruction.encoding == Encoding::Global ||

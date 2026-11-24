@@ -59,6 +59,10 @@ foreach ($case in $cases) {
         "descriptor" = @("--test-abi", "--user-data-push", "4")
     }
 
+    # Fixtures whose translation is expected to be refused today: they are
+    # reported, not counted as failures.
+    $expectedRefusal = @("image")
+
     Get-ChildItem $directory -Filter *.hsaco | Sort-Object Name | ForEach-Object {
         $name = $_.BaseName
         $stage = "compute"
@@ -70,6 +74,7 @@ foreach ($case in $cases) {
             Arch = $case.Arch
             Stage = $stage
             Extra = if ($options.ContainsKey($name)) { $options[$name] } else { @() }
+            ExpectRefusal = $expectedRefusal -contains $name
             Input = $_.FullName
             Path = Join-Path $work "$($case.Directory)-$name.spv"
         }
@@ -103,6 +108,7 @@ $translated = $jobs | ForEach-Object -ThrottleLimit $Throttle -Parallel {
         Stage = $job.Stage
         Path = $job.Path
         Translated = ($LASTEXITCODE -eq 0)
+        ExpectRefusal = $job.ExpectRefusal
         DriverIsa = "-"
         Note = if ($LASTEXITCODE -eq 0) { "" } else { ($output | Select-Object -First 1) }
     }
@@ -140,7 +146,7 @@ $results = @($translated | ForEach-Object {
     [pscustomobject]@{
         Target = $entry.Target
         Stage = $entry.Stage
-        Spirv = if ($entry.Translated) { "yes" } else { "no" }
+        Spirv = if ($entry.Translated) { "yes" } elseif ($entry.ExpectRefusal) { "refused" } else { "no" }
         DriverIsa = $entry.DriverIsa
         Note = $entry.Note
     }
@@ -166,8 +172,11 @@ $watch.Stop()
 
 $results | Sort-Object Target | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
 
-$failures = @($results | Where-Object { $_.Spirv -ne "yes" })
-Write-Host "$($results.Count - $failures.Count) of $($results.Count) fixtures translated and accepted by the driver in $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s"
+$refused = @($results | Where-Object { $_.Spirv -eq "refused" })
+$failures = @($results | Where-Object { $_.Spirv -eq "no" })
+$accepted = @($results | Where-Object { $_.Spirv -eq "yes" }).Count
+Write-Host "$accepted of $($results.Count) fixtures translated and accepted by the driver in $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s; $($refused.Count) refused by design"
+foreach ($entry in $refused) { Write-Host "REFUSED $($entry.Target): $($entry.Note)" }
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Host "FAIL $($_.Target): $($_.Note)" }
     exit 1

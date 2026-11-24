@@ -59,6 +59,7 @@ enum class Encoding : std::uint8_t
     Exp,
     Mubuf,
     Mtbuf,
+    Mimg,
 };
 
 [[nodiscard]] std::string_view ToString(Encoding encoding) noexcept;
@@ -1147,6 +1148,16 @@ enum class Op : std::uint16_t
     V_InterpP2F32,
     V_InterpMovF32,
     Exp,
+    ImageLoad,
+    ImageLoadMip,
+    ImageStore,
+    ImageGetResinfo,
+    ImageAtomicAdd,
+    ImageSample,
+    ImageSampleD,
+    ImageSampleL,
+    ImageGather4,
+    ImageGetLod,
 };
 
 [[nodiscard]] std::string_view ToString(Op op) noexcept;
@@ -1201,6 +1212,8 @@ enum class OperandKind : std::uint8_t
     MubufVdata,
     MubufVaddr,
     MubufSoffset,
+    MimgVdata,
+    MimgVaddr,
 };
 
 struct Operand
@@ -1239,6 +1252,15 @@ struct DecodedInstruction
     // the format live with the other buffer fields below.
     std::uint32_t bufferSrsrc = 0;
     bool bufferGlc = false;
+
+    // MIMG: the image and sampler descriptor registers, the data mask and the
+    // image dimension code.
+    std::uint32_t imageSrsrc = 0;
+    std::uint32_t imageSsamp = 0;
+    std::uint8_t imageDmask = 0;
+    std::uint8_t imageDim = 0;
+    bool imageUnorm = false;
+    bool imageGlc = false;
 
     // EXP: enabled channels, export target, and the compressed (16-bit) form.
     std::uint8_t exportEnabled = 0;

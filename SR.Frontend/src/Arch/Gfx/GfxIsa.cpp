@@ -792,6 +792,17 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Mubuf, 29, Op::BufferStoreB64, "buffer_store_dwordx2", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
     Make(Encoding::Mubuf, 30, Op::BufferStoreB128, "buffer_store_dwordx4", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
     Make(Encoding::Mubuf, 31, Op::BufferStoreB96, "buffer_store_dwordx3", {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    // MIMG: image loads, stores and samples. The opcode numbers are RDNA2's.
+    Make(Encoding::Mimg, 0, Op::ImageLoad, "image_load", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 1, Op::ImageLoadMip, "image_load_mip", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 8, Op::ImageStore, "image_store", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 14, Op::ImageGetResinfo, "image_get_resinfo", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 17, Op::ImageAtomicAdd, "image_atomic_add", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 32, Op::ImageSample, "image_sample", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 34, Op::ImageSampleD, "image_sample_d", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 36, Op::ImageSampleL, "image_sample_l", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 64, Op::ImageGather4, "image_gather4", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 96, Op::ImageGetLod, "image_get_lod", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -2642,6 +2653,8 @@ std::string_view ToString(Encoding encoding) noexcept
         return "mubuf";
     case Encoding::Mtbuf:
         return "mtbuf";
+    case Encoding::Mimg:
+        return "mimg";
     }
 
     return "unknown";
@@ -2761,6 +2774,26 @@ std::string_view ToString(Op op) noexcept
         return "v_interp_mov_f32";
     case Op::Exp:
         return "exp";
+    case Op::ImageLoad:
+        return "image_load";
+    case Op::ImageLoadMip:
+        return "image_load_mip";
+    case Op::ImageStore:
+        return "image_store";
+    case Op::ImageGetResinfo:
+        return "image_get_resinfo";
+    case Op::ImageAtomicAdd:
+        return "image_atomic_add";
+    case Op::ImageSample:
+        return "image_sample";
+    case Op::ImageSampleD:
+        return "image_sample_d";
+    case Op::ImageSampleL:
+        return "image_sample_l";
+    case Op::ImageGather4:
+        return "image_gather4";
+    case Op::ImageGetLod:
+        return "image_get_lod";
     case Op::FlatLoadU8:
         return "flat_load_u8";
     case Op::BufferLoadFormatX:
@@ -5035,6 +5068,15 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
         opcode = 0;
     }
+    else if (((word0 >> 26) & 0x3F) == 0x3C)
+    {
+        encoding = Encoding::Mimg;
+        if (words.size() < 2)
+            return std::unexpected(Error("SR-GFX-018", "truncated image instruction", bytePc));
+        baseWords = 2;
+        wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
+        opcode = static_cast<std::uint16_t>((word0 >> 18) & 0x7F);
+    }
     else if (((word0 >> 26) & 0x3F) == 0x38 || ((word0 >> 26) & 0x3F) == 0x3A)
     {
         encoding = ((word0 >> 26) & 0x3F) == 0x38 ? Encoding::Mubuf : Encoding::Mtbuf;
@@ -5258,6 +5300,14 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             operand.kind = OperandKind::Sdst;
             operand.value = Extract(wide, 0, 7);
             break;
+        case OperandKind::MimgVdata:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 40, 8);
+            break;
+        case OperandKind::MimgVaddr:
+            operand.kind = OperandKind::Vgpr;
+            operand.value = Extract(wide, 32, 8);
+            break;
         case OperandKind::MubufVdata:
             operand.kind = OperandKind::Vgpr;
             operand.value = Extract(wide, 40, 8);
@@ -5332,6 +5382,16 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         }
 
         push(operand);
+    }
+
+    if (encoding == Encoding::Mimg)
+    {
+        instruction.imageDmask = static_cast<std::uint8_t>(Extract(word0, 8, 4));
+        instruction.imageUnorm = Extract(word0, 12, 1) != 0;
+        instruction.imageGlc = Extract(word0, 13, 1) != 0;
+        instruction.imageDim = static_cast<std::uint8_t>(Extract(word0, 3, 3));
+        instruction.imageSrsrc = Extract(wide, 48, 5) * 4;
+        instruction.imageSsamp = Extract(wide, 53, 5) * 4;
     }
 
     if (encoding == Encoding::Mubuf || encoding == Encoding::Mtbuf)
