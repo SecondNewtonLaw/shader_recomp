@@ -5474,6 +5474,86 @@ private:
         SubClamp,
     };
 
+    // v_mbcnt_lo_u32_b32 dst, src0, src1: the number of set bits of src0 below
+    // this lane, plus src1. With src0 all ones it is the lane id.
+    [[nodiscard]] Result<void> LiftMbcnt(const DecodedInstruction& instruction)
+    {
+        if (instruction.operandCount < 3)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-072", "mbcnt has too few operands", instruction.pc));
+
+        const auto maskSource = ReadBits(instruction.operands[1], instruction.pc);
+        if (!maskSource)
+            return std::unexpected(maskSource.error());
+        const auto carry = ReadBits(instruction.operands[2], instruction.pc);
+        if (!carry)
+            return std::unexpected(carry.error());
+
+        IL::SpecialRegPayload payload;
+        payload.id = IL::SpecialRegId::SubgroupLocalInvocationId;
+        const IL::PayloadId payloadId = m_module.payloads.Add(payload);
+        const IL::ValueId lane = m_builder.Emit(m_module.types.U32(),
+                                                IL::Op::Intrinsic,
+                                                static_cast<std::uint16_t>(IL::IntrinsicId::SpecialReg),
+                                                {},
+                                                {},
+                                                payloadId,
+                                                instruction.pc,
+                                                static_cast<std::uint16_t>(instruction.op),
+                                                false);
+
+        // bits below this lane: (1 << lane) - 1
+        const IL::ValueId one = m_builder.ConstantU32(1);
+        const IL::ValueId shift = Bin(instruction, IL::BinaryOp::Shl, one, lane);
+        const IL::ValueId below = Bin(instruction, IL::BinaryOp::ISub, shift, one);
+        const IL::ValueId selected = Bin(instruction, IL::BinaryOp::And, *maskSource, below);
+        const IL::ValueId count = m_builder.Emit(m_module.types.U32(),
+                                                 IL::Op::Unary,
+                                                 static_cast<std::uint16_t>(IL::UnaryOp::PopCount),
+                                                 {selected},
+                                                 {},
+                                                 IL::NoPayload,
+                                                 instruction.pc,
+                                                 static_cast<std::uint16_t>(instruction.op));
+        const IL::ValueId total = Bin(instruction, IL::BinaryOp::IAdd, count, *carry);
+        return WriteDest(instruction.operands[0], total, instruction.pc);
+    }
+
+    // ds_bpermute_b32: the value written by the lane named in the byte address
+    // (address / 4) is the result. It is a cross-lane gather, so it maps to the
+    // shuffle intrinsic rather than to LDS: a single invocation cannot see the
+    // other lanes' stores.
+    [[nodiscard]] Result<void> LiftDsBPermute(const DecodedInstruction& instruction)
+    {
+        if (instruction.operandCount < 3)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-071", "bpermute has too few operands", instruction.pc));
+
+        const auto data = DsData(instruction, OperandKind::DsData0, false);
+        if (!data)
+            return std::unexpected(data.error());
+        const Operand address = DsOperand(instruction, OperandKind::DsAddr);
+        if (address.kind == OperandKind::None)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-073", "bpermute has no address operand", instruction.pc));
+        const auto addressValue = ReadVgpr(address.value, instruction.pc);
+        if (!addressValue)
+            return std::unexpected(addressValue.error());
+        const IL::ValueId lane =
+            Bin(instruction, IL::BinaryOp::LShr, *addressValue, m_builder.ConstantU32(2));
+
+        IL::ShufflePayload payload;
+        payload.mode = IL::ShuffleMode::Index;
+        const IL::PayloadId payloadId = m_module.payloads.Add(payload);
+        const IL::ValueId value = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                           IL::IntrinsicId::WaveShuffle,
+                                                           {*data, lane},
+                                                           payloadId,
+                                                           instruction.pc,
+                                                           false);
+        return DsWriteDest(instruction, value);
+    }
+
     // ds_read_addtid_b32 / ds_write_addtid_b32: the address is the encoded
     // offset plus the invocation's thread id, so each lane reaches its own LDS
     // slot at the same offset.
@@ -5880,6 +5960,8 @@ private:
         case Op::DsStoreB16D16Hi:
             return LiftDsByteAccess(instruction);
 
+        case Op::DsBpermuteB32:
+            return LiftDsBPermute(instruction);
         case Op::DsLoadAddtidB32:
         case Op::DsStoreAddtidB32:
             return LiftDsAddTid(instruction);
@@ -10353,6 +10435,8 @@ private:
         case Op::S_Setkill:
         case Op::S_Sleep:
             return LiftScalarControl(instruction);
+        case Op::V_MbcntLoU32B32:
+            return LiftMbcnt(instruction);
         case Op::V_CmpClassF16:
             return LiftClassCompare(instruction, CompareValueKind::F16, false);
         case Op::V_CmpClassF32:

@@ -994,6 +994,23 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                 if (id == IntrinsicId::EndPrimitive)
                     break;
 
+                if (id == IntrinsicId::WaveShuffle)
+                {
+                    // One invocation is a one-lane wave: only an index that
+                    // names this lane can be answered.
+                    const auto* payload = instruction.payload != NoPayload
+                                              ? std::get_if<ShufflePayload>(&module.payloads.Get(instruction.payload))
+                                              : nullptr;
+                    if (payload == nullptr || payload->mode != ShuffleMode::Index)
+                        return std::unexpected(ExecutionError("SR-IL-INT-020",
+                                                              "only an index shuffle is modelled",
+                                                              instruction.sourcePc));
+                    const ValueId slot = resultId();
+                    const std::uint64_t index = read(instruction.operands[1]);
+                    values[slot] = index == 0 ? read(instruction.operands[0]) : 0;
+                    break;
+                }
+
                 if (id == IntrinsicId::StageInput || id == IntrinsicId::StageOutput)
                 {
                     const auto* io = instruction.payload != NoPayload

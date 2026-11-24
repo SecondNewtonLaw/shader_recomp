@@ -74,6 +74,7 @@ enum SpvOp : std::uint16_t
     OpAtomicAnd = 240,
     OpAtomicOr = 241,
     OpAtomicXor = 242,
+    OpGroupNonUniformShuffle = 345,
     OpEmitVertex = 218,
     OpEndPrimitive = 219,
     OpLoad = 61,
@@ -329,6 +330,8 @@ public:
                     if (payload->id == IL::SpecialRegId::ThreadIdX || payload->id == IL::SpecialRegId::ThreadIdY ||
                         payload->id == IL::SpecialRegId::ThreadIdZ)
                         (void)SpecialVariableFor(IL::Builtin::LocalInvocationId, true);
+                    if (payload->id == IL::SpecialRegId::SubgroupLocalInvocationId)
+                        (void)SpecialVariableFor(IL::Builtin::SubgroupInvocationId, true);
                 }
             }
         }
@@ -862,7 +865,15 @@ private:
         IL::Builtin builtin = IL::Builtin::None;
         std::uint32_t variable = 0;
         std::uint32_t elementPointer = 0;
+        bool scalar = false;
     };
+
+    // System values that are one integer read rather than a vector.
+    [[nodiscard]] static bool ScalarBuiltin(IL::Builtin builtin) noexcept
+    {
+        return builtin == IL::Builtin::SubgroupInvocationId || builtin == IL::Builtin::SubgroupSize ||
+               builtin == IL::Builtin::LocalInvocationIndex;
+    }
 
     std::uint32_t SpecialVariableFor(IL::Builtin builtin, bool allocate)
     {
@@ -877,6 +888,7 @@ private:
         SpecialVariable entry;
         entry.builtin = builtin;
         entry.variable = NewId();
+        entry.scalar = ScalarBuiltin(builtin);
         m_special.push_back(entry);
         return entry.variable;
     }
@@ -908,7 +920,7 @@ private:
         }
 
         for (SpecialVariable& entry : m_special)
-            Op(OpVariable, {pointerVec, entry.variable, 1 /* Input */});
+            Op(OpVariable, {entry.scalar ? pointerScalar : pointerVec, entry.variable, 1 /* Input */});
 
         for (SpecialVariable& entry : m_special)
             entry.elementPointer = pointerScalar;
@@ -918,6 +930,11 @@ private:
 
     [[nodiscard]] Result<std::uint32_t> SpecialComponent(const SpecialVariable& entry, std::uint32_t component)
     {
+        // A scalar system value is its own component; indexing it would build an
+        // access chain into an integer.
+        if (entry.scalar && component == 0)
+            return entry.variable;
+
         const auto index = U32Constant(component);
         if (!index)
             return std::unexpected(index.error());
@@ -1034,6 +1051,15 @@ private:
                 if (!index)
                     return std::unexpected(index.error());
             }
+        }
+
+        // A cross-lane shuffle needs the Subgroup scope constant, and constants
+        // cannot be added once the function section has started.
+        if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveShuffle))
+        {
+            const auto scope = U32Constant(3);
+            if (!scope)
+                return std::unexpected(scope.error());
         }
 
         if (m_module.stage == IL::Stage::Geometry && m_module.executionModes.outputRegisters != 0 &&
@@ -1395,6 +1421,11 @@ private:
         {
             Op(OpCapability, {61}); // GroupNonUniform
             Op(OpCapability, {64}); // GroupNonUniformBallot (BroadcastFirst needs it too)
+        }
+        if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveShuffle))
+        {
+            Op(OpCapability, {61}); // GroupNonUniform
+            Op(OpCapability, {65}); // GroupNonUniformShuffle
         }
         if (m_module.stage == IL::Stage::Geometry)
             Op(OpCapability, {2}); // Geometry
@@ -2623,6 +2654,10 @@ private:
                 builtin = IL::Builtin::LocalInvocationId;
                 component = 2;
                 break;
+            case IL::SpecialRegId::SubgroupLocalInvocationId:
+                builtin = IL::Builtin::SubgroupInvocationId;
+                component = 0;
+                break;
             default:
                 return std::unexpected(EmitError("SR-SPV-066",
                                                  std::string("special register ") +
@@ -3084,6 +3119,43 @@ private:
             const std::uint32_t texel = NewId();
             Op(OpCompositeConstruct, {m_imageVec4, texel, components[0], components[1], components[2], components[3]});
             Op(OpImageWrite, {loaded, coordinate, texel});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
+            instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::WaveShuffle))
+        {
+            const auto* payload = instruction.payload != IL::NoPayload
+                                      ? std::get_if<IL::ShufflePayload>(&m_module.payloads.Get(instruction.payload))
+                                      : nullptr;
+            if (payload == nullptr || payload->mode != IL::ShuffleMode::Index)
+                return std::unexpected(EmitError("SR-SPV-110",
+                                                 "only an index shuffle is emitted",
+                                                 instruction.sourcePc));
+            if (instruction.operands.size() != 2 || instruction.results.size() != 1)
+                return std::unexpected(EmitError("SR-SPV-111",
+                                                 "a shuffle needs a value and an index",
+                                                 instruction.sourcePc));
+
+            const auto value = ValueId(function, instruction.operands[0]);
+            const auto index = ValueId(function, instruction.operands[1]);
+            if (!value || !index)
+                return std::unexpected(EmitError("SR-SPV-112", "invalid shuffle operand", instruction.sourcePc));
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue]
+                                                                                : NewId();
+            const auto scope = U32Constant(3); // Subgroup
+            if (!scope)
+                return std::unexpected(scope.error());
+            Op(OpGroupNonUniformShuffle, {*resultType, resultId, *scope, *value, *index});
+            m_valueIds[resultValue] = resultId;
+            if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                Op(OpStore, {m_spillVars[resultValue], resultId});
             return {};
         }
 
