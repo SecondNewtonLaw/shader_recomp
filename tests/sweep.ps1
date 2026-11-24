@@ -64,6 +64,9 @@ foreach ($case in $cases) {
         "tbuffer"    = @("--test-abi", "--user-data-push", "4")
         "image"      = @("--test-abi", "--user-data-push", "12")
         "geometry_staged" = @("--gs-output-registers", "2")
+        "imageresinfo" = @("--test-abi", "--user-data-push", "4")
+        "imagegather4" = @("--test-abi", "--user-data-push", "12")
+        "imageatomicadd" = @("--test-abi", "--user-data-push", "4")
     }
 
     # Fixtures whose translation is expected to be refused today: they are

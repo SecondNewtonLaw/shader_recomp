@@ -3502,8 +3502,43 @@ private:
     // carries a descriptor-set binding rather than re-deriving the tiling.
     [[nodiscard]] Result<void> LiftImageAccess(const DecodedInstruction& instruction)
     {
+        const auto atomicKind = [&instruction]() -> std::optional<IL::AtomicKind> {
+            switch (instruction.op)
+            {
+            case Op::ImageAtomicSwap:
+                return IL::AtomicKind::Exchange;
+            case Op::ImageAtomicCmpswap:
+                return IL::AtomicKind::CompareExchange;
+            case Op::ImageAtomicAdd:
+                return IL::AtomicKind::Add;
+            case Op::ImageAtomicSub:
+                return IL::AtomicKind::Sub;
+            case Op::ImageAtomicSmin:
+                return IL::AtomicKind::SMin;
+            case Op::ImageAtomicUmin:
+                return IL::AtomicKind::UMin;
+            case Op::ImageAtomicSmax:
+                return IL::AtomicKind::SMax;
+            case Op::ImageAtomicUmax:
+                return IL::AtomicKind::UMax;
+            case Op::ImageAtomicAnd:
+                return IL::AtomicKind::And;
+            case Op::ImageAtomicOr:
+                return IL::AtomicKind::Or;
+            case Op::ImageAtomicXor:
+                return IL::AtomicKind::Xor;
+            case Op::ImageAtomicInc:
+                return IL::AtomicKind::Increment;
+            case Op::ImageAtomicDec:
+                return IL::AtomicKind::Decrement;
+            default:
+                return std::nullopt;
+            }
+        }();
+
         if (instruction.op != Op::ImageLoad && instruction.op != Op::ImageStore &&
-            instruction.op != Op::ImageSample)
+            instruction.op != Op::ImageSample && instruction.op != Op::ImageGetResinfo &&
+            instruction.op != Op::ImageGetLod && instruction.op != Op::ImageGather4 && !atomicKind)
         {
             return std::unexpected(LiftError("SR-GFX-LIFT-090",
                                              std::string("image access is not translated yet: ") +
@@ -3535,7 +3570,20 @@ private:
 
         // Bindings for the test ABI: storage images start at 1, sampled images
         // at 8 and samplers at 16, so a set can hold one of each kind.
-        const bool sampled = instruction.op == Op::ImageSample;
+        if (instruction.op == Op::ImageGetLod)
+        {
+            // The level is computed from derivatives, which a compute stage
+            // may not use without a derivative group the target profile does
+            // not enable.
+            return std::unexpected(LiftError("SR-GFX-LIFT-067",
+                                             "image_get_lod needs a derivative group, which the target "
+                                             "profile does not enable",
+                                             instruction.pc));
+        }
+
+        // resinfo and atomics use the surface directly; gather4 goes through
+        // the sampler.
+        const bool sampled = instruction.op == Op::ImageSample || instruction.op == Op::ImageGather4;
         std::uint32_t binding = 0;
         for (std::size_t i = 0; i < m_imageBindings.size(); ++i)
         {
@@ -3581,9 +3629,65 @@ private:
         if (dataOperand == nullptr)
             return std::unexpected(LiftError("SR-GFX-LIFT-093", "image access has no data register", instruction.pc));
 
+        if (atomicKind)
+        {
+            // Image atomics are one operation on component zero. VDATA0 holds
+            // the value, or the comparison value for a compare-exchange, with
+            // the replacement in VDATA1.
+            IL::ImageAccessDesc access;
+            access.set = 0;
+            access.binding = binding;
+            access.samplerBinding = 0;
+            access.component = 0;
+            access.dimensions = 2;
+            access.sampled = false;
+            access.format = 1; // R32ui: an atomic needs an integer image
+            access.atomic = true;
+            access.atomicKind = *atomicKind;
+            const IL::PayloadId payload = m_module.payloads.Add(access);
+
+            std::vector<IL::ValueId> operands{*x, *y};
+            const auto first = ReadBits(*dataOperand, instruction.pc);
+            if (!first)
+                return std::unexpected(first.error());
+            operands.push_back(*first);
+            if (*atomicKind == IL::AtomicKind::CompareExchange)
+            {
+                Operand replacement = *dataOperand;
+                ++replacement.value;
+                const auto second = ReadBits(replacement, instruction.pc);
+                if (!second)
+                    return std::unexpected(second.error());
+                operands.push_back(*second);
+            }
+
+            const IL::ValueId value = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                               IL::IntrinsicId::ImageAtomic,
+                                                               operands,
+                                                               payload,
+                                                               instruction.pc,
+                                                               false);
+            if (const auto written = WriteDest(*dataOperand, value, instruction.pc); !written)
+                return written;
+            return {};
+        }
+
+        // A gather4 writes four neighbouring texels regardless of the mask; the
+        // mask names the channel that is gathered.
+        std::uint32_t gatherChannel = 0;
+        if (instruction.op == Op::ImageGather4)
+        {
+            std::uint32_t mask = instruction.imageDmask & 0xFu;
+            while (mask != 0 && (mask & 1u) == 0)
+            {
+                mask >>= 1;
+                ++gatherChannel;
+            }
+        }
+
         for (std::uint32_t component = 0; component < 4; ++component)
         {
-            if ((instruction.imageDmask & (1u << component)) == 0)
+            if (instruction.op != Op::ImageGather4 && (instruction.imageDmask & (1u << component)) == 0)
                 continue;
 
             IL::ImageAccessDesc access;
@@ -3593,6 +3697,7 @@ private:
             access.component = static_cast<std::uint8_t>(component);
             access.dimensions = 2;
             access.sampled = sampled;
+            access.channel = static_cast<std::uint8_t>(gatherChannel);
             const IL::PayloadId payload = m_module.payloads.Add(access);
 
             if (instruction.op == Op::ImageLoad || instruction.op == Op::ImageSample)
@@ -3604,6 +3709,34 @@ private:
                                                                    payload,
                                                                    instruction.pc,
                                                                    false);
+                Operand destination = *dataOperand;
+                destination.value += component;
+                if (const auto written = WriteDest(destination, value, instruction.pc); !written)
+                    return written;
+            }
+            else if (instruction.op == Op::ImageGetResinfo)
+            {
+                const IL::ValueId value = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                                   IL::IntrinsicId::ImageQuerySize,
+                                                                   {},
+                                                                   payload,
+                                                                   instruction.pc,
+                                                                   false);
+                Operand destination = *dataOperand;
+                destination.value += component;
+                if (const auto written = WriteDest(destination, value, instruction.pc); !written)
+                    return written;
+            }
+            else if (instruction.op == Op::ImageGetLod || instruction.op == Op::ImageGather4)
+            {
+                const IL::ValueId value = m_builder.IntrinsicValue(
+                    m_module.types.U32(),
+                    instruction.op == Op::ImageGetLod ? IL::IntrinsicId::ImageQueryLod
+                                                      : IL::IntrinsicId::ImageGather,
+                    {*x, *y},
+                    payload,
+                    instruction.pc,
+                    false);
                 Operand destination = *dataOperand;
                 destination.value += component;
                 if (const auto written = WriteDest(destination, value, instruction.pc); !written)

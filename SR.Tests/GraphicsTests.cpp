@@ -432,6 +432,135 @@ TEST_CASE("geometry stage publishes staged vertices by message", "[gfx][graphics
 #endif
 }
 
+TEST_CASE("image queries, gather and atomics lift and execute", "[gfx][graphics][image]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto lift = [](const char* name, bool push) -> std::optional<SR::IL::Module> {
+        const auto bytes = ReadFile(Fixture(name));
+        if (bytes.empty())
+            return std::nullopt;
+        auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+        if (!shader)
+            return std::nullopt;
+        shader->stage = SR::IL::Stage::Compute;
+
+        SR::Frontend::Gfx::LiftOptions options;
+        options.testAbi = true;
+        if (push)
+        {
+            options.userData.assign(12, 0u);
+            options.userDataFromPush = true;
+        }
+        auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+        if (!module)
+        {
+            INFO(SR::ToString(module.error()));
+            return std::nullopt;
+        }
+        return std::optional<SR::IL::Module>(std::move(*module));
+    };
+
+    SECTION("resinfo reports the surface size")
+    {
+        auto module = lift("imageresinfo.hsaco", true);
+        if (!module)
+        {
+            SUCCEED("image fixture is not present");
+            return;
+        }
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        SR::IL::ExecutionOptions options;
+        options.imageExtents[1] = {4, 4};
+        const auto execution = SR::IL::Interpret(*module, options);
+        if (!execution)
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+        REQUIRE(execution->buffer.at(0) == 4u);
+        REQUIRE(execution->buffer.at(1) == 4u);
+        REQUIRE(execution->buffer.at(2) == 1u);
+
+        const auto emission = SR::Backend::Reemit(*module);
+        std::string emissionError;
+        if (!emission)
+            emissionError = SR::ToString(emission.error());
+        INFO(emissionError);
+        REQUIRE(emission.has_value());
+    }
+
+    SECTION("gather4 reads the neighbouring texels")
+    {
+        auto module = lift("imagegather4.hsaco", true);
+        if (!module)
+        {
+            SUCCEED("image fixture is not present");
+            return;
+        }
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        SR::IL::ExecutionOptions options;
+        options.imageExtents[8] = {4, 4};
+        for (std::uint32_t y = 0; y < 4; ++y)
+        {
+            for (std::uint32_t x = 0; x < 4; ++x)
+            {
+                const std::uint64_t key = (8ull << 40) | (static_cast<std::uint64_t>(y) << 20) | x;
+                const std::uint32_t base = 1 + x + 4 * y;
+                options.images[key] = {base, base + 1, base + 2, base + 3};
+            }
+        }
+
+        const auto execution = SR::IL::Interpret(*module, options);
+        if (!execution)
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+        // 0.125 of 4 texels is the 2x2 footprint at the origin.
+        REQUIRE(execution->buffer.at(0) == 1u);
+        REQUIRE(execution->buffer.at(1) == 2u);
+        REQUIRE(execution->buffer.at(2) == 5u);
+        REQUIRE(execution->buffer.at(3) == 6u);
+
+        const auto emission = SR::Backend::Reemit(*module);
+        std::string emissionError;
+        if (!emission)
+            emissionError = SR::ToString(emission.error());
+        INFO(emissionError);
+        REQUIRE(emission.has_value());
+    }
+
+    SECTION("an atomic add returns the previous value")
+    {
+        auto module = lift("imageatomicadd.hsaco", true);
+        if (!module)
+        {
+            SUCCEED("image fixture is not present");
+            return;
+        }
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        SR::IL::ExecutionOptions options;
+        const std::uint64_t key = (1ull << 40);
+        options.images[key] = {41, 0, 0, 0};
+
+        const auto execution = SR::IL::Interpret(*module, options);
+        if (!execution)
+            INFO(SR::ToString(execution.error()));
+        REQUIRE(execution.has_value());
+        REQUIRE(execution->buffer.at(0) == 41u);
+        REQUIRE(execution->images.at(key)[0] == 42u);
+
+        const auto emission = SR::Backend::Reemit(*module);
+        std::string emissionError;
+        if (!emission)
+            emissionError = SR::ToString(emission.error());
+        INFO(emissionError);
+        REQUIRE(emission.has_value());
+    }
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

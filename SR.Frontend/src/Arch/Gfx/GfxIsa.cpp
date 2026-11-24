@@ -818,7 +818,19 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Mimg, 1, Op::ImageLoadMip, "image_load_mip", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
     Make(Encoding::Mimg, 8, Op::ImageStore, "image_store", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
     Make(Encoding::Mimg, 14, Op::ImageGetResinfo, "image_get_resinfo", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 15, Op::ImageAtomicSwap, "image_atomic_swap", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 16, Op::ImageAtomicCmpswap, "image_atomic_cmpswap", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
     Make(Encoding::Mimg, 17, Op::ImageAtomicAdd, "image_atomic_add", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 18, Op::ImageAtomicSub, "image_atomic_sub", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 20, Op::ImageAtomicSmin, "image_atomic_smin", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 21, Op::ImageAtomicUmin, "image_atomic_umin", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 22, Op::ImageAtomicSmax, "image_atomic_smax", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 23, Op::ImageAtomicUmax, "image_atomic_umax", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 24, Op::ImageAtomicAnd, "image_atomic_and", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 25, Op::ImageAtomicOr, "image_atomic_or", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 26, Op::ImageAtomicXor, "image_atomic_xor", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 27, Op::ImageAtomicInc, "image_atomic_inc", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    Make(Encoding::Mimg, 28, Op::ImageAtomicDec, "image_atomic_dec", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
     Make(Encoding::Mimg, 32, Op::ImageSample, "image_sample", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
     Make(Encoding::Mimg, 34, Op::ImageSampleD, "image_sample_d", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
     Make(Encoding::Mimg, 36, Op::ImageSampleL, "image_sample_l", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
@@ -2839,8 +2851,32 @@ std::string_view ToString(Op op) noexcept
         return "image_store";
     case Op::ImageGetResinfo:
         return "image_get_resinfo";
+    case Op::ImageAtomicSwap:
+        return "image_atomic_swap";
+    case Op::ImageAtomicCmpswap:
+        return "image_atomic_cmpswap";
     case Op::ImageAtomicAdd:
         return "image_atomic_add";
+    case Op::ImageAtomicSub:
+        return "image_atomic_sub";
+    case Op::ImageAtomicSmin:
+        return "image_atomic_smin";
+    case Op::ImageAtomicUmin:
+        return "image_atomic_umin";
+    case Op::ImageAtomicSmax:
+        return "image_atomic_smax";
+    case Op::ImageAtomicUmax:
+        return "image_atomic_umax";
+    case Op::ImageAtomicAnd:
+        return "image_atomic_and";
+    case Op::ImageAtomicOr:
+        return "image_atomic_or";
+    case Op::ImageAtomicXor:
+        return "image_atomic_xor";
+    case Op::ImageAtomicInc:
+        return "image_atomic_inc";
+    case Op::ImageAtomicDec:
+        return "image_atomic_dec";
     case Op::ImageSample:
         return "image_sample";
     case Op::ImageSampleD:
