@@ -185,7 +185,9 @@ TEST_CASE("stages without an execution model are refused", "[xbox][stage]")
     auto shader = SR::Frontend::MasterReader{}.Read(bytes);
     REQUIRE(shader.has_value());
 
-    shader->stage = SR::IL::Stage::Geometry;
+    // Geometry is modeled now; tessellation is not, and it must say so rather
+    // than lift as something else.
+    shader->stage = SR::IL::Stage::TessControl;
 
     const auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main");
     REQUIRE_FALSE(module.has_value());

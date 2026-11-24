@@ -8310,6 +8310,34 @@ private:
         const IL::TypeId f32 = m_module.types.F32();
         const IL::TypeId vec4 = m_module.types.Vector(f32, 4);
 
+        if (target == 20)
+        {
+            // exp prim closes the primitive: the vertex written by the exports
+            // above it is emitted, and the strip ends.
+            if (m_module.stage != IL::Stage::Geometry)
+                return std::unexpected(LiftError("SR-GFX-LIFT-056",
+                                                 "primitive export outside a geometry stage",
+                                                 instruction.pc));
+            const auto emitted = EndVertex(instruction.pc);
+            if (!emitted)
+                return std::unexpected(emitted.error());
+            const auto primitive = EndPrimitive(instruction.pc, static_cast<std::uint16_t>(instruction.op));
+            if (!primitive)
+                return std::unexpected(primitive.error());
+            return {};
+        }
+
+        // pos0 begins a vertex: the exports since the previous pos0 describe
+        // the vertex that is now complete, so it is emitted before this one is
+        // written.
+        if (target == 12 && (instruction.exportEnabled & 1u) != 0 && m_module.stage == IL::Stage::Geometry)
+        {
+            const auto emitted = EndVertex(instruction.pc);
+            if (!emitted)
+                return std::unexpected(emitted.error());
+            m_pendingVertex = true;
+        }
+
         for (std::uint32_t channel = 0; channel < 4; ++channel)
         {
             if ((instruction.exportEnabled & (1u << channel)) == 0)
@@ -9385,6 +9413,18 @@ private:
             return LiftBranch(instruction);
         case Op::S_Endpgm:
         {
+            // The program end also ends the vertex and primitive a geometry
+            // shader left open.
+            if (m_module.stage == IL::Stage::Geometry)
+            {
+                const auto emitted = EndVertex(instruction.pc);
+                if (!emitted)
+                    return std::unexpected(emitted.error());
+                const auto primitive = EndPrimitive(instruction.pc, static_cast<std::uint16_t>(instruction.op));
+                if (!primitive)
+                    return std::unexpected(primitive.error());
+            }
+
             IL::Terminator terminator;
             terminator.kind = IL::TerminatorKind::Ret;
             terminator.sourcePc = instruction.pc;
@@ -9740,11 +9780,51 @@ private:
         return {};
     }
 
+    // Closes the vertex currently being exported: a geometry shader writes one
+    // vertex's outputs and then asks for that vertex to be emitted.
+    [[nodiscard]] Result<void> EndVertex(std::uint32_t pc)
+    {
+        if (!m_pendingVertex)
+            return {};
+        m_pendingVertex = false;
+        m_primitiveOpen = true;
+        m_builder.EmitVoid(IL::Op::Intrinsic,
+                           static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex),
+                           {},
+                           {},
+                           IL::NoPayload,
+                           pc,
+                           0);
+        return {};
+    }
+
+    // Ends the strip, if one is open. Ending a primitive that was never
+    // opened is not an error, it is simply already closed.
+    [[nodiscard]] Result<void> EndPrimitive(std::uint32_t pc, std::uint16_t opcode)
+    {
+        if (!m_primitiveOpen)
+            return {};
+        m_primitiveOpen = false;
+        m_builder.EmitVoid(IL::Op::Intrinsic,
+                           static_cast<std::uint16_t>(IL::IntrinsicId::EndPrimitive),
+                           {},
+                           {},
+                           IL::NoPayload,
+                           pc,
+                           opcode);
+        return {};
+    }
+
     IL::Module& m_module;
     IL::Function& m_function;
     IL::FunctionBuilder& m_builder;
     Arch m_arch;
     LiftOptions m_options;
+
+    // A geometry vertex has been written and is waiting for its emit.
+    bool m_pendingVertex = false;
+    // Emitted vertices that the current strip has not closed yet.
+    bool m_primitiveOpen = false;
 
     std::vector<DecodedInstruction> m_items;
     std::unordered_map<std::uint32_t, std::size_t> m_byPc;
@@ -9784,7 +9864,8 @@ Result<IL::Module> Lift(const DecodedShader& shader, Arch arch, std::string_view
     // geometry stages need the ES/GS pairing and NGG needs the wave allocator,
     // so they are refused rather than lifted as something else.
     if (shader.stage != IL::Stage::Unknown && shader.stage != IL::Stage::Compute
-        && shader.stage != IL::Stage::Vertex && shader.stage != IL::Stage::Fragment)
+        && shader.stage != IL::Stage::Vertex && shader.stage != IL::Stage::Fragment
+        && shader.stage != IL::Stage::Geometry)
     {
         return std::unexpected(LiftError("SR-GFX-LIFT-032",
                                          "stage '" + std::string(IL::ToString(shader.stage))
@@ -9803,6 +9884,11 @@ Result<IL::Module> Lift(const DecodedShader& shader, Arch arch, std::string_view
     module.entryPoint = std::string(entryPoint);
     module.architecture = std::string(GetArchInfo(arch).name);
     module.executionModes.workgroupSize = {64, 1, 1};
+    // A geometry stage's topology is pipeline state, not an instruction, so it
+    // arrives with the options.
+    module.executionModes.inputTopology = options.geometryInputTopology;
+    module.executionModes.outputTopology = options.geometryOutputTopology;
+    module.executionModes.outputVertices = options.geometryOutputVertices;
     module.testAbi = options.testAbi;
 
     IL::Function& function = IL::CreateFunction(module, std::string(entryPoint), module.types.Void());

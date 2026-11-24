@@ -30,6 +30,11 @@ struct LiftOptions
     // Seed the user data from the host's push constants instead of folding the
     // values above into the module.
     bool userDataFromPush = false;
+    // A geometry stage's topology and vertex budget are pipeline state, not
+    // instructions, so they arrive here rather than from the code object.
+    IL::InputTopology geometryInputTopology = IL::InputTopology::Triangles;
+    IL::OutputTopology geometryOutputTopology = IL::OutputTopology::TriangleStrip;
+    std::uint32_t geometryOutputVertices = 3;
 };
 
 // Lifts a code object into COMMON_SHADER. Control flow and effects are

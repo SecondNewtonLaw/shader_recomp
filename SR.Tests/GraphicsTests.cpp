@@ -158,6 +158,92 @@ TEST_CASE("fragment stage interpolates and exports colour", "[gfx][graphics][fra
 #endif
 }
 
+TEST_CASE("geometry stage emits its exported vertices", "[gfx][graphics][geometry]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("geometry.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("geometry fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Geometry;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.geometryOutputVertices = 3;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(module->stage == SR::IL::Stage::Geometry);
+    REQUIRE(module->executionModes.outputVertices == 3);
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    // The fixture writes a colour and a position per vertex: two outputs, one
+    // of them the position builtin.
+    REQUIRE(module->outputs.size() == 2);
+
+    const auto execution = SR::IL::Interpret(*module);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+
+    // exp pos0 begins a vertex and exp prim closes the primitive, so the three
+    // exports are three emitted vertices and the colour is written once.
+    REQUIRE(execution->vertices.size() == 3);
+
+    const std::array<std::array<std::uint32_t, 2>, 3> expected = {
+        std::array<std::uint32_t, 2>{FloatBits(-1.0f), FloatBits(-1.0f)},
+        std::array<std::uint32_t, 2>{FloatBits(3.0f), FloatBits(-1.0f)},
+        std::array<std::uint32_t, 2>{FloatBits(-1.0f), FloatBits(3.0f)},
+    };
+
+    for (std::uint32_t vertex = 0; vertex < 3; ++vertex)
+    {
+        INFO("vertex " << vertex);
+        const auto& emitted = execution->vertices[vertex];
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::Position, 0, 0)) == expected[vertex][0]);
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::Position, 0, 1)) == expected[vertex][1]);
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::None, 0, 0)) == FloatBits(1.0f));
+        REQUIRE(emitted.at(SR::IL::StageIoKey(SR::IL::Builtin::None, 0, 1)) == 0u);
+    }
+
+    const auto emission = SR::Backend::Reemit(*module);
+    if (!emission)
+        INFO(SR::ToString(emission.error()));
+    REQUIRE(emission.has_value());
+
+    std::size_t emitted = 0;
+    std::size_t primitives = 0;
+    std::size_t arrays = 0;
+    for (std::size_t index = 5; index < emission->words.size();)
+    {
+        const std::uint32_t word = emission->words[index];
+        const std::uint16_t opcode = static_cast<std::uint16_t>(word & 0xFFFFu);
+        if (opcode == 218)
+            ++emitted;
+        else if (opcode == 219)
+            ++primitives;
+        else if (opcode == 28)
+            ++arrays;
+        index += word >> 16;
+    }
+
+    // One OpEmitVertex per vertex, one OpEndPrimitive, and no arrayed output:
+    // a geometry output is the plain per-vertex variable, captured by emit.
+    REQUIRE(emitted == 3);
+    REQUIRE(primitives == 1);
+    REQUIRE(arrays == 0);
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

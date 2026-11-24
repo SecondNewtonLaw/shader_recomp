@@ -29,8 +29,10 @@ void PrintUsage()
               << "Registered readers: spirv, xbox, dxil, dxbc, cubin, hsaco\n"
               << "Architectures: gfx10, gfx1013, gfx1030, gfx1100, gfx1150, gfx1200\n"
               << "An Xbox Series X|S container defaults to gfx1030.\n"
-              << "Stages: compute (default for code objects), vertex, fragment.\n"
-              << "Options: --test-abi, --wave64, --user-data <d0,d1,...>, --user-data-push <count>, --interpret.\n";
+              << "Stages: compute (default for code objects), vertex, fragment, geometry.\n"
+              << "Options: --test-abi, --wave64, --user-data <d0,d1,...>, --user-data-push <count>, --interpret,\n"
+              << "         --gs-input <points|lines|lines-adj|triangles|triangles-adj>,\n"
+              << "         --gs-output <points|line-strip|triangle-strip>, --gs-vertices <n>.\n";
 }
 
 std::vector<std::uint8_t> ReadFile(const std::string& path, bool& ok)
@@ -83,6 +85,9 @@ int main(int argc, char** argv)
     bool interpret = false;
     std::vector<std::uint32_t> userData;
     bool userDataFromPush = false;
+    SR::IL::InputTopology geometryInput = SR::IL::InputTopology::Triangles;
+    SR::IL::OutputTopology geometryOutput = SR::IL::OutputTopology::TriangleStrip;
+    std::uint32_t geometryVertices = 3;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -139,6 +144,50 @@ int main(int argc, char** argv)
         if (argument == "--stage" && i + 1 < argc)
         {
             stageName = argv[++i];
+            continue;
+        }
+
+        if (argument == "--gs-input" && i + 1 < argc)
+        {
+            const std::string_view name = argv[++i];
+            if (name == "points")
+                geometryInput = SR::IL::InputTopology::Points;
+            else if (name == "lines")
+                geometryInput = SR::IL::InputTopology::Lines;
+            else if (name == "lines-adj")
+                geometryInput = SR::IL::InputTopology::LinesAdjacency;
+            else if (name == "triangles")
+                geometryInput = SR::IL::InputTopology::Triangles;
+            else if (name == "triangles-adj")
+                geometryInput = SR::IL::InputTopology::TrianglesAdjacency;
+            else
+            {
+                std::cerr << "unknown geometry input topology '" << name << "'\n";
+                return 1;
+            }
+            continue;
+        }
+
+        if (argument == "--gs-output" && i + 1 < argc)
+        {
+            const std::string_view name = argv[++i];
+            if (name == "points")
+                geometryOutput = SR::IL::OutputTopology::Points;
+            else if (name == "line-strip")
+                geometryOutput = SR::IL::OutputTopology::LineStrip;
+            else if (name == "triangle-strip")
+                geometryOutput = SR::IL::OutputTopology::TriangleStrip;
+            else
+            {
+                std::cerr << "unknown geometry output topology '" << name << "'\n";
+                return 1;
+            }
+            continue;
+        }
+
+        if (argument == "--gs-vertices" && i + 1 < argc)
+        {
+            geometryVertices = static_cast<std::uint32_t>(std::stoul(argv[++i]));
             continue;
         }
 
@@ -216,6 +265,8 @@ int main(int argc, char** argv)
             shader->stage = SR::IL::Stage::Fragment;
         else if (stageName == "compute")
             shader->stage = SR::IL::Stage::Compute;
+        else if (stageName == "geometry")
+            shader->stage = SR::IL::Stage::Geometry;
         else
         {
             std::cerr << "unknown stage '" << stageName << "'\n";
@@ -252,6 +303,9 @@ int main(int argc, char** argv)
     liftOptions.wave64 = wave64;
     liftOptions.userData = userData;
     liftOptions.userDataFromPush = userDataFromPush;
+    liftOptions.geometryInputTopology = geometryInput;
+    liftOptions.geometryOutputTopology = geometryOutput;
+    liftOptions.geometryOutputVertices = geometryVertices;
     auto module = SR::Frontend::Gfx::Lift(*shader, arch->arch, "main", liftOptions);
     if (!module)
     {
