@@ -1253,6 +1253,10 @@ struct DecodedInstruction
     std::uint32_t bufferSrsrc = 0;
     bool bufferGlc = false;
 
+    // MTBUF: the typed-buffer format fields (data format and number format).
+    std::uint8_t bufferDataFormat = 0;
+    std::uint8_t bufferNumberFormat = 0;
+
     // MIMG: the image and sampler descriptor registers, the data mask and the
     // image dimension code.
     std::uint32_t imageSrsrc = 0;

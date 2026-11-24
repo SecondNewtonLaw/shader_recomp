@@ -562,3 +562,65 @@ TEST_CASE("image_store round-trips a texel", "[gfx][image][store]")
     REQUIRE(emission.has_value());
 #endif
 }
+
+TEST_CASE("a typed buffer access lifts for a 32-bit format", "[gfx][mtbuf][descriptor]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    // Take the descriptor fixture's code object and replace its MUBUF load with
+    // a hand-encoded TBUFFER load: opcode 0, data format 4 (32-bit), number
+    // format 7 (float), vaddr v0, vdata v1, srsrc s0.
+    auto bytes = ReadFile(Fixture("descriptor.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("descriptor fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+    REQUIRE(shader->rawBytecode.size() >= 12);
+
+    // TBUFFER_LOAD_FORMAT_X: ENC_MTBUF with opcode 0, data format 4 (32-bit),
+    // number format 7 (float); the fields sit at bits 19 and 23 of the first
+    // dword, so the opcode only owns bits 16..18.
+    const std::array<std::uint32_t, 2> typed = {
+        0xE8000000u | (4u << 19) | (7u << 23), // opcode, data format, number format
+        0x80000000u | (1u << 8)               // soffset 0, vdata v1, vaddr v0
+    };
+    std::memcpy(shader->rawBytecode.data() + 4, typed.data(), sizeof(typed));
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.userData = {0x2000u, 0u, 256u, 0u};
+
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::IL::DumpModule(*module).find("device.load") != std::string::npos);
+
+    SR::IL::ExecutionOptions executionOptions;
+    executionOptions.deviceMemory[0x2000] = 0xDEADBEEFu;
+    const auto execution = SR::IL::Interpret(*module, executionOptions);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+    REQUIRE(execution->buffer.at(2) == 0xDEADBEEFu);
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::Backend::Reemit(*module).has_value());
+
+    // A converting format (8-bit UNORM) is refused with the two field values.
+    std::array<std::uint32_t, 2> unsupported = typed;
+    unsupported[0] = 0xE8000000u | (1u << 19); // data format 1, number format 0
+    std::memcpy(shader->rawBytecode.data() + 4, unsupported.data(), sizeof(unsupported));
+
+    const auto refused = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    REQUIRE_FALSE(refused.has_value());
+    REQUIRE(refused.error().code == "SR-GFX-LIFT-094");
+#endif
+}

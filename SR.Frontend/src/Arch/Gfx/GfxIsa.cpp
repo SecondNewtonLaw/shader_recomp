@@ -803,6 +803,24 @@ constexpr std::array kGfx10 = {
     Make(Encoding::Mimg, 36, Op::ImageSampleL, "image_sample_l", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
     Make(Encoding::Mimg, 64, Op::ImageGather4, "image_gather4", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
     Make(Encoding::Mimg, 96, Op::ImageGetLod, "image_get_lod", {OperandKind::MimgVdata, OperandKind::MimgVaddr}),
+    // MTBUF: typed buffers. The opcode is three bits at 16..18; the format
+    // fields follow at 19..25, so these eight forms are the whole family.
+    Make(Encoding::Mtbuf, 0, Op::TbufferLoadFormatX, "tbuffer_load_format_x",
+         {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mtbuf, 1, Op::TbufferLoadFormatXy, "tbuffer_load_format_xy",
+         {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mtbuf, 2, Op::TbufferLoadFormatXyz, "tbuffer_load_format_xyz",
+         {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mtbuf, 3, Op::TbufferLoadFormatXyzw, "tbuffer_load_format_xyzw",
+         {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mtbuf, 4, Op::TbufferStoreFormatX, "tbuffer_store_format_x",
+         {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mtbuf, 5, Op::TbufferStoreFormatXy, "tbuffer_store_format_xy",
+         {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mtbuf, 6, Op::TbufferStoreFormatXyz, "tbuffer_store_format_xyz",
+         {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
+    Make(Encoding::Mtbuf, 7, Op::TbufferStoreFormatXyzw, "tbuffer_store_format_xyzw",
+         {OperandKind::MubufVdata, OperandKind::MubufVaddr, OperandKind::MubufSoffset}),
 };
 
 // RDNA3 renumbered scalar opcodes and VOP3 FMA. Old opcodes are removed
@@ -5079,12 +5097,15 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
     }
     else if (((word0 >> 26) & 0x3F) == 0x38 || ((word0 >> 26) & 0x3F) == 0x3A)
     {
-        encoding = ((word0 >> 26) & 0x3F) == 0x38 ? Encoding::Mubuf : Encoding::Mtbuf;
+        const bool typed = ((word0 >> 26) & 0x3F) == 0x3A;
+        encoding = typed ? Encoding::Mtbuf : Encoding::Mubuf;
         if (words.size() < 2)
             return std::unexpected(Error("SR-GFX-017", "truncated buffer instruction", bytePc));
         baseWords = 2;
         wide = (static_cast<std::uint64_t>(words[1]) << 32) | word0;
-        opcode = static_cast<std::uint16_t>((word0 >> 18) & 0x3F);
+        // MUBUF keeps six opcode bits at 18; MTBUF's opcode is three bits at 16
+        // because its format fields start at 19.
+        opcode = static_cast<std::uint16_t>(typed ? ((word0 >> 16) & 0x7) : ((word0 >> 18) & 0x3F));
     }
     else if (((word0 >> 26) & 0x3F) == 0x36)
     {
@@ -5400,6 +5421,11 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         instruction.bufferIdxen = Extract(word0, 13, 1) != 0;
         instruction.bufferGlc = Extract(word0, 14, 1) != 0;
         instruction.bufferSrsrc = Extract(wide, 48, 5) * 4;
+        if (encoding == Encoding::Mtbuf)
+        {
+            instruction.bufferDataFormat = static_cast<std::uint8_t>(Extract(word0, 19, 4));
+            instruction.bufferNumberFormat = static_cast<std::uint8_t>(Extract(word0, 23, 3));
+        }
     }
 
     if (encoding == Encoding::Vintrp)

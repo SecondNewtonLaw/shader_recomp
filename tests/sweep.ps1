@@ -61,6 +61,7 @@ foreach ($case in $cases) {
         "imageload"  = @("--test-abi", "--user-data-push", "8")
         "imagesample" = @("--test-abi", "--user-data-push", "12")
         "imagestore" = @("--test-abi", "--user-data-push", "8")
+        "tbuffer"    = @("--test-abi", "--user-data-push", "4")
         "image"      = @("--test-abi", "--user-data-push", "12")
     }
 

@@ -3322,6 +3322,168 @@ private:
     // or inline offset. The descriptor is read from the user data slots, which
     // the host fills; the result is a buffer device address the emitter turns
     // into a physical pointer.
+    // MTBUF: a typed buffer read or write. The format decides the conversion
+    // the hardware applies, so only the formats whose element is a raw 32-bit
+    // value are translated; anything else names its format and refuses.
+    [[nodiscard]] Result<void> LiftMtbuf(const DecodedInstruction& instruction)
+    {
+        const bool isStore = instruction.op == Op::TbufferStoreFormatX || instruction.op == Op::TbufferStoreFormatXy ||
+                             instruction.op == Op::TbufferStoreFormatXyz ||
+                             instruction.op == Op::TbufferStoreFormatXyzw;
+
+        const std::uint32_t components = instruction.op == Op::TbufferLoadFormatX ||
+                                                 instruction.op == Op::TbufferStoreFormatX
+                                             ? 1
+                                             : instruction.op == Op::TbufferLoadFormatXy ||
+                                                       instruction.op == Op::TbufferStoreFormatXy
+                                                   ? 2
+                                                   : instruction.op == Op::TbufferLoadFormatXyz ||
+                                                             instruction.op == Op::TbufferStoreFormatXyz
+                                                         ? 3
+                                                         : 4;
+
+        // 32-bit elements: data format 4 with the uint/sint/float number formats.
+        // AnyPS5's GcnBufferFormats table maps these to wide 32-bit formats with
+        // no conversion beyond the bit pattern.
+        const bool raw32 = instruction.bufferDataFormat == 4 &&
+                           (instruction.bufferNumberFormat == 4 || instruction.bufferNumberFormat == 5 ||
+                            instruction.bufferNumberFormat == 7);
+        if (!raw32)
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-094",
+                                             std::string("typed buffer format is not converted yet: data=") +
+                                                 std::to_string(instruction.bufferDataFormat) + " number=" +
+                                                 std::to_string(instruction.bufferNumberFormat),
+                                             instruction.pc));
+        }
+
+        if (instruction.operandCount < 3)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-095", "typed buffer access has too few operands", instruction.pc));
+
+        const std::uint32_t srsrc = instruction.bufferSrsrc;
+        if (static_cast<std::size_t>(srsrc) + 1 >= m_options.userData.size())
+        {
+            return std::unexpected(LiftError("SR-GFX-LIFT-096",
+                                             "typed buffer descriptor s" + std::to_string(srsrc) +
+                                                 " is not in the user data",
+                                             instruction.pc));
+        }
+
+        const auto low = ReadSgprBits(srsrc, instruction.pc);
+        if (!low)
+            return std::unexpected(low.error());
+        const auto high = ReadSgprBits(srsrc + 1, instruction.pc);
+        if (!high)
+            return std::unexpected(high.error());
+
+        const IL::ValueId low64 = m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *low, true);
+        const IL::ValueId highMasked = m_builder.Emit(m_module.types.U32(),
+                                                      IL::Op::Binary,
+                                                      static_cast<std::uint16_t>(IL::BinaryOp::And),
+                                                      {*high, m_builder.ConstantU32(0xFFFFu)},
+                                                      {},
+                                                      IL::NoPayload,
+                                                      instruction.pc,
+                                                      static_cast<std::uint16_t>(instruction.op),
+                                                      true);
+        const IL::ValueId high64 =
+            m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, highMasked, true);
+        const IL::ValueId highShifted = m_builder.Emit(m_module.types.U64(),
+                                                       IL::Op::Binary,
+                                                       static_cast<std::uint16_t>(IL::BinaryOp::Shl),
+                                                       {high64, m_builder.ConstantU64(32)},
+                                                       {},
+                                                       IL::NoPayload,
+                                                       instruction.pc,
+                                                       static_cast<std::uint16_t>(instruction.op),
+                                                       true);
+        const IL::ValueId base = m_builder.Emit(m_module.types.U64(),
+                                                IL::Op::Binary,
+                                                static_cast<std::uint16_t>(IL::BinaryOp::Or),
+                                                {low64, highShifted},
+                                                {},
+                                                IL::NoPayload,
+                                                instruction.pc,
+                                                static_cast<std::uint16_t>(instruction.op),
+                                                true);
+
+        const auto vaddr = ReadBits(instruction.operands[1], instruction.pc);
+        if (!vaddr)
+            return std::unexpected(vaddr.error());
+
+        // The element offset is scaled by the descriptor stride; a byte-addressed
+        // fixture sets stride 1, so the index is the byte offset.
+        const auto soffset = ReadBits(instruction.operands[2], instruction.pc);
+        if (!soffset)
+            return std::unexpected(soffset.error());
+
+        IL::ValueId address = m_builder.Emit(m_module.types.U64(),
+                                             IL::Op::Binary,
+                                             static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                             {base, m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt,
+                                                                           *vaddr, false)},
+                                             {},
+                                             IL::NoPayload,
+                                             instruction.pc,
+                                             static_cast<std::uint16_t>(instruction.op),
+                                             false);
+        address = m_builder.Emit(m_module.types.U64(),
+                                 IL::Op::Binary,
+                                 static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                 {address,
+                                  m_builder.ConvertValue(m_module.types.U64(), IL::ConvertOp::ZExt, *soffset, true)},
+                                 {},
+                                 IL::NoPayload,
+                                 instruction.pc,
+                                 static_cast<std::uint16_t>(instruction.op),
+                                 false);
+
+        const Operand& data = instruction.operands[0];
+        for (std::uint32_t component = 0; component < components; ++component)
+        {
+            IL::ValueId element = address;
+            if (component != 0)
+            {
+                element = m_builder.Emit(m_module.types.U64(),
+                                         IL::Op::Binary,
+                                         static_cast<std::uint16_t>(IL::BinaryOp::IAdd),
+                                         {address, m_builder.ConstantU64(4ull * component)},
+                                         {},
+                                         IL::NoPayload,
+                                         instruction.pc,
+                                         static_cast<std::uint16_t>(instruction.op),
+                                         false);
+            }
+
+            Operand slot = data;
+            slot.value += component;
+            if (isStore)
+            {
+                const auto value = ReadBits(slot, instruction.pc);
+                if (!value)
+                    return std::unexpected(value.error());
+                const IL::ValueId guard = CurrentGuard(instruction.pc);
+                m_builder.IntrinsicVoid(IL::IntrinsicId::DeviceStore, {element, *value}, IL::NoPayload,
+                                        instruction.pc);
+                ApplyGuard(instruction.pc, guard);
+            }
+            else
+            {
+                const IL::ValueId value = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                                   IL::IntrinsicId::DeviceLoad,
+                                                                   {element},
+                                                                   IL::NoPayload,
+                                                                   instruction.pc,
+                                                                   false);
+                if (const auto written = WriteDest(slot, value, instruction.pc); !written)
+                    return written;
+            }
+        }
+
+        return {};
+    }
+
     // An image access: the T# in the scalar registers names the surface, the
     // VGPR pair holds the coordinates and DMASK selects the components. The
     // host binds the image the descriptor resolved to, so the translation
@@ -8240,7 +8402,9 @@ private:
             return LiftDs(instruction);
         if (instruction.encoding == Encoding::Mimg)
             return LiftImageAccess(instruction);
-        if (instruction.encoding == Encoding::Mubuf || instruction.encoding == Encoding::Mtbuf)
+        if (instruction.encoding == Encoding::Mtbuf)
+            return LiftMtbuf(instruction);
+        if (instruction.encoding == Encoding::Mubuf)
             return LiftMubuf(instruction);
         if (instruction.encoding == Encoding::Flat || instruction.encoding == Encoding::Global ||
             instruction.encoding == Encoding::Scratch || instruction.encoding == Encoding::Buffer)
