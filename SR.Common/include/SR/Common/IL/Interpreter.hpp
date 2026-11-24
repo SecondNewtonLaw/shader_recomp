@@ -22,6 +22,8 @@ struct ExecutionResult
     // Geometry: the output values captured at each OpEmitVertex, in emission
     // order, which is the sequence the rasterizer receives.
     std::vector<std::unordered_map<std::uint64_t, std::uint64_t>> vertices;
+    // Geometry staging: dword index -> f32 bits, one slot per emitted vertex.
+    std::unordered_map<std::uint32_t, std::uint32_t> geometryStage;
     std::vector<std::uint64_t> values;                 // SSA values at the end
     std::uint64_t steps = 0;
     BlockId finalBlock = InvalidBlockId;

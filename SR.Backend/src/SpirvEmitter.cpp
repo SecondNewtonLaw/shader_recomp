@@ -47,6 +47,7 @@ enum SpvOp : std::uint16_t
     OpConstantTrue = 41,
     OpConstantFalse = 42,
     OpConstant = 43,
+    OpConstantNull = 46,
     OpFunction = 54,
     OpFunctionEnd = 56,
     OpVariable = 59,
@@ -1015,6 +1016,36 @@ private:
                 if (!index)
                     return std::unexpected(index.error());
             }
+        }
+
+        if (m_module.stage == IL::Stage::Geometry && m_module.executionModes.outputRegisters != 0 &&
+            m_module.executionModes.outputVertices != 0)
+        {
+            // A geometry stage that publishes its vertices by message stages
+            // them in local memory: one four-component register per slot.
+            const std::uint32_t dwords = m_module.executionModes.outputVertices *
+                                         m_module.executionModes.outputRegisters * 4;
+            const auto count = U32Constant(dwords);
+            if (!count)
+                return std::unexpected(count.error());
+
+            const IL::TypeId f32Type = m_module.types.FindFloat(IL::FloatFormat::F32);
+            if (f32Type == IL::InvalidType)
+                return std::unexpected(EmitError("SR-SPV-091", "geometry staging needs an f32 type"));
+            const auto f32 = EmitType(f32Type);
+            if (!f32)
+                return std::unexpected(f32.error());
+
+            m_stagingArray = NewId();
+            Op(OpTypeArray, {m_stagingArray, *f32, *count});
+            m_stagingArrayPointer = NewId();
+            Op(OpTypePointer, {m_stagingArrayPointer, 7 /* Function */, m_stagingArray});
+            m_stagingElementPointer = NewId();
+            Op(OpTypePointer, {m_stagingElementPointer, 7 /* Function */, *f32});
+            m_stagingNull = NewId();
+            Op(OpConstantNull, {m_stagingArray, m_stagingNull});
+            // The variable belongs to the entry block; the id is reserved here.
+            m_stagingVariable = NewId();
         }
 
         for (std::size_t i = 0; i < m_stageIo.size(); ++i)
@@ -2242,6 +2273,9 @@ private:
             }
         }
 
+        if (m_stagingVariable != 0)
+            Op(OpVariable, {m_stagingArrayPointer, m_stagingVariable, 7 /* Function */, m_stagingNull});
+
         return {};
     }
 
@@ -2953,6 +2987,45 @@ private:
         }
 
         if (instruction.op == IL::Op::Intrinsic &&
+            (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::GeometryStageStore) ||
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::GeometryStageLoad)))
+        {
+            if (m_stagingVariable == 0)
+                return std::unexpected(
+                    EmitError("SR-SPV-097", "geometry staging is not declared", instruction.sourcePc));
+
+            const auto index = ValueId(function, instruction.operands[0]);
+            if (!index)
+                return std::unexpected(EmitError("SR-SPV-098", "invalid staging index", instruction.sourcePc));
+
+            const std::uint32_t pointer = NewId();
+            Op(OpAccessChain, {m_stagingElementPointer, pointer, m_stagingVariable, *index});
+
+            if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::GeometryStageStore))
+            {
+                const auto value = ValueId(function, instruction.operands[1]);
+                if (!value)
+                    return std::unexpected(
+                        EmitError("SR-SPV-099", "invalid staged value", instruction.sourcePc));
+                Op(OpStore, {pointer, *value});
+                return {};
+            }
+
+            if (instruction.results.size() != 1)
+                return std::unexpected(
+                    EmitError("SR-SPV-100", "staged load must have one result", instruction.sourcePc));
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+            Op(OpLoad, {*resultType, resultId, pointer});
+            m_valueIds[resultValue] = resultId;
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::LocalStore))
         {
             const auto offset = ValueId(function, instruction.operands[0]);
@@ -3584,6 +3657,11 @@ private:
     std::uint32_t m_bufferVar = 0;
     std::uint32_t m_bufferPtrU32 = 0;
     std::uint32_t m_localVar = 0;
+    std::uint32_t m_stagingArray = 0;
+    std::uint32_t m_stagingArrayPointer = 0;
+    std::uint32_t m_stagingElementPointer = 0;
+    std::uint32_t m_stagingNull = 0;
+    std::uint32_t m_stagingVariable = 0;
     std::uint32_t m_localPtrU32 = 0;
     std::uint32_t m_localZero = 0;
     std::uint32_t m_bufferZero = 0;

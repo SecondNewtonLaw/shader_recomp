@@ -17,7 +17,7 @@ constexpr IntrinsicSpec Make(IntrinsicId id,
     return IntrinsicSpec{id, name, minOperands, maxOperands, minResults, maxResults, effects, uniform};
 }
 
-constexpr std::array<IntrinsicSpec, 57> kSpecs = {
+constexpr std::array<IntrinsicSpec, static_cast<std::size_t>(IntrinsicId::Count)> kSpecs = {
     Make(IntrinsicId::None, "none", 0, 0, 0, 0, Effect::None),
     Make(IntrinsicId::WaveBallot, "wave.ballot", 1, 1, 1, 1, Effect::Wave),
     Make(IntrinsicId::WaveVote, "wave.vote", 1, 1, 1, 1, Effect::Wave, true),
@@ -77,6 +77,8 @@ constexpr std::array<IntrinsicSpec, 57> kSpecs = {
     Make(IntrinsicId::ImageSample, "image.sample", 2, 2, 1, 1, Effect::ReadMemory),
     Make(IntrinsicId::EmitVertex, "geometry.emit-vertex", 0, 0, 0, 0, Effect::None),
     Make(IntrinsicId::EndPrimitive, "geometry.end-primitive", 0, 0, 0, 0, Effect::None),
+    Make(IntrinsicId::GeometryStageStore, "geometry.stage-store", 2, 2, 0, 0, Effect::None),
+    Make(IntrinsicId::GeometryStageLoad, "geometry.stage-load", 1, 1, 1, 1, Effect::None),
 };
 
 } // namespace

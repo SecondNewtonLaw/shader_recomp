@@ -69,6 +69,13 @@ enum class IntrinsicId : std::uint16_t
     ImageSample,
     EmitVertex,
     EndPrimitive,
+    // Per-invocation staging for a geometry stage that publishes vertices by
+    // message rather than by export: the shader writes a slot's components and
+    // then emits the slot.
+    GeometryStageStore,
+    GeometryStageLoad,
+    // One past the last id, so the verifier does not name an id in its bound.
+    Count,
 };
 
 enum class SpecialRegId : std::uint16_t

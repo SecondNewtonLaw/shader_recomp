@@ -195,6 +195,9 @@ struct ExecutionModes
     InputTopology inputTopology = InputTopology::Triangles;
     OutputTopology outputTopology = OutputTopology::TriangleStrip;
     std::uint32_t outputVertices = 3;
+    // Geometry: four-component output registers per emitted vertex. A shader
+    // that stages vertices in local memory needs this to size the staging.
+    std::uint32_t outputRegisters = 0;
     std::uint32_t subgroupSize = 0; // 0 = natural
     bool earlyFragmentTests = false;
     bool depthReplacing = false;

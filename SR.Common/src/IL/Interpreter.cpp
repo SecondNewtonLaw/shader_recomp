@@ -804,6 +804,22 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     break;
                 }
 
+                if (id == IntrinsicId::GeometryStageStore)
+                {
+                    const auto index = static_cast<std::uint32_t>(read(instruction.operands[0]));
+                    result.geometryStage[index] = static_cast<std::uint32_t>(read(instruction.operands[1]));
+                    break;
+                }
+
+                if (id == IntrinsicId::GeometryStageLoad)
+                {
+                    const auto index = static_cast<std::uint32_t>(read(instruction.operands[0]));
+                    const ValueId slot = resultId();
+                    const auto it = result.geometryStage.find(index);
+                    values[slot] = it == result.geometryStage.end() ? 0 : it->second;
+                    break;
+                }
+
                 if (id == IntrinsicId::EmitVertex)
                 {
                     // Emission captures the outputs as they are now: the next
