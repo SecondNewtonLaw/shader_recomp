@@ -2951,6 +2951,51 @@ private:
                 const std::uint32_t sampledObject = NewId();
                 Op(OpSampledImage, {image->sampledImageType, sampledObject, imageObject, samplerObject});
 
+                if (instruction.operands.size() == 6)
+                {
+                    // image_sample_d: the gradient pair is (dx.xy, dy.xy).
+                    auto floatComponent = [&](std::size_t operand, std::uint32_t& out) -> Result<void> {
+                        const auto value = ValueId(function, instruction.operands[operand]);
+                        if (!value)
+                            return std::unexpected(
+                                EmitError("SR-SPV-109", "invalid gradient", instruction.sourcePc));
+                        out = NewId();
+                        Op(OpBitcast, {m_imageVec4Element, out, *value});
+                        return {};
+                    };
+                    std::array<std::uint32_t, 4> gradient{};
+                    for (std::size_t index = 0; index < gradient.size(); ++index)
+                    {
+                        const auto status = floatComponent(2 + index, gradient[index]);
+                        if (!status)
+                            return std::unexpected(status.error());
+                    }
+                    const std::uint32_t dx = NewId();
+                    Op(OpCompositeConstruct, {m_imageVec2f, dx, gradient[0], gradient[1]});
+                    const std::uint32_t dy = NewId();
+                    Op(OpCompositeConstruct, {m_imageVec2f, dy, gradient[2], gradient[3]});
+
+                    const std::uint32_t texel = NewId();
+                    Op(OpImageSampleExplicitLod, {m_imageVec4, texel, sampledObject, floatCoordinate,
+                                                  4 /* Grad */, dx, dy});
+                    const std::uint32_t component = NewId();
+                    Op(OpCompositeExtract, {m_imageVec4Element, component, texel,
+                                            static_cast<std::uint32_t>(access->component & 3)});
+
+                    const IL::ValueId resultValue = instruction.results[0];
+                    const auto resultType = EmitType(function.values[resultValue].type);
+                    if (!resultType)
+                        return std::unexpected(resultType.error());
+                    const std::uint32_t resultId =
+                        (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue]
+                                                                                        : NewId();
+                    Op(OpBitcast, {*resultType, resultId, component});
+                    m_valueIds[resultValue] = resultId;
+                    if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                        Op(OpStore, {m_spillVars[resultValue], resultId});
+                    return {};
+                }
+
                 std::uint32_t levelId = m_imageZeroLod;
                 if (instruction.operands.size() == 3)
                 {

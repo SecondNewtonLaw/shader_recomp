@@ -69,6 +69,7 @@ foreach ($case in $cases) {
         "imageresinfo" = @("--test-abi", "--user-data-push", "4")
         "imagegather4" = @("--test-abi", "--user-data-push", "12")
         "imagemip" = @("--test-abi", "--user-data-push", "12")
+        "imagesampled" = @("--test-abi", "--user-data-push", "12")
         "imageloadmip" = @("--test-abi", "--user-data-push", "4")
         "imageatomicadd" = @("--test-abi", "--user-data-push", "4", "--image-format", "r32ui")
     }

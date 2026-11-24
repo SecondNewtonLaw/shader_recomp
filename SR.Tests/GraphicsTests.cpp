@@ -575,6 +575,43 @@ TEST_CASE("image queries, gather and atomics lift and execute", "[gfx][graphics]
         REQUIRE(emission.has_value());
     }
 
+    SECTION("a gradient sample reads the zero-gradient texel")
+    {
+        auto module = lift("imagesampled.hsaco", true);
+        if (!module)
+        {
+            SUCCEED("image fixture is not present");
+            return;
+        }
+        REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+        SR::IL::ExecutionOptions options;
+        options.imageExtents[8] = {4, 4};
+        for (std::uint32_t x = 0; x < 4; ++x)
+        {
+            const std::uint64_t key = (8ull << 40) | x;
+            options.images[key] = {1 + x, 2 + x, 3 + x, 4 + x};
+        }
+
+        const auto execution = SR::IL::Interpret(*module, options);
+        std::string executionError;
+        if (!execution)
+            executionError = SR::ToString(execution.error());
+        INFO(executionError);
+        REQUIRE(execution.has_value());
+        REQUIRE(execution->buffer.at(0) == 1u);
+        REQUIRE(execution->buffer.at(1) == 2u);
+        REQUIRE(execution->buffer.at(2) == 3u);
+        REQUIRE(execution->buffer.at(3) == 4u);
+
+        const auto emission = SR::Backend::Reemit(*module);
+        std::string emissionError;
+        if (!emission)
+            emissionError = SR::ToString(emission.error());
+        INFO(emissionError);
+        REQUIRE(emission.has_value());
+    }
+
     SECTION("a mip load on a storage image is refused with its reason")
     {
         const auto bytes = ReadFile(Fixture("imageloadmip.hsaco"));

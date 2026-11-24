@@ -3549,7 +3549,8 @@ private:
 
         if (instruction.op != Op::ImageLoad &&
             instruction.op != Op::ImageStore && instruction.op != Op::ImageSample &&
-            instruction.op != Op::ImageSampleL && instruction.op != Op::ImageGetResinfo &&
+            instruction.op != Op::ImageSampleL && instruction.op != Op::ImageSampleD &&
+            instruction.op != Op::ImageGetResinfo &&
             instruction.op != Op::ImageGetLod && instruction.op != Op::ImageGather4 && !atomicKind)
         {
             return std::unexpected(LiftError("SR-GFX-LIFT-090",
@@ -3596,7 +3597,7 @@ private:
         // resinfo and atomics use the surface directly; gather4 goes through
         // the sampler.
         const bool sampled = instruction.op == Op::ImageSample || instruction.op == Op::ImageSampleL ||
-                             instruction.op == Op::ImageGather4;
+                             instruction.op == Op::ImageSampleD || instruction.op == Op::ImageGather4;
         std::uint32_t binding = 0;
         for (std::size_t i = 0; i < m_imageBindings.size(); ++i)
         {
@@ -3720,9 +3721,24 @@ private:
             const IL::PayloadId payload = m_module.payloads.Add(access);
 
             if (instruction.op == Op::ImageLoad ||
-                instruction.op == Op::ImageSample || instruction.op == Op::ImageSampleL)
+                instruction.op == Op::ImageSample || instruction.op == Op::ImageSampleL ||
+                instruction.op == Op::ImageSampleD)
             {
                 std::vector<IL::ValueId> coordinates{*x, *y};
+                if (instruction.op == Op::ImageSampleD)
+                {
+                    // The gradient pair follows the coordinate: dx.xy then
+                    // dy.xy in the address registers.
+                    for (std::uint32_t index = 2; index < 6; ++index)
+                    {
+                        Operand component = *vaddrOperand;
+                        component.value += index;
+                        const auto value = ReadBits(component, instruction.pc);
+                        if (!value)
+                            return std::unexpected(value.error());
+                        coordinates.push_back(*value);
+                    }
+                }
                 if (instruction.op == Op::ImageSampleL)
                 {
                     // The level is the third address dword.

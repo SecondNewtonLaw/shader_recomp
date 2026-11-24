@@ -3,37 +3,37 @@
     "gfx10": {
       "total": 1149,
       "decoded": 840,
-      "lifted": 802,
+      "lifted": 803,
       "liftedIsUpperBound": true
     },
     "gfx1013": {
       "total": 1153,
       "decoded": 840,
-      "lifted": 802,
+      "lifted": 803,
       "liftedIsUpperBound": true
     },
     "gfx1030": {
       "total": 1153,
       "decoded": 840,
-      "lifted": 802,
+      "lifted": 803,
       "liftedIsUpperBound": true
     },
     "gfx1100": {
       "total": 1148,
       "decoded": 937,
-      "lifted": 866,
+      "lifted": 867,
       "liftedIsUpperBound": true
     },
     "gfx1150": {
       "total": 1208,
       "decoded": 937,
-      "lifted": 866,
+      "lifted": 867,
       "liftedIsUpperBound": true
     },
     "gfx1200": {
       "total": 1264,
       "decoded": 1553,
-      "lifted": 1255,
+      "lifted": 1256,
       "liftedIsUpperBound": true
     }
   },
@@ -41,7 +41,7 @@
     "OTHER": {
       "total": 481,
       "decoded": 56,
-      "lifted": 41
+      "lifted": 42
     },
     "VOP3": {
       "total": 326,
