@@ -19,15 +19,24 @@ TEST_CASE("Backend rejects a module without an entry function", "[backend]")
     REQUIRE(result.error().code == "SR-SPV-020");
 }
 
-TEST_CASE("Backend emits a geometry stage that emits a primitive", "[backend][geometry]")
+TEST_CASE("Backend emits a geometry stage with per-vertex outputs", "[backend][geometry]")
 {
     IL::Module module;
     module.stage = IL::Stage::Geometry;
     module.entryPoint = "main";
     module.architecture = "gfx1030";
+    module.executionModes.outputVertices = 3;
+
     // The emitter interns the scalar types it needs for its own constants.
     (void)module.types.U32();
     (void)module.types.Bool();
+    (void)module.types.I32();
+
+    IL::SignatureDecl output;
+    output.space = IL::Space::Output;
+    output.location = 0;
+    output.type = module.types.Vector(module.types.F32(), 4);
+    module.outputs.push_back(output);
 
     IL::Function& function = IL::CreateFunction(module, "main", module.types.Void());
     function.isEntry = true;
@@ -38,10 +47,26 @@ TEST_CASE("Backend emits a geometry stage that emits a primitive", "[backend][ge
     builder.SetEntry(entry);
     builder.SetCurrentBlock(entry);
 
-    builder.EmitVoid(IL::Op::Intrinsic, static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex), {});
-    builder.EmitVoid(IL::Op::Intrinsic, static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex), {});
-    builder.EmitVoid(IL::Op::Intrinsic, static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex), {});
+    IL::StageIoDesc store;
+    store.space = IL::Space::Output;
+    store.location = 0;
+    store.component = 0;
+    const IL::PayloadId payload = module.payloads.Add(store);
+
+    for (int vertex = 0; vertex < 3; ++vertex)
+    {
+        const IL::ValueId x = builder.ConstantF32(static_cast<float>(vertex));
+        builder.EmitVoid(IL::Op::Intrinsic,
+                         static_cast<std::uint16_t>(IL::IntrinsicId::StageOutput),
+                         {x},
+                         {},
+                         payload,
+                         0,
+                         0);
+        builder.EmitVoid(IL::Op::Intrinsic, static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex), {});
+    }
     builder.EmitVoid(IL::Op::Intrinsic, static_cast<std::uint16_t>(IL::IntrinsicId::EndPrimitive), {});
+
     IL::Terminator terminator;
     terminator.kind = IL::TerminatorKind::Ret;
     builder.Terminate(builder.CurrentBlock(), terminator);
@@ -56,7 +81,6 @@ TEST_CASE("Backend emits a geometry stage that emits a primitive", "[backend][ge
         WARN(SR::ToString(emission.error()));
     REQUIRE(emission.has_value());
 
-    // OpEmitVertex (218) and OpEndPrimitive (219) are in the stream.
     const auto hasOpcode = [&](std::uint16_t opcode) {
         for (std::size_t i = 5; i < emission->words.size();) {
             const std::uint32_t word = emission->words[i];
@@ -66,6 +90,11 @@ TEST_CASE("Backend emits a geometry stage that emits a primitive", "[backend][ge
         }
         return false;
     };
-    REQUIRE(hasOpcode(218));
-    REQUIRE(hasOpcode(219));
+
+    // The output is an array, emission uses the geometry opcodes, and the
+    // vertex counter is advanced with an integer add.
+    REQUIRE(hasOpcode(28));  // OpTypeArray
+    REQUIRE(hasOpcode(218)); // OpEmitVertex
+    REQUIRE(hasOpcode(219)); // OpEndPrimitive
+    REQUIRE(hasOpcode(128)); // OpIAdd
 }

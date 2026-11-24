@@ -172,6 +172,8 @@ struct Function
 struct ExecutionModes
 {
     std::array<std::uint32_t, 3> workgroupSize = {1, 1, 1};
+    // Geometry: how many vertices an invocation may emit.
+    std::uint32_t outputVertices = 3;
     std::uint32_t subgroupSize = 0; // 0 = natural
     bool earlyFragmentTests = false;
     bool depthReplacing = false;
