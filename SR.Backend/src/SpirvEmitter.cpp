@@ -55,6 +55,8 @@ enum SpvOp : std::uint16_t
     OpImageSampleExplicitLod = 88,
     OpImageRead = 98,
     OpImageWrite = 99,
+    OpEmitVertex = 218,
+    OpEndPrimitive = 219,
     OpLoad = 61,
     OpStore = 62,
     OpAccessChain = 65,
@@ -1216,6 +1218,8 @@ private:
             Op(OpCapability, {61}); // GroupNonUniform
             Op(OpCapability, {64}); // GroupNonUniformBallot (BroadcastFirst needs it too)
         }
+        if (m_module.stage == IL::Stage::Geometry)
+            Op(OpCapability, {2}); // Geometry
         if (UsesIntrinsic(m_module, IL::IntrinsicId::DeviceLoad) ||
             UsesIntrinsic(m_module, IL::IntrinsicId::DeviceStore))
         {
@@ -1276,6 +1280,12 @@ private:
                 m_module.executionModes.workgroupSize[0],
                 m_module.executionModes.workgroupSize[1],
                 m_module.executionModes.workgroupSize[2]});
+        }
+        else if (executionModel == 3) // Geometry
+        {
+            Op(OpExecutionMode, {m_mainId, 22 /* Triangles */});
+            Op(OpExecutionMode, {m_mainId, 29 /* OutputTriangleStrip */});
+            Op(OpExecutionMode, {m_mainId, 26 /* OutputVertices */, 3});
         }
         else if (executionModel == 4) // Fragment
         {
@@ -2479,6 +2489,21 @@ private:
             m_valueIds[resultValue] = resultId;
             if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
                 Op(OpStore, {m_spillVars[resultValue], resultId});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
+            (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex) ||
+             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::EndPrimitive)))
+        {
+            if (m_module.stage != IL::Stage::Geometry)
+                return std::unexpected(
+                    EmitError("SR-SPV-090", "geometry emission outside a geometry stage", instruction.sourcePc));
+
+            if (instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::EmitVertex))
+                Op(OpEmitVertex, {});
+            else
+                Op(OpEndPrimitive, {});
             return {};
         }
 

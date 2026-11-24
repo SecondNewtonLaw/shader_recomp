@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "SR/Backend/Reemitter.hpp"
+#include "SR/Common/Assertions.hpp"
 #include "SR/Common/IL/Dump.hpp"
 #include "SR/Common/IL/Interpreter.hpp"
 #include "SR/Common/IL/Module.hpp"
@@ -68,6 +69,7 @@ void PrintShader(const SR::Frontend::DecodedShader& shader)
 
 int main(int argc, char** argv)
 {
+    SR::InstallAssertionHandler("shader-recomp");
     std::string input;
     std::string output;
     std::string archName = "gfx1200";

@@ -67,6 +67,8 @@ enum class IntrinsicId : std::uint16_t
     ImageLoad,
     ImageStore,
     ImageSample,
+    EmitVertex,
+    EndPrimitive,
 };
 
 enum class SpecialRegId : std::uint16_t

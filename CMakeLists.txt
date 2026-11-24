@@ -201,6 +201,7 @@ function(sr_add_executable target)
 endfunction()
 
 sr_add_library(SR.Common
+        SR.Common/src/Assertions.cpp
         SR.Common/src/ByteReader.cpp
         SR.Common/src/Diagnostic.cpp
         SR.Common/src/IL/Analysis.cpp
@@ -217,6 +218,10 @@ sr_add_library(SR.Common
 )
 if (TARGET libassert::assert)
     target_link_libraries(SR.Common PUBLIC libassert::assert)
+endif ()
+if (WIN32)
+    # Symbolized stacks in the crash filter.
+    target_link_libraries(SR.Common PUBLIC dbghelp)
 endif ()
 
 sr_add_library(SR.Frontend
@@ -284,6 +289,7 @@ endif ()
 if (BUILD_TESTING)
     sr_add_executable(SR.Tests
             SR.Tests/CommonTests.cpp
+            SR.Tests/TestMain.cpp
             SR.Tests/BackendTests.cpp
             SR.Tests/FrontendTests.cpp
             SR.Tests/DxbcTests.cpp
@@ -297,7 +303,7 @@ if (BUILD_TESTING)
             SR.Common
             SR.Frontend
             SR.Backend
-            Catch2::Catch2WithMain
+            Catch2::Catch2
     )
     target_compile_definitions(SR.Tests PRIVATE
             SR_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/corpus/compiled"
