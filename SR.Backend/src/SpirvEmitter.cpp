@@ -33,6 +33,8 @@ enum SpvOp : std::uint16_t
     OpTypeBool = 20,
     OpTypeInt = 21,
     OpTypeFloat = 22,
+    OpTypeVector = 23,
+    OpTypeMatrix = 24,
     OpTypeRuntimeArray = 29,
     OpTypeArray = 28,
     OpTypeStruct = 30,
@@ -272,6 +274,7 @@ public:
             m_bufferVar = NewId();
         if (m_useLocal)
             m_localVar = NewId();
+        PrepareStageIo();
         EmitHeader();
 
         if (m_useTestBuffer)
@@ -339,6 +342,13 @@ public:
             }
             if (m_f32One == 0 && m_f16One == 0 && m_f64One == 0)
                 return std::unexpected(EmitError("SR-SPV-046", "reciprocal requires a float type"));
+        }
+
+
+        {
+            const auto declarations = EmitStageIoDeclarations();
+            if (!declarations)
+                return std::unexpected(declarations.error());
         }
 
         const auto status = EmitFunction();
@@ -551,6 +561,219 @@ private:
         Op(opcode, operands);
     }
 
+    struct StageIo
+    {
+        IL::Space space = IL::Space::Input;
+        IL::Builtin builtin = IL::Builtin::None;
+        std::uint32_t location = 0;
+        std::uint32_t variable = 0;
+        std::uint32_t variablePointer = 0;
+        std::uint32_t elementPointer = 0;
+        IL::TypeId type = IL::InvalidType;
+        std::uint32_t components = 1;
+        IL::Interpolation interpolation = IL::Interpolation::None;
+    };
+
+    [[nodiscard]] static std::uint32_t ExecutionModel(IL::Stage stage) noexcept
+    {
+        switch (stage)
+        {
+        case IL::Stage::Vertex:
+            return 0;
+        case IL::Stage::TessControl:
+            return 1;
+        case IL::Stage::TessEval:
+            return 2;
+        case IL::Stage::Geometry:
+            return 3;
+        case IL::Stage::Fragment:
+            return 4;
+        default:
+            return 5; // GLCompute
+        }
+    }
+
+    [[nodiscard]] static std::uint32_t StorageClass(IL::Space space) noexcept
+    {
+        return space == IL::Space::Output ? 3u : 1u; // Output : Input
+    }
+
+    [[nodiscard]] static std::uint32_t BuiltinValue(IL::Builtin builtin) noexcept
+    {
+        switch (builtin)
+        {
+        case IL::Builtin::Position:
+            return 0;
+        case IL::Builtin::PointSize:
+            return 1;
+        case IL::Builtin::ClipDistance:
+            return 3;
+        case IL::Builtin::CullDistance:
+            return 4;
+        case IL::Builtin::PrimitiveId:
+            return 7;
+        case IL::Builtin::Layer:
+            return 9;
+        case IL::Builtin::ViewportIndex:
+            return 10;
+        case IL::Builtin::TessCoord:
+            return 13;
+        case IL::Builtin::FragCoord:
+            return 15;
+        case IL::Builtin::FrontFacing:
+            return 17;
+        case IL::Builtin::SampleId:
+            return 18;
+        case IL::Builtin::SampleMask:
+            return 20;
+        case IL::Builtin::FragDepth:
+            return 22;
+        case IL::Builtin::NumWorkgroups:
+            return 24;
+        case IL::Builtin::WorkgroupId:
+            return 26;
+        case IL::Builtin::LocalInvocationId:
+            return 27;
+        case IL::Builtin::GlobalInvocationId:
+            return 28;
+        case IL::Builtin::LocalInvocationIndex:
+            return 29;
+        case IL::Builtin::SubgroupSize:
+            return 36;
+        case IL::Builtin::SubgroupInvocationId:
+            return 41;
+        case IL::Builtin::VertexIndex:
+            return 42;
+        case IL::Builtin::InstanceIndex:
+            return 43;
+        default:
+            return 0;
+        }
+    }
+
+    [[nodiscard]] static std::uint32_t InterpolationDecoration(IL::Interpolation interpolation) noexcept
+    {
+        switch (interpolation)
+        {
+        case IL::Interpolation::Flat:
+            return 14;
+        case IL::Interpolation::NoPerspective:
+            return 13;
+        case IL::Interpolation::Centroid:
+            return 16;
+        case IL::Interpolation::Sample:
+            return 17;
+        default:
+            return 0;
+        }
+    }
+
+    // Signature rows become interface variables. Ids are allocated before the
+    // entry point so the interface list can name them.
+    void PrepareStageIo()
+    {
+        const auto add = [this](const IL::SignatureDecl& decl) {
+            StageIo binding;
+            binding.space = decl.space;
+            binding.builtin = decl.builtin;
+            binding.location = decl.location;
+            binding.variable = NewId();
+            binding.type = decl.type;
+            binding.interpolation = decl.interpolation;
+            if (decl.type != IL::InvalidType && m_module.types.contains(decl.type))
+            {
+                const IL::Type& type = m_module.types.Get(decl.type);
+                binding.components = type.kind == IL::TypeKind::Vector ? type.count : 1;
+            }
+            m_stageIo.push_back(binding);
+        };
+
+        for (const IL::SignatureDecl& decl : m_module.inputs)
+            add(decl);
+        for (const IL::SignatureDecl& decl : m_module.outputs)
+            add(decl);
+    }
+
+    [[nodiscard]] const StageIo* FindStageIo(IL::Space space, IL::Builtin builtin, std::uint32_t location) const noexcept
+    {
+        for (const StageIo& binding : m_stageIo)
+        {
+            if (binding.space == space && binding.builtin == builtin && binding.location == location)
+                return &binding;
+        }
+
+        return nullptr;
+    }
+
+    [[nodiscard]] Result<void> EmitStageIoDeclarations()
+    {
+        // Types and every index constant come first: an OpVariable ends the
+        // types/constants section, so nothing may be added after it.
+        std::vector<std::uint32_t> pointers(m_stageIo.size(), 0);
+        bool needsIndices = false;
+
+        for (std::size_t i = 0; i < m_stageIo.size(); ++i)
+        {
+            StageIo& binding = m_stageIo[i];
+
+            const auto type = EmitType(binding.type);
+            if (!type)
+                return std::unexpected(type.error());
+
+            const IL::Type& declared = m_module.types.Get(binding.type);
+            const IL::TypeId elementId = declared.kind == IL::TypeKind::Vector ? declared.element : binding.type;
+            const auto element = EmitType(elementId);
+            if (!element)
+                return std::unexpected(element.error());
+
+            binding.variablePointer = NewId();
+            Op(OpTypePointer, {binding.variablePointer, StorageClass(binding.space), *type});
+
+            if (declared.kind == IL::TypeKind::Vector)
+            {
+                binding.elementPointer = NewId();
+                Op(OpTypePointer, {binding.elementPointer, StorageClass(binding.space), *element});
+            }
+            else
+            {
+                binding.elementPointer = binding.variablePointer;
+            }
+
+            pointers[i] = binding.variablePointer;
+            needsIndices = needsIndices || binding.components > 1;
+        }
+
+        if (needsIndices)
+        {
+            for (std::uint32_t component = 0; component < 4; ++component)
+            {
+                const auto index = U32Constant(component);
+                if (!index)
+                    return std::unexpected(index.error());
+            }
+        }
+
+        for (std::size_t i = 0; i < m_stageIo.size(); ++i)
+            Op(OpVariable, {pointers[i], m_stageIo[i].variable, StorageClass(m_stageIo[i].space)});
+
+        return {};
+    }
+
+    // The pointer to one component of a stage IO variable.
+    [[nodiscard]] Result<std::uint32_t> StageIoPointer(const StageIo& binding, std::uint32_t component)
+    {
+        if (binding.components == 1)
+            return binding.variable;
+
+        const auto index = U32Constant(component);
+        if (!index)
+            return std::unexpected(index.error());
+
+        const std::uint32_t pointer = NewId();
+        Op(OpAccessChain, {binding.elementPointer, pointer, binding.variable, *index});
+        return pointer;
+    }
+
     void EmitHeader()
     {
         m_words.push_back(kMagic);
@@ -576,8 +799,10 @@ private:
         Op(OpMemoryModel, {0, 1}); // Logical, GLSL450
 
         m_mainId = NewId();
+        const std::uint32_t executionModel = ExecutionModel(m_module.stage);
+
         std::vector<std::uint32_t> operands;
-        operands.push_back(5); // GLCompute
+        operands.push_back(executionModel);
         operands.push_back(m_mainId);
         const std::string text = m_module.entryPoint.empty() ? "main" : m_module.entryPoint;
         std::uint32_t word = 0;
@@ -598,14 +823,47 @@ private:
             operands.push_back(m_bufferVar);
         if (m_useLocal)
             operands.push_back(m_localVar);
+        for (const StageIo& binding : m_stageIo)
+            operands.push_back(binding.variable);
         Op(OpEntryPoint, operands);
 
-        Op(OpExecutionMode,
-           {m_mainId,
-            17, // LocalSize
-            m_module.executionModes.workgroupSize[0],
-            m_module.executionModes.workgroupSize[1],
-            m_module.executionModes.workgroupSize[2]});
+        if (executionModel == 5) // GLCompute
+        {
+            Op(OpExecutionMode,
+               {m_mainId,
+                17, // LocalSize
+                m_module.executionModes.workgroupSize[0],
+                m_module.executionModes.workgroupSize[1],
+                m_module.executionModes.workgroupSize[2]});
+        }
+        else if (executionModel == 4) // Fragment
+        {
+            Op(OpExecutionMode, {m_mainId, 7}); // OriginUpperLeft
+            for (const IL::SignatureDecl& output : m_module.outputs)
+            {
+                if (output.builtin == IL::Builtin::FragDepth)
+                {
+                    Op(OpExecutionMode, {m_mainId, 12}); // DepthReplacing
+                    break;
+                }
+            }
+        }
+
+        // Annotations for the stage interface precede every type declaration.
+        for (const StageIo& binding : m_stageIo)
+        {
+            if (binding.builtin != IL::Builtin::None)
+            {
+                Op(OpDecorate, {binding.variable, 11 /* Builtin */, BuiltinValue(binding.builtin)});
+            }
+            else
+            {
+                Op(OpDecorate, {binding.variable, 30 /* Location */, binding.location});
+                const std::uint32_t interpolation = InterpolationDecoration(binding.interpolation);
+                if (interpolation != 0)
+                    Op(OpDecorate, {binding.variable, interpolation});
+            }
+        }
     }
 
     [[nodiscard]] Result<void> EmitTestBufferDeclarations()
@@ -734,6 +992,14 @@ private:
                 return std::unexpected(EmitError("SR-SPV-002", "unsupported float format for SPIR-V emission"));
             }
             Op(OpTypeFloat, {id, width});
+            break;
+        }
+        case IL::TypeKind::Vector:
+        {
+            const auto element = EmitType(type.element);
+            if (!element)
+                return std::unexpected(element.error());
+            Op(OpTypeVector, {id, *element, type.count});
             break;
         }
         case IL::TypeKind::Pointer:
@@ -1638,6 +1904,58 @@ private:
         if (instruction.op == IL::Op::Nop || instruction.op == IL::Op::Alloca)
             return {};
 
+        if (instruction.op == IL::Op::Intrinsic)
+        {
+            const auto intrinsic = static_cast<IL::IntrinsicId>(instruction.subop);
+            if (intrinsic == IL::IntrinsicId::StageInput || intrinsic == IL::IntrinsicId::StageOutput)
+            {
+                const auto* desc = instruction.payload != IL::NoPayload
+                                       ? std::get_if<IL::StageIoDesc>(&m_module.payloads.Get(instruction.payload))
+                                       : nullptr;
+                if (desc == nullptr)
+                    return std::unexpected(
+                        EmitError("SR-SPV-050", "stage IO without a signature descriptor", instruction.sourcePc));
+
+                const StageIo* binding = FindStageIo(desc->space, desc->builtin, desc->location);
+                if (binding == nullptr)
+                    return std::unexpected(
+                        EmitError("SR-SPV-051", "stage IO is not declared in the module signatures", instruction.sourcePc));
+                if (desc->component >= binding->components)
+                    return std::unexpected(
+                        EmitError("SR-SPV-052", "stage IO component is outside the declared vector", instruction.sourcePc));
+
+                const auto pointer = StageIoPointer(*binding, desc->component);
+                if (!pointer)
+                    return std::unexpected(pointer.error());
+
+                if (intrinsic == IL::IntrinsicId::StageOutput)
+                {
+                    const auto value = ValueId(function, instruction.operands[0]);
+                    if (!value)
+                        return std::unexpected(EmitError("SR-SPV-053", "invalid stage output value", instruction.sourcePc));
+                    Op(OpStore, {*pointer, *value});
+                    return {};
+                }
+
+                if (instruction.results.size() != 1)
+                    return std::unexpected(
+                        EmitError("SR-SPV-054", "stage input must have one result", instruction.sourcePc));
+
+                const IL::ValueId resultValue = instruction.results[0];
+                const auto resultType = EmitType(function.values[resultValue].type);
+                if (!resultType)
+                    return std::unexpected(resultType.error());
+
+                const std::uint32_t resultId =
+                    (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+                Op(OpLoad, {*resultType, resultId, *pointer});
+                m_valueIds[resultValue] = resultId;
+                if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                    Op(OpStore, {m_spillVars[resultValue], resultId});
+                return {};
+            }
+        }
+
         if (instruction.op == IL::Op::Intrinsic &&
             instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::TestBufferStore))
         {
@@ -2316,6 +2634,7 @@ private:
     std::uint32_t m_f32One = 0;
     std::uint32_t m_f16One = 0;
     std::uint32_t m_f64One = 0;
+    std::vector<StageIo> m_stageIo;
 
     bool m_structured = false;
     IL::FunctionAnalysis m_analysis;

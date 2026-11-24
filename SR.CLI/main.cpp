@@ -22,11 +22,12 @@ void PrintUsage()
     std::cout << "shader-recomp " << SR::Frontend::LibraryVersion() << '\n'
               << "Usage: shader-recomp [--version] [--help] <input>\n"
               << "       shader-recomp --inspect <input>\n"
-              << "       shader-recomp [--arch <name>] [--dump-il] --spirv <output.spv> <input>\n"
+              << "       shader-recomp [--arch <name>] [--stage <name>] [--dump-il] --spirv <output.spv> <input>\n"
               << '\n'
               << "Registered readers: spirv, xbox, dxil, dxbc, cubin, hsaco\n"
               << "Architectures: gfx10, gfx1013, gfx1030, gfx1100, gfx1150, gfx1200\n"
-              << "An Xbox Series X|S container defaults to gfx1030.\n";
+              << "An Xbox Series X|S container defaults to gfx1030.\n"
+              << "Stages: compute (default for code objects), vertex, fragment.\n";
 }
 
 std::vector<std::uint8_t> ReadFile(const std::string& path, bool& ok)
@@ -69,6 +70,7 @@ int main(int argc, char** argv)
     std::string output;
     std::string archName = "gfx1200";
     bool archSpecified = false;
+    std::string stageName;
     bool inspect = false;
     bool recompile = false;
     bool dumpIl = false;
@@ -114,6 +116,12 @@ int main(int argc, char** argv)
             continue;
         }
 
+        if (argument == "--stage" && i + 1 < argc)
+        {
+            stageName = argv[++i];
+            continue;
+        }
+
         if (argument == "--spirv" && i + 1 < argc)
         {
             output = argv[++i];
@@ -152,11 +160,26 @@ int main(int argc, char** argv)
     }
 
     SR::Frontend::MasterReader reader;
-    const auto shader = reader.Read(bytes);
+    auto shader = reader.Read(bytes);
     if (!shader)
     {
         std::cerr << SR::ToString(shader.error()) << '\n';
         return 1;
+    }
+
+    if (!stageName.empty())
+    {
+        if (stageName == "vertex")
+            shader->stage = SR::IL::Stage::Vertex;
+        else if (stageName == "fragment" || stageName == "pixel")
+            shader->stage = SR::IL::Stage::Fragment;
+        else if (stageName == "compute")
+            shader->stage = SR::IL::Stage::Compute;
+        else
+        {
+            std::cerr << "unknown stage '" << stageName << "'\n";
+            return 2;
+        }
     }
 
     if (!recompile)
