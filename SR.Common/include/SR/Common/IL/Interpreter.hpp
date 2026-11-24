@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
@@ -32,6 +33,10 @@ struct ExecutionOptions
     // kBuiltinKeyBase + the Builtin enumerator; locations use
     // location * 4 + component.
     std::unordered_map<std::uint64_t, std::uint64_t> stageInputs;
+    // Compute invocation state a program reads through special registers.
+    std::array<std::uint32_t, 3> threadId = {0, 0, 0};
+    std::array<std::uint32_t, 3> workgroupId = {0, 0, 0};
+    std::array<std::uint32_t, 3> workgroupSize = {64, 1, 1};
 };
 
 inline constexpr std::uint64_t kBuiltinKeyBase = 0x8000'0000ull;

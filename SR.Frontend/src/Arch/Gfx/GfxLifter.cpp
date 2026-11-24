@@ -25,11 +25,16 @@ constexpr std::uint32_t kLastSgpr = 105; // 106..127 are VCC/SCC/M0/EXEC
 class Lifter
 {
 public:
-    Lifter(IL::Module& module, IL::Function& function, IL::FunctionBuilder& builder, Arch arch)
+    Lifter(IL::Module& module,
+           IL::Function& function,
+           IL::FunctionBuilder& builder,
+           Arch arch,
+           const LiftOptions& options)
         : m_module(module)
         , m_function(function)
         , m_builder(builder)
         , m_arch(arch)
+        , m_options(options)
     {
         m_sgprSlots.fill(IL::InvalidValue);
         m_vgprSlots.fill(IL::InvalidValue);
@@ -93,6 +98,32 @@ public:
 
             seed(IL::Builtin::VertexIndex, 0);
             seed(IL::Builtin::InstanceIndex, 3);
+        }
+
+        // A compute program reads its thread id from the builtin; the workgroup
+        // ids and the user data follow in the scalar registers, which the
+        // descriptor model will supply.
+        if (m_module.stage == IL::Stage::Compute)
+        {
+            const IL::TypeId u32 = m_module.types.U32();
+            const IL::SpecialRegId ids[3] = {IL::SpecialRegId::ThreadIdX, IL::SpecialRegId::ThreadIdY,
+                                             IL::SpecialRegId::ThreadIdZ};
+            for (std::uint32_t component = 0; component < 3; ++component)
+            {
+                IL::SpecialRegPayload payload;
+                payload.id = ids[component];
+                const IL::PayloadId payloadId = m_module.payloads.Add(payload);
+                const IL::ValueId value = m_builder.Emit(u32,
+                                                         IL::Op::Intrinsic,
+                                                         static_cast<std::uint16_t>(IL::IntrinsicId::SpecialReg),
+                                                         {},
+                                                         {},
+                                                         payloadId,
+                                                         0,
+                                                         0,
+                                                         false);
+                m_builder.Store(Slot(m_vgprSlots, component, IL::RegisterClass::Vgpr), value, 0);
+            }
         }
 
         for (std::size_t blockIndex = 0; blockIndex < m_leaders.size(); ++blockIndex)
@@ -1066,18 +1097,23 @@ private:
         if (!condition)
             return std::unexpected(condition.error());
 
-        // The VOP3 compare form takes an explicit SGPR destination and writes
-        // a 32-bit lane mask there instead of VCC.
+        // The VOP3 compare form takes an explicit SGPR pair and writes the wave
+        // ballot there: the predicate is per lane, the mask is per wave.
         if (instruction.encoding == Encoding::Vop3)
         {
             const Operand* destination = FindOperand(instruction, OperandKind::Sdst);
             if (destination != nullptr)
             {
-                const IL::ValueId mask =
-                    m_builder.SelectValue(m_module.types.U32(), *condition,
-                                          m_builder.ConstantU32(0xFFFFFFFFu),
-                                          m_builder.ConstantU32(0), true);
-                return WriteDest(*destination, mask, instruction.pc);
+                const IL::ValueId ballot = m_builder.Emit(m_module.types.U64(),
+                                                          IL::Op::Intrinsic,
+                                                          static_cast<std::uint16_t>(IL::IntrinsicId::WaveBallot),
+                                                          {*condition},
+                                                          {},
+                                                          IL::NoPayload,
+                                                          instruction.pc,
+                                                          static_cast<std::uint16_t>(instruction.op),
+                                                          true);
+                return WriteSgpr64(*destination, ballot, instruction.pc);
             }
         }
 
@@ -1153,17 +1189,28 @@ private:
         }
 
         // The VOP3 compare form takes an explicit SGPR destination and writes
-        // a 32-bit lane mask there instead of VCC.
+        // the wave ballot there: the predicate is per lane, the mask is per
+        // wave. A 64-lane wave needs the pair.
         if (instruction.encoding == Encoding::Vop3)
         {
             const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
             if (scalarDestination != nullptr)
             {
-                const IL::ValueId mask =
-                    m_builder.SelectValue(m_module.types.U32(), condition,
-                                          m_builder.ConstantU32(0xFFFFFFFFu),
-                                          m_builder.ConstantU32(0), true);
-                return WriteDest(*scalarDestination, mask, instruction.pc);
+                const IL::ValueId ballot = m_builder.Emit(m_module.types.U64(),
+                                                          IL::Op::Intrinsic,
+                                                          static_cast<std::uint16_t>(IL::IntrinsicId::WaveBallot),
+                                                          {condition},
+                                                          {},
+                                                          IL::NoPayload,
+                                                          instruction.pc,
+                                                          static_cast<std::uint16_t>(instruction.op),
+                                                          true);
+                if (m_options.wave64)
+                    return WriteSgpr64(*scalarDestination, ballot, instruction.pc);
+
+                const IL::ValueId low =
+                    m_builder.ConvertValue(m_module.types.U32(), IL::ConvertOp::Trunc, ballot, true);
+                return WriteDest(*scalarDestination, low, instruction.pc);
             }
         }
 
@@ -7763,7 +7810,7 @@ private:
                 component = (target - 12) + channel;
                 if (component > 3)
                 {
-                    return std::unexpected(LiftError("SR-GFX-LIFT-043",
+                    return std::unexpected(LiftError("SR-GFX-LIFT-045",
                                                      "position export outside the four components",
                                                      instruction.pc));
                 }
@@ -9142,6 +9189,7 @@ private:
     IL::Function& m_function;
     IL::FunctionBuilder& m_builder;
     Arch m_arch;
+    LiftOptions m_options;
 
     std::vector<DecodedInstruction> m_items;
     std::unordered_map<std::uint32_t, std::size_t> m_byPc;
@@ -9199,7 +9247,7 @@ Result<IL::Module> Lift(const DecodedShader& shader, Arch arch, std::string_view
     module.entryFunction = function.id;
 
     IL::FunctionBuilder builder(module, function);
-    Lifter lifter(module, function, builder, arch);
+    Lifter lifter(module, function, builder, arch, options);
     const auto status = lifter.Run(words);
     if (!status)
         return std::unexpected(status.error());

@@ -1604,7 +1604,8 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
             const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
             if (instruction.encoding == Encoding::Vop3 && scalarDestination != nullptr)
             {
-                result.state.sgpr[scalarDestination->value] = *condition ? 0xFFFFFFFFu : 0u;
+                // One invocation is a one-lane wave: the mask is bit 0.
+                result.state.sgpr[scalarDestination->value] = *condition ? 1u : 0u;
             }
             else
             {
@@ -3552,7 +3553,7 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
                 if (scalarDestination != nullptr)
                 {
-                    result.state.sgpr[scalarDestination->value] = condition ? 0xFFFFFFFFu : 0u;
+                    result.state.sgpr[scalarDestination->value] = condition ? 1u : 0u;
                     break;
                 }
             }
@@ -4197,7 +4198,7 @@ Result<IsaExecutionResult> RunIsa(std::span<const std::uint32_t> words,
                 const Operand* scalarDestination = FindOperand(instruction, OperandKind::Sdst);
                 if (scalarDestination != nullptr)
                 {
-                    result.state.sgpr[scalarDestination->value] = condition ? 0xFFFFFFFFu : 0u;
+                    result.state.sgpr[scalarDestination->value] = condition ? 1u : 0u;
                     break;
                 }
             }

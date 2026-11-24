@@ -8,6 +8,7 @@
 
 #include "SR/Backend/Reemitter.hpp"
 #include "SR/Common/IL/Dump.hpp"
+#include "SR/Common/IL/Interpreter.hpp"
 #include "SR/Common/IL/Module.hpp"
 #include "SR/Common/IL/Passes.hpp"
 #include "SR/Common/IL/Verifier.hpp"
@@ -27,7 +28,8 @@ void PrintUsage()
               << "Registered readers: spirv, xbox, dxil, dxbc, cubin, hsaco\n"
               << "Architectures: gfx10, gfx1013, gfx1030, gfx1100, gfx1150, gfx1200\n"
               << "An Xbox Series X|S container defaults to gfx1030.\n"
-              << "Stages: compute (default for code objects), vertex, fragment.\n";
+              << "Stages: compute (default for code objects), vertex, fragment.\n"
+              << "Options: --test-abi, --wave64.\n";
 }
 
 std::vector<std::uint8_t> ReadFile(const std::string& path, bool& ok)
@@ -75,6 +77,8 @@ int main(int argc, char** argv)
     bool recompile = false;
     bool dumpIl = false;
     bool testAbi = false;
+    bool wave64 = false;
+    bool interpret = false;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -106,6 +110,18 @@ int main(int argc, char** argv)
         if (argument == "--test-abi")
         {
             testAbi = true;
+            continue;
+        }
+
+        if (argument == "--wave64")
+        {
+            wave64 = true;
+            continue;
+        }
+
+        if (argument == "--interpret")
+        {
+            interpret = true;
             continue;
         }
 
@@ -206,7 +222,10 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    auto module = SR::Frontend::Gfx::Lift(*shader, arch->arch, "main", SR::Frontend::Gfx::LiftOptions{testAbi});
+    SR::Frontend::Gfx::LiftOptions liftOptions;
+    liftOptions.testAbi = testAbi;
+    liftOptions.wave64 = wave64;
+    auto module = SR::Frontend::Gfx::Lift(*shader, arch->arch, "main", liftOptions);
     if (!module)
     {
         std::cerr << SR::ToString(module.error()) << '\n';
@@ -236,6 +255,25 @@ int main(int argc, char** argv)
 
     if (dumpIl)
         std::cout << SR::IL::DumpModule(*module);
+
+    if (interpret)
+    {
+        const auto execution = SR::IL::Interpret(*module);
+        if (!execution)
+        {
+            std::cerr << SR::ToString(execution.error()) << '\n';
+            return 1;
+        }
+
+        std::cout << "buffer:";
+        for (std::uint32_t index = 0; index < 64; ++index)
+        {
+            const auto entry = execution->buffer.find(index);
+            if (entry != execution->buffer.end())
+                std::cout << ' ' << index << '=' << entry->second;
+        }
+        std::cout << '\n';
+    }
 
     const auto emission = SR::Backend::Reemit(*module);
     if (!emission)

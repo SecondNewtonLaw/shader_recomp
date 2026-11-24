@@ -10,6 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "SR/Backend/Reemitter.hpp"
+#include "SR/Common/IL/Dump.hpp"
 #include "SR/Common/IL/Interpreter.hpp"
 #include "SR/Common/IL/Passes.hpp"
 #include "SR/Common/IL/Verifier.hpp"
@@ -175,5 +176,50 @@ TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics]
     const auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main");
     REQUIRE_FALSE(module.has_value());
     REQUIRE(module.error().code == "SR-GFX-LIFT-040");
+#endif
+}
+
+TEST_CASE("a compare mask is a wave ballot", "[gfx][wave][ballot]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("waveballot.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("waveballot fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    options.wave64 = true;
+
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    if (!module)
+        INFO(SR::ToString(module.error()));
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const std::string dump = SR::IL::DumpModule(*module);
+    REQUIRE(dump.find("wave.ballot") != std::string::npos);
+
+    // The interpreter runs a one-lane wave: the ballot is bit 0, so the
+    // popcount is one. On hardware the same module reports the wave width.
+    SR::IL::ExecutionOptions executionOptions;
+    executionOptions.threadId = {4, 0, 0}; // byte address 4 -> dword 1
+    const auto execution = SR::IL::Interpret(*module, executionOptions);
+    if (!execution)
+        INFO(SR::ToString(execution.error()));
+    REQUIRE(execution.has_value());
+    REQUIRE(execution->buffer.at(1) == 1);
+
+    REQUIRE(SR::IL::RunPipeline(*module).has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+    REQUIRE(SR::Backend::Reemit(*module).has_value());
 #endif
 }

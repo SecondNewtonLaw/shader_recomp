@@ -80,6 +80,8 @@ enum SpvOp : std::uint16_t
     OpLogicalNotEqual = 165,
     OpLogicalOr = 166,
     OpLogicalAnd = 167,
+    OpCompositeConstruct = 80,
+    OpCompositeExtract = 81,
     OpSelect = 169,
     OpIEqual = 170,
     OpINotEqual = 171,
@@ -116,6 +118,7 @@ enum SpvOp : std::uint16_t
     OpLoopMerge = 246,
     OpSelectionMerge = 247,
     OpLabel = 248,
+    OpGroupNonUniformBallot = 339,
     OpBranch = 249,
     OpBranchConditional = 250,
     OpSwitch = 251,
@@ -275,6 +278,26 @@ public:
         if (m_useLocal)
             m_localVar = NewId();
         PrepareStageIo();
+        for (const IL::Function& function : m_module.functions)
+        {
+            for (const IL::Block& block : function.blocks)
+            {
+                for (const IL::Instruction& instruction : block.body)
+                {
+                    if (instruction.op != IL::Op::Intrinsic ||
+                        instruction.subop != static_cast<std::uint16_t>(IL::IntrinsicId::SpecialReg))
+                        continue;
+                    if (instruction.payload == IL::NoPayload)
+                        continue;
+                    const auto* payload = std::get_if<IL::SpecialRegPayload>(&m_module.payloads.Get(instruction.payload));
+                    if (payload == nullptr)
+                        continue;
+                    if (payload->id == IL::SpecialRegId::ThreadIdX || payload->id == IL::SpecialRegId::ThreadIdY ||
+                        payload->id == IL::SpecialRegId::ThreadIdZ)
+                        (void)SpecialVariableFor(IL::Builtin::LocalInvocationId, true);
+                }
+            }
+        }
         EmitHeader();
 
         if (m_useTestBuffer)
@@ -345,6 +368,34 @@ public:
         }
 
 
+
+        if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveBallot))
+        {
+            const IL::TypeId u32Type = m_module.types.FindInt(32, false);
+            if (u32Type == IL::InvalidType)
+                return std::unexpected(EmitError("SR-SPV-060", "ballot requires a u32 type"));
+            const auto u32 = EmitType(u32Type);
+            if (!u32)
+                return std::unexpected(u32.error());
+
+            m_ballotVecType = NewId();
+            Op(OpTypeVector, {m_ballotVecType, *u32, 4});
+            m_ballotPairType = NewId();
+            Op(OpTypeVector, {m_ballotPairType, *u32, 2});
+
+            // The scope operand is an id: Subgroup (3) as a u32 constant.
+            const auto scope = U32Constant(3);
+            if (!scope)
+                return std::unexpected(scope.error());
+            m_ballotScope = *scope;
+        }
+
+        {
+            const auto declarations = EmitSpecialDeclarations();
+            if (!declarations)
+                return std::unexpected(declarations.error());
+        }
+
         {
             const auto declarations = EmitStageIoDeclarations();
             if (!declarations)
@@ -363,6 +414,23 @@ public:
     }
 
 private:
+    [[nodiscard]] static bool UsesIntrinsic(const IL::Module& module, IL::IntrinsicId id)
+    {
+        for (const IL::Function& function : module.functions)
+        {
+            for (const IL::Block& block : function.blocks)
+            {
+                for (const IL::Instruction& instruction : block.body)
+                {
+                    if (instruction.op == IL::Op::Intrinsic && instruction.subop == static_cast<std::uint16_t>(id))
+                        return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     [[nodiscard]] static bool UsesTestBuffer(const IL::Module& module)
     {
         for (const IL::Function& function : module.functions)
@@ -668,6 +736,78 @@ private:
         }
     }
 
+    // Compute programs read their thread id from builtins. The variables are
+    // declared once and loaded per component.
+    struct SpecialVariable
+    {
+        IL::Builtin builtin = IL::Builtin::None;
+        std::uint32_t variable = 0;
+        std::uint32_t elementPointer = 0;
+    };
+
+    std::uint32_t SpecialVariableFor(IL::Builtin builtin, bool allocate)
+    {
+        for (const SpecialVariable& entry : m_special)
+        {
+            if (entry.builtin == builtin)
+                return entry.variable;
+        }
+        if (!allocate)
+            return 0;
+
+        SpecialVariable entry;
+        entry.builtin = builtin;
+        entry.variable = NewId();
+        m_special.push_back(entry);
+        return entry.variable;
+    }
+
+    [[nodiscard]] Result<void> EmitSpecialDeclarations()
+    {
+        if (m_special.empty())
+            return {};
+
+        const IL::TypeId u32Type = m_module.types.FindInt(32, false);
+        if (u32Type == IL::InvalidType)
+            return std::unexpected(EmitError("SR-SPV-064", "builtin input requires a u32 type"));
+        const auto u32 = EmitType(u32Type);
+        if (!u32)
+            return std::unexpected(u32.error());
+
+        const std::uint32_t vec3 = NewId();
+        Op(OpTypeVector, {vec3, *u32, 3});
+        const std::uint32_t pointerVec = NewId();
+        Op(OpTypePointer, {pointerVec, 1 /* Input */, vec3});
+        const std::uint32_t pointerScalar = NewId();
+        Op(OpTypePointer, {pointerScalar, 1 /* Input */, *u32});
+
+        for (std::uint32_t component = 0; component < 3; ++component)
+        {
+            const auto index = U32Constant(component);
+            if (!index)
+                return std::unexpected(index.error());
+        }
+
+        for (SpecialVariable& entry : m_special)
+            Op(OpVariable, {pointerVec, entry.variable, 1 /* Input */});
+
+        for (SpecialVariable& entry : m_special)
+            entry.elementPointer = pointerScalar;
+
+        return {};
+    }
+
+    [[nodiscard]] Result<std::uint32_t> SpecialComponent(const SpecialVariable& entry, std::uint32_t component)
+    {
+        const auto index = U32Constant(component);
+        if (!index)
+            return std::unexpected(index.error());
+
+        const std::uint32_t pointer = NewId();
+        Op(OpAccessChain, {entry.elementPointer, pointer, entry.variable, *index});
+        return pointer;
+    }
+
     // Signature rows become interface variables. Ids are allocated before the
     // entry point so the interface list can name them.
     void PrepareStageIo()
@@ -791,6 +931,11 @@ private:
             Op(OpCapability, {22}); // Int16
         if (UsesFloat64(m_module))
             Op(OpCapability, {10}); // Float64
+        if (UsesIntrinsic(m_module, IL::IntrinsicId::WaveBallot))
+        {
+            Op(OpCapability, {61}); // GroupNonUniform
+            Op(OpCapability, {64}); // GroupNonUniformBallot
+        }
         if (m_useGlsl)
         {
             m_glslSet = NewId();
@@ -825,6 +970,8 @@ private:
             operands.push_back(m_localVar);
         for (const StageIo& binding : m_stageIo)
             operands.push_back(binding.variable);
+        for (const SpecialVariable& entry : m_special)
+            operands.push_back(entry.variable);
         Op(OpEntryPoint, operands);
 
         if (executionModel == 5) // GLCompute
@@ -848,6 +995,9 @@ private:
                 }
             }
         }
+
+        for (const SpecialVariable& entry : m_special)
+            Op(OpDecorate, {entry.variable, 11 /* Builtin */, BuiltinValue(entry.builtin)});
 
         // Annotations for the stage interface precede every type declaration.
         for (const StageIo& binding : m_stageIo)
@@ -1904,6 +2054,122 @@ private:
         if (instruction.op == IL::Op::Nop || instruction.op == IL::Op::Alloca)
             return {};
 
+        if (instruction.op == IL::Op::Intrinsic &&
+            instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::SpecialReg))
+        {
+            const auto* payload = instruction.payload != IL::NoPayload
+                                      ? std::get_if<IL::SpecialRegPayload>(&m_module.payloads.Get(instruction.payload))
+                                      : nullptr;
+            if (payload == nullptr || instruction.results.size() != 1)
+                return std::unexpected(EmitError("SR-SPV-065", "special register read without a descriptor", instruction.sourcePc));
+
+            IL::Builtin builtin = IL::Builtin::None;
+            std::uint32_t component = 0;
+            switch (payload->id)
+            {
+            case IL::SpecialRegId::ThreadIdX:
+                builtin = IL::Builtin::LocalInvocationId;
+                component = 0;
+                break;
+            case IL::SpecialRegId::ThreadIdY:
+                builtin = IL::Builtin::LocalInvocationId;
+                component = 1;
+                break;
+            case IL::SpecialRegId::ThreadIdZ:
+                builtin = IL::Builtin::LocalInvocationId;
+                component = 2;
+                break;
+            default:
+                return std::unexpected(EmitError("SR-SPV-066",
+                                                 std::string("special register ") +
+                                                     std::string(IL::ToString(payload->id)) + " is not emitted",
+                                                 instruction.sourcePc));
+            }
+
+            const std::uint32_t variable = SpecialVariableFor(builtin, false);
+            if (variable == 0)
+                return std::unexpected(EmitError("SR-SPV-067", "special register variable is missing", instruction.sourcePc));
+
+            SpecialVariable entry;
+            for (const SpecialVariable& candidate : m_special)
+            {
+                if (candidate.builtin == builtin)
+                    entry = candidate;
+            }
+
+            const auto pointer = SpecialComponent(entry, component);
+            if (!pointer)
+                return std::unexpected(pointer.error());
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+            Op(OpLoad, {*resultType, resultId, *pointer});
+            m_valueIds[resultValue] = resultId;
+            if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                Op(OpStore, {m_spillVars[resultValue], resultId});
+            return {};
+        }
+
+        if (instruction.op == IL::Op::Intrinsic &&
+            instruction.subop == static_cast<std::uint16_t>(IL::IntrinsicId::WaveBallot))
+        {
+            if (instruction.results.size() != 1 || instruction.operands.size() != 1)
+                return std::unexpected(EmitError("SR-SPV-061", "ballot takes one predicate and one result", instruction.sourcePc));
+
+            const auto predicate = ValueId(function, instruction.operands[0]);
+            if (!predicate)
+                return std::unexpected(EmitError("SR-SPV-062", "invalid ballot predicate", instruction.sourcePc));
+
+            const IL::ValueId resultValue = instruction.results[0];
+            const auto resultType = EmitType(function.values[resultValue].type);
+            if (!resultType)
+                return std::unexpected(resultType.error());
+
+            const IL::TypeId u32Type = m_module.types.FindInt(32, false);
+            const auto u32 = EmitType(u32Type);
+            if (!u32)
+                return std::unexpected(u32.error());
+
+            const std::uint32_t ballot = NewId();
+            Op(OpGroupNonUniformBallot, {m_ballotVecType, ballot, m_ballotScope, *predicate});
+
+            const std::uint32_t resultId =
+                (resultValue < m_valueIds.size() && m_valueIds[resultValue] != 0) ? m_valueIds[resultValue] : NewId();
+
+            if (m_module.types.Get(function.values[resultValue].type).kind == IL::TypeKind::Int)
+            {
+                if (m_module.types.Get(function.values[resultValue].type).width == 64)
+                {
+                    // vec2<u32> is exactly the low 64 bits of the ballot.
+                    const std::uint32_t low = NewId();
+                    Op(OpCompositeExtract, {*u32, low, ballot, 0});
+                    const std::uint32_t high = NewId();
+                    Op(OpCompositeExtract, {*u32, high, ballot, 1});
+                    const std::uint32_t pair = NewId();
+                    Op(OpCompositeConstruct, {m_ballotPairType, pair, low, high});
+                    Op(OpBitcast, {*resultType, resultId, pair});
+                }
+                else
+                {
+                    Op(OpCompositeExtract, {*resultType, resultId, ballot, 0});
+                }
+            }
+            else
+            {
+                return std::unexpected(EmitError("SR-SPV-063", "ballot result must be an integer", instruction.sourcePc));
+            }
+
+            m_valueIds[resultValue] = resultId;
+            if (resultValue < m_spilled.size() && m_spilled[resultValue] && !m_isPhi[resultValue])
+                Op(OpStore, {m_spillVars[resultValue], resultId});
+            return {};
+        }
+
         if (instruction.op == IL::Op::Intrinsic)
         {
             const auto intrinsic = static_cast<IL::IntrinsicId>(instruction.subop);
@@ -2635,6 +2901,10 @@ private:
     std::uint32_t m_f16One = 0;
     std::uint32_t m_f64One = 0;
     std::vector<StageIo> m_stageIo;
+    std::vector<SpecialVariable> m_special;
+    std::uint32_t m_ballotVecType = 0;
+    std::uint32_t m_ballotPairType = 0;
+    std::uint32_t m_ballotScope = 0;
 
     bool m_structured = false;
     IL::FunctionAnalysis m_analysis;

@@ -664,6 +664,67 @@ Result<ExecutionResult> Interpret(const Module& module, const ExecutionOptions& 
                     break;
                 }
 
+                if (id == IntrinsicId::SpecialReg)
+                {
+                    const auto* payload = instruction.payload != NoPayload
+                                              ? std::get_if<SpecialRegPayload>(&module.payloads.Get(instruction.payload))
+                                              : nullptr;
+                    if (payload == nullptr)
+                        return std::unexpected(ExecutionError("SR-IL-INT-016",
+                                                              "special register without a descriptor",
+                                                              instruction.sourcePc));
+
+                    const ValueId slot = resultId();
+                    std::uint64_t value = 0;
+                    switch (payload->id)
+                    {
+                    case SpecialRegId::ThreadIdX:
+                        value = options.threadId[0];
+                        break;
+                    case SpecialRegId::ThreadIdY:
+                        value = options.threadId[1];
+                        break;
+                    case SpecialRegId::ThreadIdZ:
+                        value = options.threadId[2];
+                        break;
+                    case SpecialRegId::LocalInvocationId:
+                        value = options.threadId[0];
+                        break;
+                    case SpecialRegId::WorkgroupId:
+                        value = options.workgroupId[0];
+                        break;
+                    case SpecialRegId::WorkgroupSize:
+                        value = options.workgroupSize[0];
+                        break;
+                    case SpecialRegId::GlobalInvocationId:
+                        value = static_cast<std::uint64_t>(options.workgroupId[0]) * options.workgroupSize[0]
+                              + options.threadId[0];
+                        break;
+                    case SpecialRegId::SubgroupLocalInvocationId:
+                        value = options.threadId[0];
+                        break;
+                    case SpecialRegId::SubgroupSize:
+                        value = 1; // one invocation is a one-lane wave here
+                        break;
+                    default:
+                        return std::unexpected(ExecutionError("SR-IL-INT-017",
+                                                              std::string("unsupported special register: ")
+                                                                  + std::string(ToString(payload->id)),
+                                                              instruction.sourcePc));
+                    }
+                    values[slot] = value;
+                    break;
+                }
+
+                if (id == IntrinsicId::WaveBallot)
+                {
+                    // One invocation is a one-lane wave: the mask holds bit 0.
+                    const ValueId slot = resultId();
+                    const std::uint64_t predicate = read(instruction.operands[0]);
+                    values[slot] = predicate != 0 ? 1u : 0u;
+                    break;
+                }
+
                 if (id == IntrinsicId::StageInput || id == IntrinsicId::StageOutput)
                 {
                     const auto* io = instruction.payload != NoPayload

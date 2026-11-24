@@ -2425,14 +2425,15 @@ constexpr std::span<const Entry> LevelEntries(Arch arch) noexcept
 
 const Entry* FindInLevel(Arch arch, Encoding encoding, std::uint16_t opcode) noexcept
 {
-    const auto matches = [encoding, opcode](const Entry& entry) {
-        return entry.encoding == encoding && entry.opcode == opcode;
+    const auto matches = [](const Entry& entry, Encoding wanted, std::uint16_t wantedOpcode) {
+        return entry.encoding == wanted && entry.opcode == wantedOpcode;
     };
 
-    const auto search = [&matches](std::span<const Entry> entries) -> const Entry* {
+    const auto search = [&matches](std::span<const Entry> entries, Encoding wanted,
+                                   std::uint16_t wantedOpcode) -> const Entry* {
         for (auto it = entries.rbegin(); it != entries.rend(); ++it)
         {
-            if (matches(*it))
+            if (matches(*it, wanted, wantedOpcode))
                 return &*it;
         }
         return nullptr;
@@ -2452,16 +2453,26 @@ const Entry* FindInLevel(Arch arch, Encoding encoding, std::uint16_t opcode) noe
         }
     };
 
-    if (arch == Arch::Gfx10)
+    const std::span<const Entry> base = arch == Arch::Gfx10 ? std::span<const Entry>(kGfx10) : LevelEntries(arch);
+    const std::span<const Entry> compares = compareEntries();
+
+    // The compare tables are keyed by the VOPC encoding; a VOPC instruction
+    // looks there before the general table.
+    if (encoding == Encoding::VopC)
     {
-        const Entry* base = search(kGfx10);
-        const Entry* compares = search(kGfx10Compare);
-        return compares != nullptr ? compares : base;
+        if (const Entry* entry = search(compares, Encoding::VopC, opcode))
+            return entry;
     }
 
-    const Entry* base = search(LevelEntries(arch));
-    const Entry* compares = search(compareEntries());
-    return compares != nullptr ? compares : base;
+    if (const Entry* entry = search(base, encoding, opcode))
+        return entry;
+
+    // A VOP3-encoded compare keeps the VOPC opcode number: the encoding only
+    // adds the explicit SGPR mask destination and the modifiers.
+    if (encoding == Encoding::Vop3)
+        return search(compares, Encoding::VopC, opcode);
+
+    return nullptr;
 }
 
 std::vector<Arch> Lineage(Arch arch)
@@ -5096,6 +5107,14 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             break;
         case OperandKind::Vsrc:
             operand.value = Extract(wide, 9, 8);
+            if (encoding == Encoding::Vop3)
+            {
+                // A VOP3-encoded compare promotes the second source to the
+                // 9-bit field, which can also hold an inline constant or a
+                // literal.
+                operand.kind = OperandKind::Src;
+                operand.value = Extract(wide, 41, 9);
+            }
             break;
         case OperandKind::Sdst:
             operand.value = Extract(wide, 16, 7);
@@ -5112,7 +5131,17 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
             operand.value = Extract(wide, 0, 32);
             break;
         case OperandKind::Vcc:
-            operand.kind = OperandKind::Vcc;
+            if (encoding == Encoding::Vop3)
+            {
+                // The VOP3 form of a compare names the mask register in the
+                // destination field instead of writing VCC implicitly.
+                operand.kind = OperandKind::Sdst;
+                operand.value = Extract(wide, 0, 7);
+            }
+            else
+            {
+                operand.kind = OperandKind::Vcc;
+            }
             break;
         case OperandKind::Exec:
             operand.kind = OperandKind::Exec;
@@ -5230,23 +5259,23 @@ Result<DecodedInstruction> Decode(std::span<const std::uint32_t> words, Arch arc
         // Inline constants are resolved later; registers map by class.
         // 9-bit vector sources use 0..255 for scalar/inline and 256..511 for
         // VGPRs; 8-bit scalar sources use 0..127 and 128..254 respectively.
-        if (kind == OperandKind::Src && operand.value >= 256)
+        if (operand.kind == OperandKind::Src && operand.value >= 256)
         {
             operand.value -= 256;
             operand.isInline = false;
             operand.kind = OperandKind::Vgpr;
         }
-        else if ((kind == OperandKind::Ssrc || kind == OperandKind::Src) && operand.value < 128)
+        else if ((operand.kind == OperandKind::Ssrc || operand.kind == OperandKind::Src) && operand.value < 128)
         {
             operand.kind = OperandKind::Sgpr;
         }
-        else if ((kind == OperandKind::Ssrc || kind == OperandKind::Src) && operand.value >= 128 &&
+        else if ((operand.kind == OperandKind::Ssrc || operand.kind == OperandKind::Src) && operand.value >= 128 &&
                  operand.value != 0xFF)
         {
             operand.isInline = true;
         }
 
-        if (NeedsLiteral(kind, operand.value))
+        if (NeedsLiteral(operand.kind, operand.value))
         {
             operand.kind = OperandKind::Literal;
             ++literalWords;

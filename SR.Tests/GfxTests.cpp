@@ -1927,12 +1927,13 @@ TEST_CASE("gfx VOP3-encoded compares write a lane mask", "[gfx][vcmp64][pipeline
     INFO(executionError);
     REQUIRE(execution.has_value());
 
-    const std::uint32_t expected[] = {0xFFFFFFFFu, 0u, 0xFFFFFFFFu, 0u, 0xFFFFFFFFu,
-                                      0xFFFFFFFFu, 0u, 0xFFFFFFFFu, 0u, 7u};
+    // One invocation is a one-lane wave, so a compare's mask is bit 0.
+    const std::uint32_t expected[] = {1u, 0u, 1u, 0u, 1u, 1u, 0u, 1u, 0u, 7u};
     for (std::uint32_t index = 0; index < 10; ++index)
     {
         const auto it = execution->buffer.find(index);
         const std::uint32_t actual = it == execution->buffer.end() ? 0u : it->second;
+        INFO("dword " << index);
         REQUIRE(actual == expected[index]);
     }
 
