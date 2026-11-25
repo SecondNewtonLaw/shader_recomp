@@ -1163,6 +1163,61 @@ TEST_CASE("bpermute gathers the named lane", "[gfx][wave]")
 #endif
 }
 
+TEST_CASE("swizzle permutes lanes with its immediate", "[gfx][wave]")
+{
+#if !defined(SR_CORPUS_ROOT)
+    SUCCEED("SR_CORPUS_ROOT is not defined");
+#else
+    const auto bytes = ReadFile(Fixture("dsswizzle.hsaco"));
+    if (bytes.empty())
+    {
+        SUCCEED("swizzle fixture is not present");
+        return;
+    }
+
+    auto shader = SR::Frontend::MasterReader{}.Read(bytes);
+    REQUIRE(shader.has_value());
+    shader->stage = SR::IL::Stage::Compute;
+
+    SR::Frontend::Gfx::LiftOptions options;
+    options.testAbi = true;
+    auto module = SR::Frontend::Gfx::Lift(*shader, SR::Frontend::Gfx::Arch::Gfx103, "main", options);
+    std::string liftError;
+    if (!module)
+        liftError = SR::ToString(module.error());
+    INFO(liftError);
+    REQUIRE(module.has_value());
+    REQUIRE(SR::IL::VerifyModule(*module).has_value());
+
+    const auto emission = SR::Backend::Reemit(*module);
+    std::string emissionError;
+    if (!emission)
+        emissionError = SR::ToString(emission.error());
+    INFO(emissionError);
+    REQUIRE(emission.has_value());
+
+    bool shuffle = false;
+    for (std::size_t index = 5; index < emission->words.size();)
+    {
+        const std::uint32_t word = emission->words[index];
+        if ((word & 0xFFFFu) == 345) // OpGroupNonUniformShuffle
+            shuffle = true;
+        index += word >> 16;
+    }
+    REQUIRE(shuffle);
+
+    // The one-lane model answers only for its own index; quad_perm[0] is 1, so
+    // the gather is not this lane and the model reads nothing.
+    const auto execution = SR::IL::Interpret(*module);
+    std::string executionError;
+    if (!execution)
+        executionError = SR::ToString(execution.error());
+    INFO(executionError);
+    REQUIRE(execution.has_value());
+    REQUIRE(execution->buffer.at(0) == 0u);
+#endif
+}
+
 TEST_CASE("interpolation outside a fragment shader is refused", "[gfx][graphics][stage]")
 {
 #if !defined(SR_CORPUS_ROOT)

@@ -5519,6 +5519,71 @@ private:
         return WriteDest(instruction.operands[0], total, instruction.pc);
     }
 
+    // ds_swizzle_b32: a cross-lane permute named by the instruction's immediate.
+    // The two measured encodings are the quadratic permute (bit 15 set: four
+    // two-bit selectors, one per lane of the quad) and the bitmask permute (bit
+    // 15 clear: each set bit swaps the lane pairs that differ in it). The FFT
+    // form (0xFFFF) is refused.
+    [[nodiscard]] Result<void> LiftDsSwizzle(const DecodedInstruction& instruction)
+    {
+        const std::uint32_t control = instruction.dsOffset0 | (instruction.dsOffset1 << 8);
+        if (control == 0xFFFFu)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-074", "the FFT swizzle form is not modelled", instruction.pc));
+
+        // The swizzle has no address register: its one data operand sits where
+        // the DS address normally is.
+        const Operand dataOperand = DsOperand(instruction, OperandKind::DsAddr);
+        if (dataOperand.kind == OperandKind::None)
+            return std::unexpected(
+                LiftError("SR-GFX-LIFT-075", "swizzle has no data operand", instruction.pc));
+        const auto data = ReadVgpr(dataOperand.value, instruction.pc);
+        if (!data)
+            return std::unexpected(data.error());
+
+        IL::SpecialRegPayload payload;
+        payload.id = IL::SpecialRegId::SubgroupLocalInvocationId;
+        const IL::PayloadId payloadId = m_module.payloads.Add(payload);
+        const IL::ValueId lane = m_builder.Emit(m_module.types.U32(),
+                                                IL::Op::Intrinsic,
+                                                static_cast<std::uint16_t>(IL::IntrinsicId::SpecialReg),
+                                                {},
+                                                {},
+                                                payloadId,
+                                                instruction.pc,
+                                                static_cast<std::uint16_t>(instruction.op),
+                                                false);
+
+        IL::ValueId index = lane;
+        if ((control & 0x8000u) != 0)
+        {
+            const IL::ValueId quad = Bin(instruction, IL::BinaryOp::And, lane, m_builder.ConstantU32(3));
+            const IL::ValueId shift = Bin(instruction, IL::BinaryOp::Shl, quad, m_builder.ConstantU32(1));
+            const IL::ValueId selected =
+                Bin(instruction, IL::BinaryOp::LShr, m_builder.ConstantU32(control), shift);
+            const IL::ValueId selector =
+                Bin(instruction, IL::BinaryOp::And, selected, m_builder.ConstantU32(3));
+            const IL::ValueId base =
+                Bin(instruction, IL::BinaryOp::And, lane, m_builder.ConstantU32(~3u));
+            index = Bin(instruction, IL::BinaryOp::Or, base, selector);
+        }
+        else
+        {
+            index = Bin(instruction, IL::BinaryOp::Xor, lane, m_builder.ConstantU32(control & 0x1Fu));
+        }
+
+        IL::ShufflePayload shuffle;
+        shuffle.mode = IL::ShuffleMode::Index;
+        const IL::PayloadId shuffleId = m_module.payloads.Add(shuffle);
+        const IL::ValueId value = m_builder.IntrinsicValue(m_module.types.U32(),
+                                                           IL::IntrinsicId::WaveShuffle,
+                                                           {*data, index},
+                                                           shuffleId,
+                                                           instruction.pc,
+                                                           false);
+        return DsWriteDest(instruction, value);
+    }
+
     // ds_bpermute_b32: the value written by the lane named in the byte address
     // (address / 4) is the result. It is a cross-lane gather, so it maps to the
     // shuffle intrinsic rather than to LDS: a single invocation cannot see the
@@ -5962,6 +6027,8 @@ private:
 
         case Op::DsBpermuteB32:
             return LiftDsBPermute(instruction);
+        case Op::DsSwizzleB32:
+            return LiftDsSwizzle(instruction);
         case Op::DsLoadAddtidB32:
         case Op::DsStoreAddtidB32:
             return LiftDsAddTid(instruction);
